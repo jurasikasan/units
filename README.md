@@ -8,6 +8,7 @@ own `go.mod`, and its own check script.
 | unit | what it is |
 |---|---|
 | [`shared`](shared/) | small Go helpers the units have in common: HTTP, Redis, ops alerts, a fallback loop |
+| [`notifier`](notifier/) | operational failures from a Redis stream to a Telegram chat, repeats folded |
 
 More units arrive one at a time, each checked and given a showcase before it
 lands here.

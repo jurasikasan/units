@@ -1,0 +1,52 @@
+name: notifier-showcase
+
+services:
+  redis:
+    image: redis:7-alpine
+
+  notifier:
+    build: ..
+    depends_on:
+      redis:
+        condition: service_started
+      fake_telegram:
+        condition: service_healthy
+    environment:
+      REDIS_ADDR: redis:6379
+      NOTIFIER_NAME: showcase
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-fake}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-0}
+      TELEGRAM_API_BASE: ${TELEGRAM_API_BASE-http://fake_telegram:8080}
+
+  fake_telegram:
+    image: python:3.12-alpine
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import http.server, urllib.parse
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                form = urllib.parse.parse_qs(self.rfile.read(int(self.headers["Content-Length"])).decode())
+                print("telegram got:", form["text"][0], flush=True)
+                self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
+            def log_message(self, *a): pass
+        http.server.HTTPServer(("", 8080), H).serve_forever()
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('localhost', 8080))"]
+      interval: 1s
+      retries: 30
+
+  failure:
+    image: redis:7-alpine
+    depends_on: [redis]
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - |
+        for i in 1 2 3; do
+          redis-cli -h redis XADD ops_events '*' service ingest stage parse severity error \
+            entity document entity_id "doc-$$i" reason "parser returned no text"
+        done
