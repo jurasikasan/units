@@ -1,0 +1,312 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Authentication front door: login, logout, session verification, \"who am I\", and password change.",
+        "title": "auth_service API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/",
+    "paths": {
+        "/health": {
+            "get": {
+                "description": "Liveness probe; always answers 200 while the process runs.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Health check",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/login": {
+            "post": {
+                "description": "Exchanges a username and password for a session cookie. The body deliberately carries no token.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Authenticate a user",
+                "parameters": [
+                    {
+                        "description": "credentials",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.LoginRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/auth.LoginResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "malformed body or password policy",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "invalid credentials",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "origin not allowed",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "throttled",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/logout": {
+            "post": {
+                "description": "Invalidates the session and clears the cookie. Always 204, whether or not there was a session.",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Log out",
+                "responses": {
+                    "204": {
+                        "description": "no content"
+                    },
+                    "403": {
+                        "description": "origin not allowed",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/me": {
+            "get": {
+                "description": "\"Who am I\", answered to the browser from the session cookie.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Current principal",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/auth.MeResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "unauthenticated",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/password": {
+            "post": {
+                "description": "Changes the password for the session's principal and rotates the session. Requires the current password.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Change password",
+                "parameters": [
+                    {
+                        "description": "current and new password",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.ChangePasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "malformed body, policy violation, or same password",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "unauthenticated or wrong current password context",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "origin not allowed or current password mismatch",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "throttled",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/verify": {
+            "get": {
+                "description": "The auth_request endpoint nginx calls before serving protected pages. On 200 the X-Principal-Id response header carries the principal.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Verify a session",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/auth.VerifyResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "no or unknown session, or unknown API token"
+                    },
+                    "500": {
+                        "description": "internal error (Redis or Postgres outage)"
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "auth.ChangePasswordRequest": {
+            "type": "object",
+            "properties": {
+                "current_password": {
+                    "type": "string"
+                },
+                "new_password": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.LoginRequest": {
+            "type": "object",
+            "properties": {
+                "password": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.LoginResponse": {
+            "type": "object",
+            "properties": {
+                "principal_id": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.MeResponse": {
+            "type": "object",
+            "properties": {
+                "principal_id": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.VerifyResponse": {
+            "type": "object",
+            "properties": {
+                "principal_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.errorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

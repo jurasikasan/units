@@ -9,6 +9,8 @@ It is deliberately the dumbest service around: no LLM, no database, nothing it
 watches. An alert that travels through the system it reports on cannot report
 that system's death.
 
+**Requires** Redis (the stream) and outbound HTTPS to the Telegram Bot API.
+
 ## Showcase
 
 ```bash

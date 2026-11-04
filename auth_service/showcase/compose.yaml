@@ -1,0 +1,54 @@
+name: auth-showcase
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: auth
+      POSTGRES_PASSWORD: auth
+      POSTGRES_DB: auth
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "auth"]
+      interval: 1s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+
+  auth_service:
+    build: ..
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      AUTH_DATABASE_URL: postgres://auth:auth@postgres:5432/auth?sslmode=disable
+      REDIS_ADDR: redis:6379
+      AUTH_COOKIE_SECURE: "false"
+      AUTH_SEED_USERNAME: alice
+      AUTH_SEED_PASSWORD: correct horse battery
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8093/health"]
+      interval: 1s
+      retries: 30
+
+  gate:
+    image: nginx:1.27-alpine
+    depends_on:
+      auth_service:
+        condition: service_healthy
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "127.0.0.1:8080:80"
+
+  demo:
+    image: curlimages/curl:8.11.1
+    depends_on:
+      gate:
+        condition: service_started
+    restart: "no"
+    volumes:
+      - ./demo.sh:/demo.sh:ro
+    entrypoint: ["sh", "/demo.sh"]

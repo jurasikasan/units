@@ -9,6 +9,7 @@ own `go.mod`, and its own check script.
 |---|---|
 | [`shared`](shared/) | small Go helpers the units have in common: HTTP, Redis, ops alerts, a fallback loop |
 | [`notifier`](notifier/) | operational failures from a Redis stream to a Telegram chat, repeats folded |
+| [`auth_service`](auth_service/) | login and sessions behind nginx `auth_request`; applications see only a principal id |
 
 More units arrive one at a time, each checked and given a showcase before it
 lands here.

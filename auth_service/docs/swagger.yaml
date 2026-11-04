@@ -1,0 +1,208 @@
+basePath: /
+definitions:
+  auth.ChangePasswordRequest:
+    properties:
+      current_password:
+        type: string
+      new_password:
+        type: string
+    type: object
+  auth.LoginRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  auth.LoginResponse:
+    properties:
+      principal_id:
+        type: string
+      username:
+        type: string
+    type: object
+  auth.MeResponse:
+    properties:
+      principal_id:
+        type: string
+      username:
+        type: string
+    type: object
+  auth.VerifyResponse:
+    properties:
+      principal_id:
+        type: string
+    type: object
+  auth.errorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: 'Authentication front door: login, logout, session verification, "who
+    am I", and password change.'
+  title: auth_service API
+  version: "1.0"
+paths:
+  /health:
+    get:
+      description: Liveness probe; always answers 200 while the process runs.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check
+      tags:
+      - auth
+  /login:
+    post:
+      consumes:
+      - application/json
+      description: Exchanges a username and password for a session cookie. The body
+        deliberately carries no token.
+      parameters:
+      - description: credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.LoginResponse'
+        "400":
+          description: malformed body or password policy
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "401":
+          description: invalid credentials
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "403":
+          description: origin not allowed
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "429":
+          description: throttled
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+      summary: Authenticate a user
+      tags:
+      - auth
+  /logout:
+    post:
+      description: Invalidates the session and clears the cookie. Always 204, whether
+        or not there was a session.
+      responses:
+        "204":
+          description: no content
+        "403":
+          description: origin not allowed
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+      summary: Log out
+      tags:
+      - auth
+  /me:
+    get:
+      description: '"Who am I", answered to the browser from the session cookie.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.MeResponse'
+        "401":
+          description: unauthenticated
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+      summary: Current principal
+      tags:
+      - auth
+  /password:
+    post:
+      consumes:
+      - application/json
+      description: Changes the password for the session's principal and rotates the
+        session. Requires the current password.
+      parameters:
+      - description: current and new password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.ChangePasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: malformed body, policy violation, or same password
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "401":
+          description: unauthenticated or wrong current password context
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "403":
+          description: origin not allowed or current password mismatch
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "429":
+          description: throttled
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+      summary: Change password
+      tags:
+      - auth
+  /verify:
+    get:
+      description: The auth_request endpoint nginx calls before serving protected
+        pages. On 200 the X-Principal-Id response header carries the principal.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.VerifyResponse'
+        "401":
+          description: no or unknown session, or unknown API token
+        "500":
+          description: internal error (Redis or Postgres outage)
+      summary: Verify a session
+      tags:
+      - auth
+swagger: "2.0"
