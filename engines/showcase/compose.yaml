@@ -1,0 +1,41 @@
+name: engines-showcase
+
+services:
+  piper:
+    build: ../tts/piper
+
+  whisper:
+    build: ../stt/whisper
+    environment:
+      WHISPER_MODEL: base
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 5s
+      start_period: 120s
+
+  # One round trip: a sentence to piper, its WAV to whisper, both texts printed.
+  roundtrip:
+    image: python:3.12-alpine
+    depends_on:
+      piper:
+        condition: service_healthy
+      whisper:
+        condition: service_healthy
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import json, urllib.request as u
+        said = "Hello from the engines showcase."
+        req = u.Request("http://piper:8000/v1/audio/speech", headers={"Content-Type": "application/json"},
+                        data=json.dumps({"model": "piper", "input": said, "voice": "lessac"}).encode())
+        wav = u.urlopen(req).read()
+        b = "showcase"
+        body = (f'--{b}\r\nContent-Disposition: form-data; name="language"\r\n\r\nen\r\n'
+                f'--{b}\r\nContent-Disposition: form-data; name="file"; filename="a.wav"\r\n'
+                f'Content-Type: audio/wav\r\n\r\n').encode() + wav + f"\r\n--{b}--\r\n".encode()
+        req = u.Request("http://whisper:8001/v1/audio/transcriptions", data=body,
+                        headers={"Content-Type": f"multipart/form-data; boundary={b}"})
+        heard = json.load(u.urlopen(req))["text"].strip()
+        print(f"said:  {said}\nheard: {heard}")
