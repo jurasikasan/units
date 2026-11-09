@@ -1,0 +1,48 @@
+# Manifest: what a reader outside the unit reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: devices/communications/web_audio_call
+kind: device
+summary: "A line to a browser: WebRTC (Opus 48 kHz) uplink, L16/48 kHz RTP audio_in and listen, MCP tools listen/hangup, call events on Redis."
+contract: CONTRACT.md
+maturity: probe
+provides:
+  mcp:
+    hub_name: webrtc_line
+    port: 8080
+    tools:
+      - listen
+      - hangup
+  events:
+    stream: webrtc_line_events
+    envelope: cloudevents-1.0     # contracts/events.md
+    source: /devices/communications/web_audio_call
+    types:
+      - webrtc_line.call.connected
+      - webrtc_line.call.ended
+  health: "GET :8080/health"
+consumes:
+  infra:
+    - redis
+  outside:
+    - browser-webrtc
+wire:                   # what the box must open to the world
+  - 45000-45099/udp     # WebRTC media (WEBRTC_PORT_MIN..MAX)
+  # audio_in (WEBRTC_AUDIO_IN_PORT_MIN..MAX, default 45100-45199) is box-internal:
+  # reached on the box network at WEBRTC_AUDIO_IN_HOST, never published by the box.
+  # PORT (/offer, /mcp, /health) is reached through the box's proxy, not opened.
+
+config:
+  required:
+    REDIS_ADDR: where events go
+  optional:
+    PORT: "8080"
+    WEBRTC_MAX_CALLS: "4"
+    WEBRTC_UNATTENDED_TIMEOUT: 10s
+    WEBRTC_PUBLIC_IP: an extra ICE candidate behind NAT; empty = none
+    WEBRTC_PORT_MIN: "45000"
+    WEBRTC_PORT_MAX: "45099"
+    WEBRTC_AUDIO_IN_HOST: webrtc_line
+    WEBRTC_AUDIO_IN_PORT_MIN: "45100"
+    WEBRTC_AUDIO_IN_PORT_MAX: "45199"
+  secrets: {}
