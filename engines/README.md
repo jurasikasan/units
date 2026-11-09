@@ -12,7 +12,7 @@ others or about a router.
 | [`stt/whisper`](stt/whisper/) | `POST /v1/audio/transcriptions` | faster-whisper, CPU or CUDA |
 | [`vad/silero`](vad/silero/) | `POST /vad/{session}` | Silero VAD: speech probability per 32 ms window; its own API, OpenAI has none for this |
 
-What they share beyond OpenAI's shape:
+What the speech engines (all but `vad`) share beyond OpenAI's shape:
 
 - `GET /v1/audio/voices` → `{"voices":[{"id","gender","langs":[]}]}` — OpenAI has
   no voice list; this is ours. `voice` in a speech request is one of these ids.
