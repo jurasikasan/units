@@ -1,0 +1,99 @@
+name: hearing-showcase
+
+services:
+  redis:
+    image: redis:7-alpine
+
+  vad:
+    build: ../../../engines/vad/silero
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8096/health')"]
+      interval: 3s
+      start_period: 60s
+
+  whisper:
+    build: ../../../engines/stt/whisper
+    environment:
+      WHISPER_MODEL: base
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 5s
+      start_period: 120s
+
+  piper:
+    build: ../../../engines/tts/piper
+
+  hearing:
+    build: ..
+    environment:
+      REDIS_ADDR: redis:6379
+      STT_URL: http://whisper:8001/v1
+      STT_MODEL: whisper
+      VAD_URL: http://vad:8096
+      AUDIO_IN_HOST: hearing
+    depends_on:
+      redis:
+        condition: service_started
+      vad:
+        condition: service_healthy
+      whisper:
+        condition: service_healthy
+
+  # piper says a sentence; it goes to hearing as RTP (PCMU, 20 ms packets, in
+  # real time); hearing's events are read back from Redis and printed.
+  demo:
+    image: python:3.12-alpine
+    depends_on:
+      hearing:
+        condition: service_started
+      piper:
+        condition: service_healthy
+    command:
+      - python3
+      - -u
+      - -W
+      - ignore
+      - -c
+      - |
+        import audioop, io, json, random, socket, struct, time, wave, urllib.request as u
+        said = "Hello, can you hear me?"
+        req = u.Request("http://piper:8000/v1/audio/speech", headers={"Content-Type": "application/json"},
+                        data=json.dumps({"model": "piper", "input": said, "voice": "lessac"}).encode())
+        w = wave.open(io.BytesIO(u.urlopen(req).read()))
+        pcm, _ = audioop.ratecv(w.readframes(w.getnframes()), 2, 1, w.getframerate(), 8000, None)
+        ulaw = audioop.lin2ulaw(b"\0" * 8000 + pcm + b"\0" * 16000, 2)
+
+        def call(name, args):
+            body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                               "params": {"name": name, "arguments": args}}).encode()
+            r = u.Request("http://hearing:8080/mcp", data=body, headers={
+                "Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
+            return json.load(u.urlopen(r))["result"]["structuredContent"]
+
+        for _ in range(30):
+            try:
+                s = call("open", {"speech_language": "en"}); break
+            except Exception:
+                time.sleep(1)
+        host, port = s["audio_in"].rsplit(":", 1)
+        print("open:", s)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        ssrc, seq, ts, t0 = random.getrandbits(32), 0, 0, time.monotonic()
+        for i in range(0, len(ulaw), 160):
+            sock.sendto(struct.pack("!BBHII", 0x80, 0, seq & 0xFFFF, ts, ssrc) + ulaw[i:i + 160], (host, int(port)))
+            seq, ts = seq + 1, ts + 160
+            time.sleep(max(0, t0 + seq * 0.02 - time.monotonic()))
+        time.sleep(3)
+        call("close", {"session_id": s["session_id"]})
+
+        r = socket.create_connection(("redis", 6379)).makefile("rwb")
+        r.write(b"*6\r\n$6\r\nXRANGE\r\n$14\r\nhearing_events\r\n$1\r\n-\r\n$1\r\n+\r\n$5\r\nCOUNT\r\n$3\r\n100\r\n"); r.flush()
+        def read():
+            line = r.readline().rstrip(b"\r\n"); k, rest = line[:1], line[1:]
+            if k == b"*": return [read() for _ in range(int(rest))]
+            if k == b"$": v = r.read(int(rest) + 2)[:-2]; return v.decode()
+            return rest.decode()
+        print(f"said:  {said}")
+        for _, f in read():
+            e = dict(zip(f[::2], f[1::2]))
+            print(f"event: {e['ce_type']:36} {e['data']}")

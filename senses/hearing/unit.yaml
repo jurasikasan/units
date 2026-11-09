@@ -1,0 +1,59 @@
+# Manifest: what a reader outside the unit reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: senses/hearing
+kind: organ
+summary: A hearing organ. Takes RTP speech in, finds the utterances, transcribes them, reports the text. Decides nothing.
+contract: CONTRACT.md
+maturity: probe         # probe | stable | legacy
+
+provides:
+  mcp:
+    hub_name: hearing   # the prefix mcp-hub gives its tools: hearing.open, …
+    port: 8080
+    tools: [open, close]
+  events:
+    stream: hearing_events
+    envelope: cloudevents-1.0     # contracts/events.md
+    source: /senses/hearing   # the organ; types are the MRCP resource's
+    types:
+      - speechrecog.start-of-input
+      - speechrecog.recognition-complete
+      - speechrecog.session-closed
+  health: GET :8080/health
+
+consumes:
+  units:
+    - unit: litellm         # a router, or one engine: any OpenAI-shaped audio door
+      via: http
+      env: STT_URL
+      calls: [POST /v1/audio/transcriptions]
+    - unit: engines/vad/silero
+      via: http
+      env: VAD_URL
+      calls: ["POST /vad/{id}", "DELETE /vad/{id}"]
+  infra: [redis]        # REDIS_ADDR, through units/shared/redis
+
+# A sound stream arrives here, one UDP port per open session.
+wire:
+  - 44000-44199/udp     # RTP audio_in (PT 0/8/96)
+
+config:
+  required:
+    REDIS_ADDR: hearing_events stream target
+  optional:
+    PORT: "8080"
+    STT_URL: http://litellm:4000/v1
+    STT_KEY: ""                # the router's bearer; empty for an engine
+    STT_MODEL: stt             # the router's group, or the engine's name
+    HEARING_VAD: silero        # silero | energy
+    VAD_URL: http://vad:8096
+    HEARING_ENERGY_THRESHOLD: "500"
+    HEARING_ONSET: 200ms
+    HEARING_MERGE_WINDOW: 400ms
+    HEARING_MAX_UTTERANCE: 25s
+    HEARING_MAX_SESSIONS: "4"
+    HEARING_IDLE_TIMEOUT: 2m
+    AUDIO_IN_HOST: hearing
+    AUDIO_IN_PORT_MIN: "44000"
+    AUDIO_IN_PORT_MAX: "44199"
