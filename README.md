@@ -10,10 +10,20 @@ own `go.mod`, and its own check script.
 | [`shared`](shared/) | small Go helpers the units have in common: HTTP, Redis, ops alerts, a fallback loop |
 | [`notifier`](notifier/) | operational failures from a Redis stream to a Telegram chat, repeats folded |
 | [`auth_service`](auth_service/) | login and sessions behind nginx `auth_request`; applications see only a principal id |
-| [`engines`](engines/) | speech engines behind OpenAI's audio API: piper, silero, voxcpm (TTS), whisper (STT) |
+| [`engines`](engines/) | speech engines behind OpenAI's audio API: piper, silero, voxcpm (TTS), whisper (STT); and [`vad/silero`](engines/vad/silero/), speech detection per 32 ms window |
+| [`senses/hearing`](senses/hearing/) | takes a sound stream in as RTP, finds the utterances, has them transcribed, reports them as MRCP recognizer events |
 
 More units arrive one at a time, each checked and given a showcase before it
 lands here.
+
+## Contracts and manifests
+
+- [`contracts/events.md`](contracts/events.md): how a unit publishes events, as
+  CloudEvents on a Redis stream.
+- A unit that is a service carries a `unit.yaml`: what it provides (tools,
+  events, HTTP calls), what it consumes, its config. `tools/check_unit.py` holds
+  each manifest to its unit's code and to the manifests of the units it
+  consumes; each such unit's `check.sh` runs it.
 
 ## License
 
