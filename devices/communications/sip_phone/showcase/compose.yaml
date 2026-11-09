@@ -1,0 +1,114 @@
+name: sip-phone-showcase
+
+# Two lines, one calling the other: alice's trunk is bob. Each has its own
+# Redis, so each stream is one line's events.
+services:
+  redis-alice:
+    image: redis:7-alpine
+  redis-bob:
+    image: redis:7-alpine
+
+  alice:
+    build: ..
+    environment:
+      REDIS_ADDR: redis-alice:6379
+      SIP_TRUNK: bob:5070
+      AUDIO_IN_HOST: alice
+    depends_on: [redis-alice, bob]
+
+  bob:
+    build: ..
+    environment:
+      REDIS_ADDR: redis-bob:6379
+      AUDIO_IN_HOST: bob
+    depends_on: [redis-bob]
+
+  # alice dials, bob answers when it rings, a 440 Hz tone goes into alice's
+  # audio_in, bob's listen sends the call's audio out to the demo, which counts
+  # it; then alice hangs up and both lines' events are printed.
+  demo:
+    image: python:3.12-alpine
+    depends_on: [alice, bob]
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import json, math, socket, struct, time, urllib.request as u
+
+        sessions = {}
+
+        def post(line, msg, sid=None):
+            h = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+            if sid:
+                h["Mcp-Session-Id"] = sid
+            resp = u.urlopen(u.Request(f"http://{line}:8080/mcp", data=json.dumps(msg).encode(), headers=h))
+            body = resp.read().decode()
+            data = [l[5:] for l in body.splitlines() if l.startswith("data:")] or [body]
+            return resp.headers.get("Mcp-Session-Id"), (json.loads(data[0]) if data[0].strip() else None)
+
+        def call(line, name, args):
+            if line not in sessions:
+                sid, _ = post(line, {"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
+                    "protocolVersion": "2025-06-18", "capabilities": {},
+                    "clientInfo": {"name": "showcase", "version": "0"}}})
+                post(line, {"jsonrpc": "2.0", "method": "notifications/initialized"}, sid)
+                sessions[line] = sid
+            _, res = post(line, {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                 "params": {"name": name, "arguments": args}}, sessions[line])
+            res = res["result"]
+            if res.get("isError"):
+                raise RuntimeError(res["content"][0]["text"])
+            return res["structuredContent"]
+
+        def events(host, after="-"):
+            r = socket.create_connection((host, 6379)).makefile("rwb")
+            args = [b"XRANGE", b"phone_events", after.encode(), b"+"]
+            r.write(b"*%d\r\n" % len(args) + b"".join(b"$%d\r\n%s\r\n" % (len(a), a) for a in args)); r.flush()
+            def read():
+                line = r.readline().rstrip(b"\r\n"); k, rest = line[:1], line[1:]
+                if k == b"*": return [read() for _ in range(int(rest))]
+                if k == b"$": return r.read(int(rest) + 2)[:-2].decode()
+                return rest.decode()
+            return [(i, dict(zip(f[::2], f[1::2]))) for i, f in read()]
+
+        def wait(host, ce_type, timeout=15):
+            end = time.time() + timeout
+            while time.time() < end:
+                for _, e in events(host):
+                    if e["ce_type"] == ce_type:
+                        return json.loads(e["data"])
+                time.sleep(0.2)
+            raise SystemExit(f"{host}: no {ce_type}")
+
+        for _ in range(30):
+            try:
+                dialled = call("alice", "dial", {"to": "+15550100"}); break
+            except Exception:
+                time.sleep(1)
+        incoming = wait("redis-bob", "phone.call.incoming")
+        call("bob", "answer", {"call_id": incoming["call_id"]})
+        answered = wait("redis-alice", "phone.call.answered")
+
+        ear = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); ear.bind(("0.0.0.0", 47000)); ear.settimeout(0.05)
+        call("bob", "listen", {"call_id": incoming["call_id"], "to": f"{socket.gethostbyname(socket.gethostname())}:47000"})
+
+        host, port = answered["audio_in"].rsplit(":", 1)
+        mouth = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        got, t0 = 0, time.monotonic()
+        for n in range(100):  # 2 s of L16 48 kHz, 20 ms packets
+            pcm = struct.pack("!960h", *(int(8000 * math.sin(2 * math.pi * 440 * (n * 960 + i) / 48000)) for i in range(960)))
+            mouth.sendto(struct.pack("!BBHII", 0x80, 96, n, n * 960, 0x5EED) + pcm, (host, int(port)))
+            while True:
+                try:
+                    ear.recv(2048); got += 1
+                except socket.timeout:
+                    break
+            time.sleep(max(0, t0 + (n + 1) * 0.02 - time.monotonic()))
+        call("alice", "hangup", {"call_id": dialled["call_id"]})
+        wait("redis-bob", "phone.call.ended")
+
+        print(f"bob's listen sent the demo {got} packets of the call's audio for 100 put into alice's audio_in")
+        for host in ("redis-alice", "redis-bob"):
+            for _, e in events(host):
+                print(f"{host[6:]:6} {e['ce_type']:22} {e['data']}")

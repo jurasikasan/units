@@ -1,0 +1,61 @@
+# Manifest: what a reader outside the unit reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: devices/communications/sip_phone
+kind: device            # device | agent | gateway | service
+summary: A telephone line. Places and takes calls, carries the call's audio both ways, reports what happened. Decides nothing.
+contract: CONTRACT.md
+maturity: probe         # probe | stable | legacy — happy path only
+
+provides:
+  mcp:
+    hub_name: phone     # the prefix mcp-hub gives its tools: phone.dial, phone.answer, phone.listen, phone.hangup
+    port: 8080
+    tools: [dial, answer, hangup, listen]
+  events:
+    stream: phone_events
+    envelope: cloudevents-1.0     # contracts/events.md
+    source: /devices/communications/sip_phone
+    types:
+      - phone.call.incoming      # an INVITE is ringing; data: from, to, offered_at
+      - phone.call.ringing
+      - phone.call.answered      # data carries the call's audio_in address
+      - phone.call.ended
+  health: GET :8080/health
+
+consumes:
+  infra: [redis]        # REDIS_ADDR, through units/shared/redis
+  outside: [sip-trunk]  # SIP, UDP: SIP_TRUNK for dial, SIP_INBOUND_ALLOW for who rings
+
+wire:                   # what the box must open to the world
+  - 5070/udp            # SIP
+  - 42000-42199/udp     # RTP (trunk-facing leg)
+  # audio_in (AUDIO_IN_PORT_MIN..MAX, default 43000-43199) is box-internal:
+  # reached on the box network at AUDIO_IN_HOST, never published by the box.
+  # listen's to is the same: an address on the box network, given per call,
+  # never published by the box.
+
+config:
+  optional:
+    SIP_TRUNK: host:port every call goes to; empty = the line only takes calls, dial ends failed
+    SIP_LISTEN: 0.0.0.0:5070
+    SIP_ADVERTISE_ADDR: the IP the trunk reaches us on; guessed from the route when empty
+    SIP_USERNAME: digest auth
+    SIP_DEFAULT_FROM: caller ID when dial gives none
+    SIP_FROM_ALLOW: comma list; empty = any
+    SIP_STRIP_PLUS: true drops the + of E.164
+    SIP_NUMBER_PREFIX: prepended to the number
+    RTP_PORT_MIN: "42000"
+    RTP_PORT_MAX: "42199"
+    AUDIO_IN_HOST: phone
+    AUDIO_IN_PORT_MIN: "43000"
+    AUDIO_IN_PORT_MAX: "43199"
+    PHONE_MAX_CALLS: "4"
+    INBOUND_ANSWER_TIMEOUT: 30s
+    RTP_IDLE_TIMEOUT: 60s
+    SIP_INBOUND_ALLOW: comma list of source IPs allowed to INVITE; empty = any
+    RING_TIMEOUT_DEFAULT_S: "30"
+    RING_TIMEOUT_MAX_S: "60"
+    PORT: "8080"
+  secrets:
+    SIP_PASSWORD: digest auth
