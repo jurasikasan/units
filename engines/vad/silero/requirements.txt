@@ -1,0 +1,8 @@
+# Versions from `pip freeze` of the image that ran on 2026-10-30.
+# torch comes from constraints.txt: silero-vad declares it, and without the
+# constraint pip would pull the multi-GB CUDA wheel from PyPI.
+silero-vad==6.2.3
+packaging==26.3
+numpy==2.2.6
+fastapi==0.162.0
+uvicorn==0.54.0

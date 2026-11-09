@@ -1,0 +1,23 @@
+# Manifest: what a reader outside the unit reads instead of its code.
+# Meaning lives in README.md; this is what a validator and an assembler read.
+
+unit: engines/vad/silero
+kind: engine
+summary: Silero VAD behind HTTP. Says how likely a 32 ms window of 16 kHz audio is speech, with the model's recurrent state kept per session.
+contract: README.md
+maturity: probe
+
+provides:
+  http:
+    port: 8096
+    calls: ["POST /vad/{id}", "DELETE /vad/{id}", "GET /health"]
+  health: GET :8096/health
+
+consumes: {}
+
+wire: []
+
+config:
+  optional:
+    VAD_SESSION_TTL: "300"     # seconds idle before a session is evicted
+    VAD_SWEEP_SECONDS: "60"    # period of the eviction sweep

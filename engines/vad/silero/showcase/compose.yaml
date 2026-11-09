@@ -1,0 +1,46 @@
+name: vad-showcase
+
+services:
+  vad:
+    build: ..
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8096/health')"]
+      interval: 3s
+      start_period: 60s
+
+  piper:
+    build: ../../../tts/piper
+
+  # Silence, then a sentence piper says, window by window; prints where speech is.
+  demo:
+    image: python:3.12-alpine
+    depends_on:
+      vad:
+        condition: service_healthy
+      piper:
+        condition: service_healthy
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import io, json, struct, wave, urllib.request as u
+        req = u.Request("http://piper:8000/v1/audio/speech", headers={"Content-Type": "application/json"},
+                        data=json.dumps({"model": "piper", "input": "Is anybody there? I can hear you.", "voice": "lessac"}).encode())
+        w = wave.open(io.BytesIO(u.urlopen(req).read()))
+        rate, n = w.getframerate(), w.getnframes()
+        src = struct.unpack(f"<{n}h", w.readframes(n))
+        # to 16 kHz, nearest sample: enough for a detector
+        speech = [src[int(i * rate / 16000)] for i in range(int(n * 16000 / rate))]
+        pcm = [0] * 16000 + speech + [0] * 8000
+        was = False
+        for i in range(0, len(pcm) - 511, 512):
+            body = struct.pack("<512h", *pcm[i:i + 512])
+            r = u.Request("http://vad:8096/vad/demo", data=body, method="POST")
+            p = json.load(u.urlopen(r))["prob"]
+            now = p > 0.5
+            if now != was:
+                print(f"{i / 16000:6.2f}s  {'speech' if now else 'silence'}  (prob {p:.2f})")
+                was = now
+        u.urlopen(u.Request("http://vad:8096/vad/demo", method="DELETE"))
+        print(f"speech was put at {1.0:.2f}s .. {1 + len(speech) / 16000:.2f}s")

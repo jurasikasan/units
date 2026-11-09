@@ -10,6 +10,7 @@ others or about a router.
 | [`tts/silero`](tts/silero/) | `POST /v1/audio/speech` | Silero v4 on CPU (or Intel XPU / CUDA), 48 kHz |
 | [`tts/voxcpm`](tts/voxcpm/) | `POST /v1/audio/speech` | VoxCPM2 on a CUDA GPU, voices cloned from mounted samples |
 | [`stt/whisper`](stt/whisper/) | `POST /v1/audio/transcriptions` | faster-whisper, CPU or CUDA |
+| [`vad/silero`](vad/silero/) | `POST /vad/{session}` | Silero VAD: speech probability per 32 ms window; its own API, OpenAI has none for this |
 
 What they share beyond OpenAI's shape:
 
