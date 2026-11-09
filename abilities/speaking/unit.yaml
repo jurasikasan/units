@@ -1,0 +1,48 @@
+# Manifest: what a reader outside the unit reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: abilities/speaking
+kind: organ             # an organ: the mouth a session borrows onto its line
+summary: A mouth. Takes text and sends it out as audio to a target on the line. Decides nothing.
+contract: CONTRACT.md
+maturity: probe         # probe | stable | legacy — happy path only, L16 only
+
+provides:
+  mcp:
+    hub_name: speech    # the prefix mcp-hub gives its tools: speech.open, …
+    port: 8080
+    tools: [open, speak, stop, barge_in_occurred, close]   # MRCPv2 synthesizer verbs (RFC 6787 §8)
+  events:
+    stream: speech_events
+    envelope: cloudevents-1.0     # contracts/events.md
+    source: /abilities/speaking   # the organ; types are the MRCP resource's
+    types:
+      - speechsynth.speak-complete
+      - speechsynth.session-closed
+  health: GET :8080/health
+
+consumes:
+  units:
+    - unit: litellm        # a router, or one engine: any OpenAI-shaped audio door
+      via: http
+      env: TTS_URL
+      calls: [POST /v1/audio/speech]
+  infra: [redis]        # REDIS_ADDR, through units/shared/redis
+  outside: []           # audio leaves for the target open names; nothing comes in
+
+# speech sends RTP (payload type 96, L16 16-bit at 48 kHz, 20 ms frames) to each
+# session's target; it opens no inbound audio port and holds no ports of its own.
+wire: []
+
+config:
+  required: {}
+  optional:
+    TTS_URL: http://litellm:4000/v1
+    TTS_KEY: ""             # the router's bearer; empty for an engine
+    REDIS_ADDR: localhost:6379
+    SPEECH_MAX_SESSIONS: "4"
+    SPEECH_IDLE_TIMEOUT: 2m
+    PORT: "8080"
+  secrets: {}
+
+# Not speech's yet: streaming text, Opus — this step sends whole texts as L16.

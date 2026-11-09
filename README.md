@@ -12,6 +12,7 @@ own `go.mod`, and its own check script.
 | [`auth_service`](auth_service/) | login and sessions behind nginx `auth_request`; applications see only a principal id |
 | [`engines`](engines/) | speech engines behind OpenAI's audio API: piper, silero, voxcpm (TTS), whisper (STT); and [`vad/silero`](engines/vad/silero/), speech detection per 32 ms window |
 | [`senses/hearing`](senses/hearing/) | takes a sound stream in as RTP, finds the utterances, has them transcribed, reports them as MRCP recognizer events |
+| [`abilities/speaking`](abilities/speaking/) | a mouth: text in through MCP, audio out as RTP through a TTS engine, MRCP synthesizer events saying what was spoken |
 | [`devices/communications/sip_phone`](devices/communications/sip_phone/) | a telephone line over SIP: places and takes calls, carries the call's audio both ways as RTP, reports what happened |
 | [`devices/communications/web_audio_call`](devices/communications/web_audio_call/) | a line to a browser over WebRTC: the same buttons and audio rules as sip_phone, another medium |
 

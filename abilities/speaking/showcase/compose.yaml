@@ -1,0 +1,87 @@
+name: speaking-showcase
+
+services:
+  redis:
+    image: redis:7-alpine
+
+  piper:
+    build: ../../../engines/tts/piper
+
+  speaking:
+    build: ..
+    environment:
+      REDIS_ADDR: redis:6379
+      TTS_URL: http://piper:8000/v1
+    depends_on:
+      redis:
+        condition: service_started
+      piper:
+        condition: service_healthy
+
+  # One session whose audio goes to the demo: a long phrase is cut by
+  # barge_in_occurred a second in, then a short one plays whole. The demo
+  # counts the audio it got and prints each speak-complete: what was spoken.
+  demo:
+    image: python:3.12-alpine
+    depends_on: [speaking]
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import json, socket, time, urllib.request as u
+
+        sid = None
+        def post(msg):
+            h = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+            if sid:
+                h["Mcp-Session-Id"] = sid
+            resp = u.urlopen(u.Request("http://speaking:8080/", data=json.dumps(msg).encode(), headers=h))
+            body = resp.read().decode()
+            data = [l[5:] for l in body.splitlines() if l.startswith("data:")] or [body]
+            return resp.headers.get("Mcp-Session-Id"), (json.loads(data[0]) if data[0].strip() else None)
+
+        def tool(name, args):
+            res = post({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}})[1]["result"]
+            if res.get("isError"):
+                raise RuntimeError(res["content"][0]["text"])
+            return res["structuredContent"]
+
+        for _ in range(30):
+            try:
+                sid, _ = post({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
+                    "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "showcase", "version": "0"}}})
+                break
+            except Exception:
+                time.sleep(1)
+        post({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+        ear = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); ear.bind(("0.0.0.0", 47000)); ear.settimeout(0.05)
+        me = socket.gethostbyname(socket.gethostname())
+        s = tool("open", {"to": f"{me}:47000", "voice_name": "piper_lessac"})["session_id"]
+        long = "This is a long sentence about the history of the paperclip, and it will not get to the end, because somebody talks over it."
+        tool("speak", {"session_id": s, "text": long})
+        t0, packets, cut = time.monotonic(), 0, False
+        while time.monotonic() - t0 < 6:
+            if not cut and time.monotonic() - t0 > 1.0 and packets:
+                tool("barge_in_occurred", {"session_id": s}); cut = True
+                tool("speak", {"session_id": s, "text": "Sorry, go ahead."})
+            try:
+                ear.recv(4096); packets += 1
+            except socket.timeout:
+                pass
+        tool("close", {"session_id": s})
+        time.sleep(0.5)
+
+        r = socket.create_connection(("redis", 6379)).makefile("rwb")
+        args = [b"XRANGE", b"speech_events", b"-", b"+"]
+        r.write(b"*%d\r\n" % len(args) + b"".join(b"$%d\r\n%s\r\n" % (len(a), a) for a in args)); r.flush()
+        def read():
+            line = r.readline().rstrip(b"\r\n"); k, rest = line[:1], line[1:]
+            if k == b"*": return [read() for _ in range(int(rest))]
+            if k == b"$": return r.read(int(rest) + 2)[:-2].decode()
+            return rest.decode()
+        print(f"the demo got {packets} RTP packets ({packets * 0.02:.1f} s of audio)")
+        for _, f in read():
+            e = dict(zip(f[::2], f[1::2]))
+            print(f"{e['ce_type']:28} {e['data']}")
