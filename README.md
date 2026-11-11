@@ -10,6 +10,7 @@ own `go.mod`, and its own check script.
 | [`shared`](shared/) | small Go helpers the units have in common: HTTP, Redis, ops alerts, a fallback loop |
 | [`notifier`](notifier/) | operational failures from a Redis stream to a Telegram chat, repeats folded |
 | [`auth_service`](auth_service/) | login and sessions behind nginx `auth_request`; applications see only a principal id |
+| [`subjects`](subjects/) | who exists: identities with a permanent nick, a type and free-form preferences, on their own Postgres |
 | [`engines`](engines/) | speech engines behind OpenAI's audio API: piper, silero, voxcpm (TTS), whisper (STT); and [`vad/silero`](engines/vad/silero/), speech detection per 32 ms window |
 | [`senses/hearing`](senses/hearing/) | takes a sound stream in as RTP, finds the utterances, has them transcribed, reports them as MRCP recognizer events |
 | [`abilities/speaking`](abilities/speaking/) | a mouth: text in through MCP, audio out as RTP through a TTS engine, MRCP synthesizer events saying what was spoken |

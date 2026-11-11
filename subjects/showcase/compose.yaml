@@ -1,0 +1,35 @@
+name: subjects-showcase
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: subjects
+      POSTGRES_PASSWORD: subjects
+      POSTGRES_DB: subjects
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "subjects"]
+      interval: 1s
+      retries: 30
+
+  subjects:
+    build: ..
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://subjects:subjects@postgres:5432/subjects?sslmode=disable
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/ready"]
+      interval: 1s
+      retries: 30
+
+  demo:
+    image: curlimages/curl:8.11.1
+    depends_on:
+      subjects:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - ./demo.sh:/demo.sh:ro
+    entrypoint: ["sh", "/demo.sh"]

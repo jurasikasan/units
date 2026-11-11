@@ -1,0 +1,33 @@
+# Manifest — what a reader outside subjects reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: subjects
+kind: service
+summary: The registry of subjects — who exists, their permanent nick, type and free-form preferences. Own database; each compose runs its own.
+contract: CONTRACT.md
+maturity: probe
+
+provides:
+  rest:
+    port: 8083
+    spec: docs/swagger.yaml
+    routes:
+      - "POST /subjects"
+      - "GET /subjects"
+      - "GET /subjects/{id}"
+      - "PUT /subjects/{id}"
+      - "DELETE /subjects/{id}"
+  health: GET :8083/health
+  ready: GET :8083/ready
+
+consumes:
+  infra: [postgres]     # its own, on a network only it joins
+
+wire: []
+
+config:
+  required:
+    DATABASE_URL: its own Postgres; the schema is migrated on boot
+  optional:
+    PORT: "8083"
+  secrets: {}
