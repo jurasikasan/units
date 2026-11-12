@@ -1,6 +1,7 @@
 # abilities/speaking — contract (C4)
 
-Revision 5. Revision 5 gives `speak` a deadline: `synthesis_timeout_ms` (§2.2), how long
+Revision 6. Revision 6 lets the one who speaks decide, per phrase, whether a barge-in
+cuts it: `kill_on_barge_in` (§2.2, §2.4), MRCPv2's Kill-On-Barge-In. Revision 5 gives `speak` a deadline: `synthesis_timeout_ms` (§2.2), how long
 the line may wait for a piece of a phrase's audio before the phrase fails. Revision 3 took MRCPv2's vocabulary (§7): `say` → `speak`, `hush` → `stop`,
 `barge_in_occurred` added, `utterance.spoken` → `speechsynth.speak-complete` with a
 completion cause. Revision 4 names what went out `spoken` (it was `heard`): the organ knows
@@ -61,7 +62,7 @@ Errors are MCP tool errors (`isError: true`) whose text starts with a code from 
 
 Over the session limit `open` fails at once with `capacity`; it does not queue.
 
-### 2.2 `speak(session_id, text, synthesis_timeout_ms?)` → `request_id`
+### 2.2 `speak(session_id, text, synthesis_timeout_ms?, kill_on_barge_in?)` → `request_id`
 
 SPEAK. Adds one whole utterance to the session. Utterances play one after another, in the
 order of `speak` (FIFO); within one, the text is cut into pieces at sentence ends and each
@@ -89,6 +90,12 @@ plays. It bounds silence, not length: a long phrase whose pieces come in time pl
 the end. A stalled engine silences the call for at most this long per phrase; what to
 do then (a filler, another voice, giving up) is the driver's.
 
+**Whether a barge-in cuts it.** `kill_on_barge_in` (optional, default `true`; MRCP's
+Kill-On-Barge-In, RFC 6787 §8.4.2): `false` keeps the phrase playing through
+`barge_in_occurred` (§2.4) — "this one is important, let me finish". `stop` and `close`
+cut it all the same. Whether a call lets itself be talked over is the driver's default;
+this is how it overrides it per phrase.
+
 **Text that arrives in pieces** — tokens from a model, half a letter at a time — is the
 same utterance fed by deltas over a stream instead of one `speak`. Its transport (a
 WebSocket per session) is the next step, not this one; the model above already is
@@ -114,10 +121,15 @@ abandoned — as `close` does, and every affected request gets its `speak-comple
 `speak` after it plays on the same SSRC, sequence and timestamp continuing as over any gap
 (§4). Stopping a quiet session is `{"ok": true}`.
 
-They differ only in the cause the cut requests report: `stop` is the driver's own word
+They differ in the cause the cut requests report: `stop` is the driver's own word
 (`cancelled`), `barge_in_occurred` says the other side started talking (`barge-in`) — what
-§8.8 asks an MRCP client to send on the recogniser's START-OF-INPUT. Speech does not stop on
-its own. A session cannot be closed
+§8.8 asks an MRCP client to send on the recogniser's START-OF-INPUT. And `barge_in_occurred`
+cuts only the requests that let it: one whose `speak` set `kill_on_barge_in` false plays on
+(queued, it plays in its turn) and its `speak-complete` carries `kept_on_barge_in: true`.
+Order holds: a cuttable request queued *behind* a kept one is cut at once — its synthesis
+abandoned, nothing of it played — but gets its `speak-complete` (`barge-in`, `spoken` empty)
+in its turn, after the kept one's; the call returns once the requests ahead of the first
+kept one have theirs. Speech does not stop on its own. A session cannot be closed
 and opened again instead — the new one is another SSRC, and a device takes its `audio_in`
 from the first SSRC only.
 
@@ -138,7 +150,7 @@ Stream `speech_events`. `data` is JSON; every event carries `session_id`.
 
 | `ce_type` | When | `data` beyond `session_id` |
 |---|---|---|
-| `speechsynth.speak-complete` | a request finished, was cut, or was dropped | `request_id`, `completion_cause`, `spoken` |
+| `speechsynth.speak-complete` | a request finished, was cut, or was dropped | `request_id`, `completion_cause`, `spoken`; `kept_on_barge_in` |
 | `speechsynth.session-closed` | the session is over | `reason`: `closed` / `idle` / `failed` |
 
 Guarantees:
@@ -158,6 +170,11 @@ What went out, not what was sent to TTS:
 - `completion_cause` — RFC 6787 §8.4.4: `normal` (000) only when the whole text was sent;
   `barge-in` (001) cut by `barge_in_occurred`; `error` (004) a piece failed to synthesise,
   was not synthesised within `synthesis_timeout_ms` (§2.2), or could not be sent; `cancelled` (007) cut by `stop` or by the session closing.
+
+- `kept_on_barge_in` — `true`, and present only then, when `barge_in_occurred` came while
+  the request was playing or queued and left it because its `speak` set
+  `kill_on_barge_in` false (§2.4). The cause is whatever ended it after: `normal` when it
+  played out, `cancelled` if a later `stop` or `close` cut it.
 
 "Sent" is the honest limit of an organ that is not the device: what left speech on RTP.
 What the far end actually played is behind the device's buffer — tens of milliseconds
@@ -217,6 +234,10 @@ and `ce_source` carries that name. Where this contract leaves MRCP, on purpose:
 - A stopped SPEAK still gets SPEAK-COMPLETE (`cancelled` / `barge-in`). MRCP sends none and
   lists the stopped ids in STOP's Active-Request-Id-List; a driver here needs `spoken` for
   every request, or its history disagrees with the call.
+- BARGE-IN-OCCURRED decides per request. MRCP lets the active SPEAK decide for the whole
+  queue (§8.8: a cuttable one goes and takes every queued SPEAK with it; a kept one makes
+  the barge-in ignored). Here each request's own `kill_on_barge_in` holds: a cuttable phrase
+  queued behind a kept one is cut too, a kept phrase queued behind a cut one still plays.
 - `spoken` is text, cut at a word boundary. MRCP's own report of how far playback got is
   SPEECH-MARKER at SSML `<mark>`s (§8.13), which a driver would have to plant first.
 - Sessions are opened and closed over MCP (`open`, `close`), not as MRCP channels set up

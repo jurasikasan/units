@@ -13,7 +13,7 @@ synthesizer verbs (RFC 6787 §8; CONTRACT.md §7):
 | tool                | args                          | returns            | error codes                                                    |
 |---------------------|-------------------------------|--------------------|----------------------------------------------------------------|
 | `open`              | `to`, `voice_name`, `codec?`  | `{"session_id"}`   | `unsupported_codec`, `unknown_voice`, `capacity`, `bad_target` |
-| `speak`             | `session_id`, `text`, `synthesis_timeout_ms?` | `{"request_id"}` | `unknown_session`, `bad_argument`                   |
+| `speak`             | `session_id`, `text`, `synthesis_timeout_ms?`, `kill_on_barge_in?` | `{"request_id"}` | `unknown_session`, `bad_argument` |
 | `stop`              | `session_id`                  | `{"ok": true}`     | `unknown_session`                                              |
 | `barge_in_occurred` | `session_id`                  | `{"ok": true}`     | `unknown_session`                                              |
 | `close`             | `session_id`                  | `{"ok": true}`     | `unknown_session`                                              |
@@ -36,7 +36,9 @@ and keeping advancing through silence. Each payload is 960 int16 samples of
 On the Redis stream `speech_events`, CloudEvents envelope (C0 §5),
 `ce_source=/abilities/speaking`, `ce_subject` = the session id:
 
-- `speechsynth.speak-complete` — `{"session_id", "request_id", "completion_cause", "spoken"}`.
+- `speechsynth.speak-complete` — `{"session_id", "request_id", "completion_cause", "spoken"}`,
+  plus `"kept_on_barge_in": true` for a request whose `speak` set
+  `kill_on_barge_in` false and that a `barge_in_occurred` left playing.
   One per `speak`, in the order they came, always before `session-closed`.
   `spoken` is a word-boundary prefix of the text (a word more than half sent
   counts; empty if the request was dropped before it began).
@@ -79,7 +81,8 @@ RTP shape and pace, two says in order, the timestamp jump over a gap, a
 mid-utterance close (cut + drop + cancellation), a mid-utterance stop (the
 same cut, the session and its RTP stream going on), a TTS failure ending one
 utterance while the session goes on, a stalled engine failing the phrase
-within its `synthesis_timeout_ms`, every error code, and the idle timeout.
+within its `synthesis_timeout_ms`, a `kill_on_barge_in: false` phrase finishing
+after `barge_in_occurred` while the one behind it is cut, every error code, and the idle timeout.
 
 ## Not this step
 

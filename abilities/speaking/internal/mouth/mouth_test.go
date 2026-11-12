@@ -393,3 +393,74 @@ func TestSynthesisTimeout_ZeroWaits(t *testing.T) {
 	m.Stop(CauseCancelled)
 	assert.Equal(t, Played{RequestID: id, Cause: CauseCancelled}, log.next(t))
 }
+
+// UNIT-8: an utterance spoken with KeepOnBargeIn plays on through a barge-in
+// and finishes whole, its Played saying it was kept; one queued behind it that
+// a barge-in may cut is cut, and its Played still comes after the kept one's.
+func TestBargeIn_KeptPhraseFinishes(t *testing.T) {
+	fast(t)
+	sk, log := newSink(12+7), newLog()
+	tts := &fakeTTS{}
+	m := New(tts, sk, log.add)
+	defer m.Close()
+
+	kept, _ := m.SpeakWith(Request{Text: text, Voice: "v", KeepOnBargeIn: true})
+	behind, _ := m.Speak("Второе сообщение.", "v")
+	<-sk.reached
+
+	assert.Empty(t, m.StopBargeIn(), "nothing ahead of the kept one is cut, so no Played is out yet")
+	close(sk.release)
+
+	assert.Equal(t, Played{RequestID: kept, Spoken: text, Cause: CauseNormal, KeptOnBargeIn: true}, log.next(t))
+	assert.Equal(t, Played{RequestID: behind, Cause: CauseBargeIn}, log.next(t))
+	// 12 + 25 frames of the kept one; not one of the cut one's
+	assert.Equal(t, 37, sk.count())
+
+	next, err := m.Speak("Раз.", "v")
+	require.NoError(t, err)
+	assert.Equal(t, Played{RequestID: next, Spoken: "Раз.", Cause: CauseNormal}, log.next(t))
+}
+
+// A barge-in cuts the phrase playing and the queued ones ahead of a kept one
+// at once; the kept one then plays, and what a barge-in may cut behind it is
+// reported in its turn.
+func TestBargeIn_CutsAroundTheKeptOne(t *testing.T) {
+	fast(t)
+	sk, log := newSink(12+7), newLog()
+	m := New(&fakeTTS{}, sk, log.add)
+	defer m.Close()
+
+	a, _ := m.Speak(text, "v")
+	b, _ := m.Speak("Бэ.", "v")
+	c, _ := m.SpeakWith(Request{Text: "Важно.", Voice: "v", KeepOnBargeIn: true})
+	d, _ := m.Speak("Дэ.", "v")
+	<-sk.reached
+	done := make(chan []string)
+	go func() { done <- m.StopBargeIn() }()
+	waitCancelled(t, m)
+	close(sk.release)
+
+	assert.Equal(t, []string{a, b}, <-done)
+	assert.Equal(t, Played{RequestID: a, Spoken: "Добрый день. Ваш заказ", Cause: CauseBargeIn}, log.next(t))
+	assert.Equal(t, Played{RequestID: b, Cause: CauseBargeIn}, log.next(t))
+	assert.Equal(t, Played{RequestID: c, Spoken: "Важно.", Cause: CauseNormal, KeptOnBargeIn: true}, log.next(t))
+	assert.Equal(t, Played{RequestID: d, Cause: CauseBargeIn}, log.next(t))
+}
+
+// Stop and Close cut a kept phrase like any other: only a barge-in spares it.
+func TestStop_CutsAKeptPhrase(t *testing.T) {
+	fast(t)
+	sk, log := newSink(12+7), newLog()
+	m := New(&fakeTTS{}, sk, log.add)
+	defer m.Close()
+
+	id, _ := m.SpeakWith(Request{Text: text, Voice: "v", KeepOnBargeIn: true})
+	<-sk.reached
+	done := make(chan []string)
+	go func() { done <- m.Stop(CauseCancelled) }()
+	waitCancelled(t, m)
+	close(sk.release)
+
+	assert.Equal(t, []string{id}, <-done)
+	assert.Equal(t, Played{RequestID: id, Spoken: "Добрый день. Ваш заказ", Cause: CauseCancelled}, log.next(t))
+}

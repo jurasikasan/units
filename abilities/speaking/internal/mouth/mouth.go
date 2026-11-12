@@ -43,6 +43,9 @@ type Played struct {
 	RequestID string
 	Spoken    string
 	Cause     string
+	// KeptOnBargeIn is true when a barge-in came while the request was playing
+	// or queued and left it, because it asked to be kept.
+	KeptOnBargeIn bool
 }
 
 var ErrClosed = errors.New("mouth closed")
@@ -55,11 +58,16 @@ type Request struct {
 	// it, the utterance ends there, cause error, and the next one plays. Zero
 	// waits as long as synthesis takes.
 	SynthesisTimeout time.Duration
+	// KeepOnBargeIn keeps this utterance through a barge-in: StopBargeIn leaves
+	// it to play (MRCP's Kill-On-Barge-In false). Zero, the default, lets a
+	// barge-in cut it.
+	KeepOnBargeIn bool
 }
 
 type utterance struct {
 	id, text, voice string
 	synthTimeout    time.Duration
+	keepOnBargeIn   bool
 	ctx             context.Context
 	cancel          context.CancelFunc
 	done            chan struct{}
@@ -69,6 +77,8 @@ type utterance struct {
 	ready     chan synthesized
 	// cutCause is why a cut stopped it; set under Mouth.mu before cancel.
 	cutCause string
+	// kept: a barge-in left it (keepOnBargeIn); set under Mouth.mu.
+	kept bool
 }
 
 type Mouth struct {
@@ -100,7 +110,8 @@ func (m *Mouth) SpeakWith(r Request) (string, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &utterance{
 		id: newUtteranceID(), text: r.Text, voice: r.Voice, synthTimeout: r.SynthesisTimeout,
-		ctx: ctx, cancel: cancel, done: make(chan struct{}),
+		keepOnBargeIn: r.KeepOnBargeIn,
+		ctx:           ctx, cancel: cancel, done: make(chan struct{}),
 	}
 	m.mu.Lock()
 	if m.closed {
@@ -161,6 +172,50 @@ func (m *Mouth) Stop(cause string) []string {
 	return m.cut(cur, dropped, cause)
 }
 
+// StopBargeIn is BARGE-IN-OCCURRED: Stop with cause barge-in, but only for the
+// utterances that let a barge-in cut them; those that asked to be kept play on
+// and their Played says so. Played still come in speak order: an utterance cut
+// here that is queued behind a kept one is cancelled now (its synthesis
+// abandoned) and gets its Played, empty, when its turn comes. It returns the ids
+// of the utterances whose Played are out by the time it returns.
+func (m *Mouth) StopBargeIn() []string {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil
+	}
+	cur := m.cur
+	keptAhead := false
+	if cur != nil && cur.keepOnBargeIn {
+		cur.kept = true
+		keptAhead = true
+		cur = nil
+	}
+	var dropped, queue []*utterance
+	for _, s := range m.queue {
+		switch {
+		case s.keepOnBargeIn:
+			s.kept = true
+			keptAhead = true
+			queue = append(queue, s)
+		case !keptAhead:
+			dropped = append(dropped, s)
+		default:
+			// behind a kept one: cut now, its Played when its turn comes
+			s.cutCause = CauseBargeIn
+			s.cancel()
+			queue = append(queue, s)
+		}
+	}
+	m.queue = queue
+	if m.cur != nil && len(queue) > 0 {
+		// the head may be new: it synthesises while the current one plays
+		m.synthesize(queue[0])
+	}
+	m.mu.Unlock()
+	return m.cut(cur, dropped, CauseBargeIn)
+}
+
 func (m *Mouth) cut(cur *utterance, dropped []*utterance, cause string) []string {
 	var ids []string
 	if cur != nil {
@@ -173,7 +228,13 @@ func (m *Mouth) cut(cur *utterance, dropped []*utterance, cause string) []string
 	}
 	for _, s := range dropped {
 		s.cancel()
-		m.onPlayed(Played{RequestID: s.id, Cause: cause})
+		m.mu.Lock()
+		c, kept := cause, s.kept
+		if s.cutCause != "" {
+			c = s.cutCause // already cut by a barge-in, waiting for its turn
+		}
+		m.mu.Unlock()
+		m.onPlayed(Played{RequestID: s.id, Cause: c, KeptOnBargeIn: kept})
 		ids = append(ids, s.id)
 	}
 	return ids
@@ -201,21 +262,26 @@ func (m *Mouth) loop() {
 		if len(m.queue) > 0 {
 			m.synthesize(m.queue[0])
 		}
+		cutAlready := s.cutCause != ""
 		m.mu.Unlock()
 
-		spoken, full := m.play(s)
+		spoken, full := "", false
+		if !cutAlready {
+			spoken, full = m.play(s)
+		}
 
 		m.mu.Lock()
 		m.cur = nil
 		cause := CauseNormal
 		if !full {
-			// cut by Stop or Close, or else synthesis or the sink failed
+			// cut by Stop, a barge-in or Close, or else synthesis or the sink failed
 			if cause = s.cutCause; cause == "" {
 				cause = CauseError
 			}
 		}
+		kept := s.kept
 		m.mu.Unlock()
-		m.onPlayed(Played{RequestID: s.id, Spoken: spoken, Cause: cause})
+		m.onPlayed(Played{RequestID: s.id, Spoken: spoken, Cause: cause, KeptOnBargeIn: kept})
 		s.cancel()
 		close(s.done)
 	}
@@ -233,7 +299,7 @@ type synthesized struct {
 // a gap the length of a synthesis between sentences, or between utterances when
 // a driver says a reply sentence by sentence. Called with m.mu held.
 func (m *Mouth) synthesize(s *utterance) {
-	if s.ready != nil {
+	if s.ready != nil || s.cutCause != "" {
 		return
 	}
 	s.sentences = splitSentences(s.text)

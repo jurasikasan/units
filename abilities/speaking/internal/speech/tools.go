@@ -24,6 +24,9 @@ type speakArgs struct {
 	// SynthesisTimeoutMS is how long the line may wait for a piece of this
 	// phrase's audio before the phrase fails (C4 §2.2); absent, the session's.
 	SynthesisTimeoutMS *int `json:"synthesis_timeout_ms,omitempty"`
+	// KillOnBargeIn false keeps the phrase playing through barge_in_occurred
+	// (MRCP's Kill-On-Barge-In, C4 §2.2); absent, true.
+	KillOnBargeIn *bool `json:"kill_on_barge_in,omitempty"`
 }
 
 type speakResult struct {
@@ -68,7 +71,8 @@ func Server(sp *Speech) *mcp.Server {
 	mcp.AddTool[speakArgs, speakResult](srv, &mcp.Tool{
 		Name: "speak",
 		Description: "SPEAK: speak text on an open session. Requests play in the order they were made; every request gets exactly one speak-complete event. " +
-			"synthesis_timeout_ms (optional) is how long the line may wait for a piece of this phrase's audio: past it the phrase ends, cause error, and the next one plays.",
+			"synthesis_timeout_ms (optional) is how long the line may wait for a piece of this phrase's audio: past it the phrase ends, cause error, and the next one plays. " +
+			"kill_on_barge_in (optional, default true): false keeps this phrase playing through barge_in_occurred.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in speakArgs) (*mcp.CallToolResult, speakResult, error) {
 		var opt SpeakOptions
 		if in.SynthesisTimeoutMS != nil {
@@ -77,6 +81,7 @@ func Server(sp *Speech) *mcp.Server {
 			}
 			opt.SynthesisTimeout = time.Duration(*in.SynthesisTimeoutMS) * time.Millisecond
 		}
+		opt.KeepOnBargeIn = in.KillOnBargeIn != nil && !*in.KillOnBargeIn
 		rid, err := sp.SpeakWith(in.SessionID, in.Text, opt)
 		if err != nil {
 			return nil, speakResult{}, err
@@ -96,7 +101,7 @@ func Server(sp *Speech) *mcp.Server {
 
 	mcp.AddTool[sessionArgs, okResult](srv, &mcp.Tool{
 		Name:        "barge_in_occurred",
-		Description: "BARGE-IN-OCCURRED: the other side started talking. The same cut as stop; each affected request gets its speak-complete (cause barge-in) before this returns.",
+		Description: "BARGE-IN-OCCURRED: the other side started talking. The same cut as stop, cause barge-in, of every request whose speak did not set kill_on_barge_in false; those play on.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sessionArgs) (*mcp.CallToolResult, okResult, error) {
 		if err := sp.BargeInOccurred(in.SessionID); err != nil {
 			return nil, okResult{}, err

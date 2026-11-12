@@ -48,6 +48,9 @@ type SpeakOptions struct {
 	// SynthesisTimeout overrides Config.SynthesisTimeout for this phrase; zero
 	// keeps the session's.
 	SynthesisTimeout time.Duration
+	// KeepOnBargeIn lets the phrase play on through barge_in_occurred (speak's
+	// kill_on_barge_in false). stop and close still cut it.
+	KeepOnBargeIn bool
 }
 
 // SynthClient is the TTS side the mouth needs. *tts.Client satisfies it; tests
@@ -164,6 +167,7 @@ func (sp *Speech) SpeakWith(sessionID, text string, opt SpeakOptions) (string, e
 		Text:             text,
 		Voice:            sess.voice,
 		SynthesisTimeout: opt.SynthesisTimeout,
+		KeepOnBargeIn:    opt.KeepOnBargeIn,
 	})
 	if err != nil {
 		if errors.Is(err, mouth.ErrClosed) {
@@ -182,7 +186,8 @@ func (sp *Speech) Stop(sessionID string) error {
 }
 
 // BargeInOccurred is Stop because the other side started talking (C4 §2.4,
-// MRCP BARGE-IN-OCCURRED): the same cut, cause barge-in.
+// MRCP BARGE-IN-OCCURRED): the same cut, cause barge-in, of every phrase but
+// those whose speak asked to be kept (kill_on_barge_in false).
 func (sp *Speech) BargeInOccurred(sessionID string) error {
 	return sp.cut(sessionID, mouth.CauseBargeIn)
 }
@@ -193,7 +198,13 @@ func (sp *Speech) cut(sessionID, cause string) error {
 		return fmt.Errorf("unknown_session: %s", sessionID)
 	}
 	sess.touch()
-	if ids := sess.mouth.Stop(cause); len(ids) > 0 {
+	var ids []string
+	if cause == mouth.CauseBargeIn {
+		ids = sess.mouth.StopBargeIn()
+	} else {
+		ids = sess.mouth.Stop(cause)
+	}
+	if len(ids) > 0 {
 		slog.Info("session stopped", "session_id", sess.id, "cause", cause, "requests", len(ids))
 	}
 	return nil
@@ -329,16 +340,16 @@ func (s *session) end(reason string) {
 // onPlayed publishes one speak-complete (C4 §3). The session goes on whether
 // or not the publish lands.
 func (s *session) onPlayed(p mouth.Played) {
-	s.publish(events.Event{
-		Type:    events.SpeakComplete,
-		Subject: s.id,
-		Data: map[string]any{
-			"session_id":       s.id,
-			"request_id":       p.RequestID,
-			"completion_cause": p.Cause,
-			"spoken":           p.Spoken,
-		},
-	})
+	data := map[string]any{
+		"session_id":       s.id,
+		"request_id":       p.RequestID,
+		"completion_cause": p.Cause,
+		"spoken":           p.Spoken,
+	}
+	if p.KeptOnBargeIn {
+		data["kept_on_barge_in"] = true
+	}
+	s.publish(events.Event{Type: events.SpeakComplete, Subject: s.id, Data: data})
 }
 
 func (s *session) publish(e events.Event) {

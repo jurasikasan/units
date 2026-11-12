@@ -245,3 +245,46 @@ func TestSpeak_SynthesisTimeoutMustBePositive(t *testing.T) {
 		assert.True(t, strings.HasPrefix(errText, "bad_argument:"), "%d: %q", ms, errText)
 	}
 }
+
+// UNIT-8, through the tools: a phrase spoken with kill_on_barge_in false plays
+// on after barge_in_occurred and finishes whole, its speak-complete saying it
+// was kept; the phrase queued behind it, which a barge-in may cut, is cut.
+func TestSpeak_KillOnBargeInFalse_KeptPhraseFinishes(t *testing.T) {
+	g := newFakeGateway(t, "piper_denis")
+	pub := &fakePub{}
+	sp := newSpeech(t, speech.Config{}, g, pub)
+	tap := startTap(t)
+	cs := connectTools(t, sp)
+
+	out, errText := callTool(t, cs, "open", map[string]any{"to": tap.addr(), "voice_name": "piper_denis"}, nil)
+	require.Empty(t, errText)
+	id := out["session_id"].(string)
+
+	const kept = "Это важно. Дослушайте, пожалуйста."
+	out, errText = callTool(t, cs, "speak", map[string]any{"session_id": id, "text": kept, "kill_on_barge_in": false}, nil)
+	require.Empty(t, errText)
+	u1 := out["request_id"].(string)
+	out, errText = callTool(t, cs, "speak", map[string]any{"session_id": id, "text": "А это можно перебить."}, nil)
+	require.Empty(t, errText)
+	u2 := out["request_id"].(string)
+
+	tap.take(t, 5, 5*time.Second) // the kept phrase is on the line
+	_, errText = callTool(t, cs, "barge_in_occurred", map[string]any{"session_id": id}, nil)
+	require.Empty(t, errText)
+	bargedAt := time.Now()
+	assert.Empty(t, pub.list(), "nothing was cut ahead of the kept phrase")
+
+	waitFor(t, 15*time.Second, "both speak-completes", func() bool { return len(pub.list()) >= 2 })
+	l := pub.list()
+	assert.Equal(t, u1, l[0].Data["request_id"])
+	assert.Equal(t, "normal", l[0].Data["completion_cause"])
+	assert.Equal(t, kept, l[0].Data["spoken"])
+	assert.Equal(t, true, l[0].Data["kept_on_barge_in"])
+	assert.Greater(t, time.Since(bargedAt), 100*time.Millisecond, "the kept phrase finished after the barge-in, not at it")
+
+	assert.Equal(t, u2, l[1].Data["request_id"])
+	assert.Equal(t, "barge-in", l[1].Data["completion_cause"])
+	assert.Equal(t, "", l[1].Data["spoken"])
+	_, has := l[1].Data["kept_on_barge_in"]
+	assert.False(t, has)
+}
