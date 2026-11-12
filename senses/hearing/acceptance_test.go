@@ -32,6 +32,7 @@ type sttFake struct {
 	text    string
 	lang    string
 	wavLens []int
+	wavs    [][]byte
 	asked   []string // the language field of each request
 }
 
@@ -55,6 +56,7 @@ func newSTTFake() *sttFake {
 		_ = file.Close()
 		f.mu.Lock()
 		f.wavLens = append(f.wavLens, len(raw))
+		f.wavs = append(f.wavs, raw)
 		f.asked = append(f.asked, r.FormValue("language"))
 		failed := f.fail
 		text, lang := f.text, f.lang
@@ -164,6 +166,7 @@ func newHarness(t *testing.T, mutate func(*Config)) *harness {
 		EnergyThreshold: 500,
 		Onset:           200 * time.Millisecond,
 		MergeWindow:     400 * time.Millisecond,
+		PreRoll:         DefaultPreRoll,
 		MaxUtterance:    25 * time.Second,
 		MaxSessions:     4,
 		IdleTimeout:     2 * time.Minute,
@@ -1225,4 +1228,71 @@ func TestSpeechAfterThePauseVoidsTheGuess(t *testing.T) {
 		t.Fatalf("heard the transcription of %d WAV bytes, want the whole 2 s utterance", n)
 	}
 	_ = h.svc.Close(id)
+}
+
+// --- pre-roll: the audio before the first speech window reaches STT ---
+
+// The detector rises late on an onset consonant, so the sound just before
+// the first speech window is part of the word (UNIT-5). Here the "consonant"
+// is a tone too quiet for the detector: with a pre-roll its last
+// HEARING_PREROLL goes to STT ahead of the speech; without one STT starts at
+// the loud part. started_at stays where speech was detected either way.
+func TestPreRollReachesSTT(t *testing.T) {
+	const quiet, loud = 300, 8000 // the energy detector's threshold is 500
+	for _, tc := range []struct {
+		name    string
+		preroll time.Duration
+	}{
+		{"preroll_300ms", 300 * time.Millisecond},
+		{"no_preroll", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, func(c *Config) { c.PreRoll = tc.preroll })
+			_, addr := h.open(t)
+			s := newSender(t, addr, 0xA11CE)
+			s.tone(0, quiet, 0, 0.5)
+			s.tone(0, loud, 0.5, 1.0)
+			s.silence(0, 1.5, 1.0)
+			started := h.waitType(t, "speechrecog.start-of-input", 1, 5*time.Second)
+			h.waitType(t, "speechrecog.recognition-complete", 1, 5*time.Second)
+
+			startedAt, err := time.Parse(time.RFC3339Nano, started[0].Data["started_at"].(string))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d := absDur(startedAt.Sub(s.firstAt) - 500*time.Millisecond); d > 40*time.Millisecond {
+				t.Fatalf("started_at %v after the first packet, want 500 ms ± 40 ms (where speech was detected)",
+					startedAt.Sub(s.firstAt))
+			}
+
+			h.stt.mu.Lock()
+			wav := h.stt.wavs[len(h.stt.wavs)-1]
+			h.stt.mu.Unlock()
+			pcm := make([]int16, (len(wav)-44)/2)
+			for i := range pcm {
+				pcm[i] = int16(binary.LittleEndian.Uint16(wav[44+2*i:]))
+			}
+			rms := func(x []int16) float64 {
+				var sum float64
+				for _, v := range x {
+					sum += float64(v) * float64(v)
+				}
+				return math.Sqrt(sum / float64(len(x)))
+			}
+			// The first 200 ms of what STT got: the quiet tone (rms ~212)
+			// with a pre-roll, the loud one (rms ~5657) without.
+			head := rms(pcm[:3200])
+			if tc.preroll > 0 {
+				if head < 100 || head > 500 {
+					t.Fatalf("first 200 ms to STT rms %.0f, want the quiet pre-roll (100..500)", head)
+				}
+				// 300 ms of pre-roll at 16 kHz, give or take a window.
+				if extra := len(pcm) - 16000*1; extra < 4800-512 {
+					t.Fatalf("STT got %d samples beyond the 1 s of speech, want about 4800 of pre-roll", extra)
+				}
+			} else if head < 2000 {
+				t.Fatalf("first 200 ms to STT rms %.0f with no pre-roll, want the loud speech", head)
+			}
+		})
+	}
 }

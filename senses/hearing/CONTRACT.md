@@ -108,6 +108,13 @@ Guarantees:
 - **Merge.** A pause shorter than `HEARING_MERGE_WINDOW` does not end an utterance:
   "I'd like… uh… to order" is one. The utterance ends `HEARING_MERGE_WINDOW` after the
   last speech; `ended_at` is when the last speech ended, not when the event went out.
+- **Pre-roll.** The detector rises late on an onset consonant ("Как" of «Как тебя
+  зовут?»), so what went to STT used to start after the word had. The last
+  `HEARING_PREROLL` of audio before the first speech window goes to STT with the
+  utterance. `started_at` stays where speech was detected — the pre-roll is padding
+  for the transcriber, not speech the detector heard — so STT's audio starts up to
+  `HEARING_PREROLL` before `started_at`. A pre-roll never reaches back into the
+  previous utterance: it is gathered only while no utterance is open.
 - **Cut.** An utterance that reaches `HEARING_MAX_UTTERANCE` is closed and transcribed
   there; if speech goes on, a new `start-of-input` follows at once.
 
@@ -157,6 +164,7 @@ Inside, everything is brought to 16 kHz mono for the detector and for STT.
 | `VAD_URL` | the VAD engine | `http://vad:8096` |
 | `HEARING_ONSET` | speech shorter than this is not reported | `200ms` |
 | `HEARING_MERGE_WINDOW` | a pause this long ends an utterance | `400ms` |
+| `HEARING_PREROLL` | audio before the first speech window that goes to STT; `0` for none | `300ms` |
 | `HEARING_MAX_UTTERANCE` | an utterance is cut at this length | `25s` |
 | `HEARING_MAX_SESSIONS` | sessions at once | `4` |
 | `HEARING_IDLE_TIMEOUT` | no packets this long closes a session | `2m` |

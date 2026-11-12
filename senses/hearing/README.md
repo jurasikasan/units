@@ -37,6 +37,9 @@ words is someone else's job.
   PCM, `language` = the session's `speech_language`) on `STT_URL` (LiteLLM).
   STT failure yields `speechrecog.recognition-complete` with
   `"completion_cause": "recognizer-error", "text": ""`.
+- What goes to STT starts `HEARING_PREROLL` (default 300 ms) before the first
+  speech window, since the detector rises late on an onset consonant;
+  `started_at` stays where speech was detected.
 - Every `speechrecog.start-of-input` gets exactly one
   `speechrecog.recognition-complete` with the same `request_id`, before
   `speechrecog.session-closed`; utterances never overlap; every `open` ends in
@@ -89,6 +92,7 @@ Then `GET :8080/health` returns `{"status":"ok"}` and MCP speaks on
 | `HEARING_ENERGY_THRESHOLD` | `500` | RMS cutoff for the energy VAD |
 | `HEARING_ONSET` | `200ms` | a candidate needs this much speech before it starts |
 | `HEARING_MERGE_WINDOW` | `400ms` | silence tolerated inside one utterance |
+| `HEARING_PREROLL` | `300ms` | audio before the first speech window sent to STT; `0` for none |
 | `HEARING_MAX_UTTERANCE` | `25s` | hard cut; transcribed where cut |
 | `HEARING_MAX_SESSIONS` | `4` | concurrent `open` sessions |
 | `HEARING_IDLE_TIMEOUT` | `2m` | silent-for-this-long sessions close with `reason: idle` |

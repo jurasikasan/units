@@ -51,6 +51,7 @@ config:
     HEARING_ENERGY_THRESHOLD: "500"
     HEARING_ONSET: 200ms
     HEARING_MERGE_WINDOW: 400ms
+    HEARING_PREROLL: 300ms         # audio before the first speech window, sent to STT; 0 = none
     HEARING_MAX_UTTERANCE: 25s
     HEARING_MAX_SESSIONS: "4"
     HEARING_IDLE_TIMEOUT: 2m

@@ -31,6 +31,7 @@ const (
 	DefaultEnergyThreshold = 500
 	DefaultOnset           = 200 * time.Millisecond
 	DefaultMergeWindow     = 400 * time.Millisecond
+	DefaultPreRoll         = 300 * time.Millisecond
 	DefaultMaxUtterance    = 25 * time.Second
 	DefaultMaxSessions     = 4
 	DefaultIdleTimeout     = 2 * time.Minute
@@ -64,6 +65,7 @@ type Config struct {
 	EnergyThreshold float64
 	Onset           time.Duration
 	MergeWindow     time.Duration
+	PreRoll         time.Duration // audio before the first speech window that goes to STT; 0 is none
 	MaxUtterance    time.Duration
 	MaxSessions     int
 	IdleTimeout     time.Duration
@@ -258,6 +260,9 @@ type session struct {
 
 	// worker-owned state
 	cand *utterance
+	// preroll is the latest audio heard while no candidate was open, at
+	// most PreRoll long; a new candidate starts with it (C5 §3, Pre-roll).
+	preroll []int16
 
 	out chan func() // events in order, sent by emitter
 }
@@ -379,7 +384,8 @@ func (se *session) processWindow(ctx context.Context, win []int16, winStart, win
 			se.cand.guess = nil
 		}
 		if se.cand == nil {
-			se.cand = &utterance{id: newID("utt"), start: winStart, lastSpeechEnd: winEnd}
+			se.cand = &utterance{id: newID("utt"), start: winStart, lastSpeechEnd: winEnd,
+				audio: se.takePreroll()}
 		} else {
 			se.cand.lastSpeechEnd = winEnd
 		}
@@ -410,9 +416,13 @@ func (se *session) processWindow(ctx context.Context, win []int16, winStart, win
 	} else {
 		switch {
 		case se.cand == nil:
-			// silence before any speech: nothing to do
+			// silence before any speech: kept as the next one's pre-roll
+			se.keepPreroll(win)
 		case !se.cand.started && !winStart.Before(se.cand.lastSpeechEnd.Add(cfg.MergeWindow)):
-			// the candidate never reached the onset: drop it, no events
+			// the candidate never reached the onset: drop it, no events;
+			// its tail is what preceded whatever speech comes next
+			se.keepPreroll(se.cand.audio)
+			se.keepPreroll(win)
 			se.cand = nil
 		case !se.cand.started:
 			// a pause inside the merge window does not end it before the
@@ -422,6 +432,7 @@ func (se *session) processWindow(ctx context.Context, win []int16, winStart, win
 			// the speaker stopped for HEARING_MERGE_WINDOW
 			se.emitHeard(ctx, se.cand, false)
 			se.cand = nil
+			se.keepPreroll(win)
 		default:
 			// still inside the merge window: keep the utterance open and
 			// record the trailing silence
@@ -431,6 +442,25 @@ func (se *session) processWindow(ctx context.Context, win []int16, winStart, win
 			}
 		}
 	}
+}
+
+// keepPreroll appends samples to the pre-roll and keeps its last PreRoll.
+func (se *session) keepPreroll(samples []int16) {
+	limit := int(se.svc.cfg.PreRoll / (time.Second / 16000))
+	if limit <= 0 {
+		return
+	}
+	se.preroll = append(se.preroll, samples...)
+	if over := len(se.preroll) - limit; over > 0 {
+		se.preroll = append(se.preroll[:0], se.preroll[over:]...)
+	}
+}
+
+// takePreroll hands the pre-roll to a new candidate and starts a new one.
+func (se *session) takePreroll() []int16 {
+	audio := se.preroll
+	se.preroll = nil
+	return audio
 }
 
 // cutAt finalizes the current utterance at cut and opens the next one
