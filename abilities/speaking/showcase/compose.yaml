@@ -18,9 +18,11 @@ services:
       piper:
         condition: service_healthy
 
-  # One session whose audio goes to the demo: a long phrase is cut by
-  # barge_in_occurred a second in, then a short one plays whole. The demo
-  # counts the audio it got and prints each speak-complete: what was spoken.
+  # One session whose audio goes to the demo. First act: a long phrase is cut
+  # by barge_in_occurred a second in, then a short one plays whole. Second act:
+  # a phrase spoken with kill_on_barge_in false plays on through a barge-in and
+  # finishes whole, while the phrase queued behind it is cut. The demo counts
+  # the audio it got and prints each speak-complete: what was spoken.
   demo:
     image: python:3.12-alpine
     depends_on: [speaking]
@@ -61,15 +63,26 @@ services:
         s = tool("open", {"to": f"{me}:47000", "voice_name": "piper_lessac"})["session_id"]
         long = "This is a long sentence about the history of the paperclip, and it will not get to the end, because somebody talks over it."
         tool("speak", {"session_id": s, "text": long})
-        t0, packets, cut = time.monotonic(), 0, False
-        while time.monotonic() - t0 < 6:
-            if not cut and time.monotonic() - t0 > 1.0 and packets:
-                tool("barge_in_occurred", {"session_id": s}); cut = True
-                tool("speak", {"session_id": s, "text": "Sorry, go ahead."})
-            try:
-                ear.recv(4096); packets += 1
-            except socket.timeout:
-                pass
+        packets = 0
+        def act(seconds, then):
+            global packets
+            t0, done = time.monotonic(), False
+            while time.monotonic() - t0 < seconds:
+                if not done and time.monotonic() - t0 > 1.0 and packets:
+                    then(); done = True
+                try:
+                    ear.recv(4096); packets += 1
+                except socket.timeout:
+                    pass
+        def sorry():
+            tool("barge_in_occurred", {"session_id": s})
+            tool("speak", {"session_id": s, "text": "Sorry, go ahead."})
+        act(6, sorry)
+
+        important = "Your card has been blocked. Please call the bank on the number on its back."
+        tool("speak", {"session_id": s, "text": important, "kill_on_barge_in": False})
+        tool("speak", {"session_id": s, "text": "And one more thing about our new offers."})
+        act(9, lambda: tool("barge_in_occurred", {"session_id": s}))
         tool("close", {"session_id": s})
         time.sleep(0.5)
 

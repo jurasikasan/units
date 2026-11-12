@@ -97,7 +97,10 @@ cd showcase && docker compose up --build --abort-on-container-exit demo
 Builds speaking with `engines/tts/piper`. The demo opens a session whose audio
 comes to it, starts a long phrase, sends `barge_in_occurred` a second in, then
 a short phrase, and prints the two `speak-complete` events: the first `barge-in`
-with the words that went out, the second `normal` and whole.
+with the words that went out, the second `normal` and whole. Then a phrase spoken
+with `kill_on_barge_in: false`, a cuttable one queued behind it, and a barge-in a
+second in: the first comes back `normal`, whole, `kept_on_barge_in: true`; the
+second `barge-in` with nothing spoken.
 
 ## Check
 
