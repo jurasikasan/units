@@ -244,6 +244,9 @@ func (h *harness) waitNoType(t *testing.T, typ string, quiet time.Duration) {
 
 // --- RTP senders ---
 
+// sendGap is the sender's pause after each packet; see send.
+const sendGap = 50 * time.Microsecond
+
 type sender struct {
 	t       *testing.T
 	conn    *net.UDPConn
@@ -292,6 +295,15 @@ func (s *sender) send(pt byte, payload []byte, samples int) {
 	if _, err := s.conn.Write(raw); err != nil {
 		s.t.Fatalf("send udp: %v", err)
 	}
+	// A real sender is another process and never takes the receiver's CPU.
+	// This one shares the process, and at -cpu 1 the read loop, parked in
+	// the netpoller, is not woken while this goroutine stays runnable —
+	// runtime.Gosched does not help, the scheduler takes the run queue before
+	// it polls the network. Hundreds of packets then overflow the socket
+	// buffer and the kernel drops them (UNIT-10). A sleep idles the P, so the
+	// network is polled. 50 µs a packet is still ~400× faster than a line's
+	// 20 ms: a burst stays a burst.
+	time.Sleep(sendGap)
 }
 
 func (s *sender) tone(pt byte, amp int16, startSec, durSec float64) {
