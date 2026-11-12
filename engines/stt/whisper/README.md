@@ -26,8 +26,8 @@ resampled by the library. The uploaded bytes are written to a temp file that is
 always named `.wav` regardless of what they are (server.py:37-39); that suffix
 is cosmetic for decoding but not for the duration probe (below).
 
-Transcription options are fixed in code (server.py:48-53): `beam_size=5`,
-`vad_filter=True` (built-in Silero VAD, drops non-speech), and
+Transcription options: `beam_size=5`, `vad_filter` from `WHISPER_VAD_FILTER`
+(built-in Silero VAD, drops non-speech; on by default), and
 `condition_on_previous_text=False` so each clip is independent.
 
 ## Env variables
@@ -35,6 +35,9 @@ Transcription options are fixed in code (server.py:48-53): `beam_size=5`,
 - `WHISPER_MODEL` — model size, default `medium` (server.py:12).
 - `WHISPER_DEVICE` — `cpu` / `cuda`, default `cpu` (server.py:13).
 - `WHISPER_COMPUTE` — quantization, default `int8` (server.py:14).
+- `WHISPER_VAD_FILTER` — faster-whisper's own Silero pass, default `true`. Set
+  `false` behind a caller that cuts clips with its own VAD (senses/hearing): a
+  second pass drops short words such as «Да.» whole.
 
 The model is loaded at import (server.py:17), so the container binds its port
 only after the weights are in memory; give the healthcheck a `start_period` of about 60s on CPU and 120s on GPU.

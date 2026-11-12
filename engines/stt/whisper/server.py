@@ -12,6 +12,9 @@ app = FastAPI(title="STT Service")
 MODEL_SIZE = os.getenv("WHISPER_MODEL", "medium")
 DEVICE     = os.getenv("WHISPER_DEVICE", "cpu")
 COMPUTE    = os.getenv("WHISPER_COMPUTE", "int8")
+# faster-whisper's own Silero pass over the clip. A caller that already cut the
+# clip with a VAD (senses/hearing) gets short words dropped by a second one.
+VAD_FILTER = os.getenv("WHISPER_VAD_FILTER", "true").lower() not in ("0", "false", "no")
 
 print(f"Loading Whisper {MODEL_SIZE} on {DEVICE}/{COMPUTE} …")
 model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE)
@@ -57,7 +60,7 @@ def _transcribe(file: UploadFile, language):
             tmp_path,
             language=language,
             beam_size=5,
-            vad_filter=True,          # built-in Silero VAD — drops non-speech
+            vad_filter=VAD_FILTER,    # built-in Silero VAD — drops non-speech (WHISPER_VAD_FILTER)
             condition_on_previous_text=False,  # each clip independent, fewer hallucinations
         )
         text = " ".join(s.text.strip() for s in segments)
