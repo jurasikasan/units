@@ -48,7 +48,7 @@ func main() {
 	// REDIS_ADDR is read by shared/redis; it waits for the broker before we
 	// start serving, because every event has to land somewhere.
 	client := sharedredis.GetRedisClient(context.Background())
-	pub := events.Redis{Client: client}
+	pub := events.Redis(client)
 
 	sp := speech.New(speech.Config{
 		MaxSessions: maxSessions, IdleTimeout: idleTimeout, SynthesisTimeout: synthesisTimeout,
