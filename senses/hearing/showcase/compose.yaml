@@ -117,6 +117,7 @@ services:
       VAD_URL: http://vad:8096
       AUDIO_IN_HOST: hearing-p0
       HEARING_PREROLL: "0"
+      HEARING_ONSET: ${PROBE_ONSET:-200ms}   # the "anti-cough" (UNIT-6)
     depends_on:
       redis:
         condition: service_started

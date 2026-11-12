@@ -221,9 +221,15 @@ def run(label, host):
             texts = heard(s["session_id"])
             with LOCK:
                 clips = CLIPS[label][before:]
+            # The clip that covers the measured phrase's onset: in a sequence the
+            # last clip may be an earlier phrase's when this one never reached STT.
             lead = None
-            if clips and clips[-1]:
-                lead = 10 * (onset - align(sent_env, envelope(clip_pcm(clips[-1]))))
+            for c in reversed([c for c in clips if c]):
+                env = envelope(clip_pcm(c))
+                start = align(sent_env, env)
+                if start <= onset + 5 and start + len(env) > onset:  # 50 ms of slack for alignment
+                    lead = 10 * (onset - start)
+                    break
             with LOCK:
                 RESULTS.setdefault((label, item), []).append(lead)
                 print(f"{label:>6} {item:<36} {i + 1:>2}/{N} lead={'none' if lead is None else f'{lead:+d}ms':>8}"
@@ -242,7 +248,7 @@ for t in threads:
     t.join()
 
 print("\nlead = phrase onset − clip start, ms (min / median over the runs); clipped = runs with lead < 0;"
-      " none = runs where no clip reached STT")
+      " none = runs where no clip covering the phrase reached STT")
 print(f"{'phrase':<36}" + "".join(f"{label:>24}" for label, _ in HEARINGS))
 for item in ITEMS:
     cells = []
