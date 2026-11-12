@@ -1,2 +1,3 @@
 _ignored/
 .claude/
+__pycache__/

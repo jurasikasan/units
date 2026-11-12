@@ -47,6 +47,9 @@ def all_units():
 def sources(unit):
     go, py = [], []
     for path in glob.glob(os.path.join(ROOT, unit, "**", "*"), recursive=True):
+        # A showcase drives the unit from outside; what it reads is not the unit's config.
+        if SKIP_DIRS & set(os.path.relpath(path, os.path.join(ROOT, unit)).split(os.sep)[:-1]):
+            continue
         name = os.path.basename(path)
         if name.endswith(".go") and not name.endswith("_test.go"):
             go.append(path)
