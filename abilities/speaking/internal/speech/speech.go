@@ -100,20 +100,22 @@ func (sp *Speech) Open(ctx context.Context, to, voice, codec, traceparent string
 	}
 	sp.reserved++
 	sp.mu.Unlock()
-	defer func() {
-		sp.mu.Lock()
-		sp.reserved--
-		sp.mu.Unlock()
-	}()
 
 	target, err := net.ResolveUDPAddr("udp", to)
 	if err != nil {
+		sp.mu.Lock()
+		sp.reserved--
+		sp.mu.Unlock()
 		return "", fmt.Errorf("bad_target: %q: %v", to, err)
 	}
 
 	sess := newSession(sp, sp.cfg, target, voice, sp.tts, sp.pub, traceparent)
+	// The session takes the reserved slot over in one step: released apart,
+	// a concurrent open would count the slot twice and fail with capacity
+	// below the limit.
 	sp.mu.Lock()
 	sp.sessions[sess.id] = sess
+	sp.reserved--
 	sp.mu.Unlock()
 	slog.Info("session opened", "session_id", sess.id, "to", to, "voice", voice, "codec", CodecL16)
 	return sess.id, nil
