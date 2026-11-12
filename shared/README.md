@@ -57,6 +57,16 @@ stream, read by a notifier. Identifiers and one-sentence reasons only, never
 the data being processed; `Normalise` enforces it (no line breaks, at most
 200 characters).
 
+### `events`
+
+The envelope of [`contracts/events.md`](../contracts/events.md), written once:
+`Fields(source, Event)` is the stream entry (CloudEvents 1.0 binary mode, `ce_`
+fields, JSON in `data`, no `ce_traceparent` when the event has none, `ce_time`
+now when `Event.Time` is zero); `Redis{Client, Stream, Source}.Publish` writes
+it; `NewID` is the `ce_id`. Streams, sources and types stay in each unit, where
+`tools/check_unit.py` holds them to its `unit.yaml`. Used by `senses/hearing`,
+`abilities/speaking`, `devices/communications/sip_phone` and `web_audio_call`.
+
 ### `gateway`
 
 `Do[T]` runs an ordered list of `Backend`s until one succeeds, returning
