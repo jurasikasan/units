@@ -63,6 +63,10 @@ def _transcribe(file: UploadFile, language):
             vad_filter=VAD_FILTER,    # built-in Silero VAD — drops non-speech (WHISPER_VAD_FILTER)
             condition_on_previous_text=False,  # each clip independent, fewer hallucinations
         )
+        segments = list(segments)
+        for s in segments:
+            print(f"[transcribe] SEG    {s.start:.2f}-{s.end:.2f}s no_speech={s.no_speech_prob:.3f}"
+                  f" logprob={s.avg_logprob:.3f} cr={s.compression_ratio:.2f} temp={s.temperature} → {s.text.strip()[:60]!r}")
         text = " ".join(s.text.strip() for s in segments)
         elapsed = (time.monotonic() - t0) * 1000
         # The decoder's own length, so any format ffmpeg reads has one, not only WAV.

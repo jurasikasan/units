@@ -27,5 +27,17 @@ class EndLogFormatTest(unittest.TestCase):
         self.assertEqual(rendered, "'" + "x" * 80 + "'")
 
 
+class SegmentLogTest(unittest.TestCase):
+    # UNIT-13: a hallucinated sentence on a short clip is told apart only by
+    # these numbers being read; each segment's must be in the log.
+    def test_segment_line_carries_the_decoder_numbers(self):
+        with open("server.py", encoding="utf-8") as f:
+            src = f.read()
+        m = re.search(r"\[transcribe\] SEG.*?\)\n", src, re.S)
+        self.assertIsNotNone(m, "no SEG log line in server.py")
+        for field in ("s.start", "s.end", "s.no_speech_prob", "s.avg_logprob", "s.compression_ratio"):
+            self.assertIn(field, m.group(0))
+
+
 if __name__ == "__main__":
     unittest.main()
