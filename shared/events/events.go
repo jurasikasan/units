@@ -8,12 +8,12 @@ package events
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/google/uuid"
 
 	sharedredis "github.com/jurasikasan/units/shared/redis"
 )
@@ -43,7 +43,7 @@ func Fields(source string, e Event) (map[string]any, error) {
 	}
 	f := map[string]any{
 		"ce_specversion":     "1.0",
-		"ce_id":              NewID(),
+		"ce_id":              uuid.NewString(),
 		"ce_source":          source,
 		"ce_type":            e.Type,
 		"ce_subject":         e.Subject,
@@ -74,13 +74,4 @@ func (r Redis) Publish(ctx context.Context, e Event) error {
 		return fmt.Errorf("events: XAdd %s: %w", r.Stream, err)
 	}
 	return nil
-}
-
-// NewID is a random (version 4) UUID, the ce_id of an entry.
-func NewID() string {
-	var b [16]byte
-	_, _ = rand.Read(b[:])
-	b[6] = b[6]&0x0f | 0x40
-	b[8] = b[8]&0x3f | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }

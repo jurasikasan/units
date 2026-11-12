@@ -60,10 +60,12 @@ func TestFields_UnencodableData(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestNewID_Unique(t *testing.T) {
+func TestFields_IDIsFreshPerEntry(t *testing.T) {
 	seen := map[string]bool{}
 	for range 1000 {
-		id := NewID()
+		f, err := Fields("/x", Event{Type: "x.y"})
+		require.NoError(t, err)
+		id := f["ce_id"].(string)
 		require.Regexp(t, uuidV4, id)
 		require.False(t, seen[id])
 		seen[id] = true
