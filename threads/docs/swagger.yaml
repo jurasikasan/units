@@ -1,0 +1,335 @@
+definitions:
+  thread.Block:
+    properties:
+      args:
+        type: object
+      call_id:
+        type: string
+      id:
+        type: string
+      is_error:
+        type: boolean
+      media_type:
+        type: string
+      name:
+        type: string
+      sha256:
+        type: string
+      text:
+        type: string
+      transcript:
+        type: string
+      type:
+        type: string
+      url:
+        type: string
+    type: object
+  thread.Entry:
+    properties:
+      at:
+        type: string
+      content:
+        items:
+          $ref: '#/definitions/thread.Block'
+        type: array
+      id:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      sender:
+        type: string
+      seq:
+        type: integer
+      thread:
+        type: string
+    type: object
+  thread.NewEntry:
+    properties:
+      content:
+        items:
+          $ref: '#/definitions/thread.Block'
+        type: array
+      kind:
+        type: string
+      name:
+        type: string
+      sender:
+        type: string
+    type: object
+  thread.NewThread:
+    properties:
+      opened_by:
+        type: string
+      parent:
+        type: string
+    type: object
+  thread.Thread:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      members:
+        description: Members is filled on a single thread's read only.
+        items:
+          type: string
+        type: array
+      name:
+        description: Name is the name its last update entry gave it, empty if none
+          did.
+        type: string
+      opened_by:
+        type: string
+      parent:
+        type: string
+    type: object
+host: localhost:8085
+info:
+  contact: {}
+  description: |-
+    The traces subjects leave in the world: each thread a journal
+    of entries (ActivityStreams kinds, typed content blocks),
+    appended, never rewritten. Own database on its own network.
+  title: Threads
+  version: "1.0"
+paths:
+  /health:
+    get:
+      description: |-
+        Answers if the process is serving HTTP at all, and says nothing
+        about Postgres; scripts/stack_version.py reads the version.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: status and version
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Liveness probe and build version
+      tags:
+      - health
+  /ready:
+    get:
+      description: |-
+        200 when a ping to Postgres succeeds, 503 when it does not;
+        the compose healthcheck asks this one.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: status ok
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: status unavailable and the ping error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 'Readiness probe: can this instance reach Postgres'
+      tags:
+      - health
+  /threads:
+    get:
+      description: |-
+        Newest first, each with its name. member: threads where the subject's last join/leave
+        is a join. parent: a thread's children. Both narrow together; neither lists every thread.
+      parameters:
+      - description: subject id
+        in: query
+        name: member
+        type: string
+      - description: thread id
+        in: query
+        name: parent
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/thread.Thread'
+            type: array
+        "400":
+          description: member or parent is not a uuid
+          schema:
+            type: string
+      summary: List threads
+      tags:
+      - threads
+    post:
+      consumes:
+      - application/json
+      description: Mints a thread, optionally under a parent and with the subject
+        that opened it.
+      parameters:
+      - description: parent and opened_by, both optional
+        in: body
+        name: thread
+        required: true
+        schema:
+          $ref: '#/definitions/thread.NewThread'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/thread.Thread'
+        "400":
+          description: Invalid request body
+          schema:
+            type: string
+        "404":
+          description: No thread with the given parent id
+          schema:
+            type: string
+      summary: Open a thread
+      tags:
+      - threads
+  /threads/{id}:
+    delete:
+      description: The thread, its entries and its children's, for good.
+      parameters:
+      - description: thread id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: id is not a uuid
+          schema:
+            type: string
+        "404":
+          description: No such thread
+          schema:
+            type: string
+      summary: Delete a thread
+      tags:
+      - threads
+    get:
+      description: |-
+        The thread with its name (from its last update entry) and members (subjects whose last
+        join/leave is a join, in the order they joined).
+      parameters:
+      - description: thread id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/thread.Thread'
+        "400":
+          description: id is not a uuid
+          schema:
+            type: string
+        "404":
+          description: No such thread
+          schema:
+            type: string
+      summary: Read a thread
+      tags:
+      - threads
+  /threads/{id}/entries:
+    get:
+      description: |-
+        Oldest first, always. after: the entries after that seq (0 by default). before: the
+        limit entries before that seq. tail: the last limit entries. At most one of the three.
+      parameters:
+      - description: thread id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: seq
+        in: query
+        name: after
+        type: integer
+      - description: seq
+        in: query
+        name: before
+        type: integer
+      - description: the end of the thread
+        in: query
+        name: tail
+        type: boolean
+      - description: 1..1000, 100 by default
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/thread.Entry'
+            type: array
+        "400":
+          description: More than one of after, before, tail, or a number out of range
+          schema:
+            type: string
+        "404":
+          description: No such thread
+          schema:
+            type: string
+      summary: Read entries
+      tags:
+      - entries
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Stores the entry at the end of the thread; seq, id and at are filled in.
+        create carries at least one block; join and leave nothing; update the new name.
+      parameters:
+      - description: thread id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: sender, kind, content, name
+        in: body
+        name: entry
+        required: true
+        schema:
+          $ref: '#/definitions/thread.NewEntry'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/thread.Entry'
+        "400":
+          description: Unknown kind or block type, or content that does not fit the
+            kind
+          schema:
+            type: string
+        "404":
+          description: No such thread
+          schema:
+            type: string
+      summary: Append an entry
+      tags:
+      - entries
+schemes:
+- http
+swagger: "2.0"

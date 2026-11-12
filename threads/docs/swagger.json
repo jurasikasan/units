@@ -1,0 +1,481 @@
+{
+    "schemes": [
+        "http"
+    ],
+    "swagger": "2.0",
+    "info": {
+        "description": "The traces subjects leave in the world: each thread a journal\nof entries (ActivityStreams kinds, typed content blocks),\nappended, never rewritten. Own database on its own network.",
+        "title": "Threads",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8085",
+    "paths": {
+        "/health": {
+            "get": {
+                "description": "Answers if the process is serving HTTP at all, and says nothing\nabout Postgres; scripts/stack_version.py reads the version.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Liveness probe and build version",
+                "responses": {
+                    "200": {
+                        "description": "status and version",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ready": {
+            "get": {
+                "description": "200 when a ping to Postgres succeeds, 503 when it does not;\nthe compose healthcheck asks this one.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Readiness probe: can this instance reach Postgres",
+                "responses": {
+                    "200": {
+                        "description": "status ok",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "status unavailable and the ping error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/threads": {
+            "get": {
+                "description": "Newest first, each with its name. member: threads where the subject's last join/leave\nis a join. parent: a thread's children. Both narrow together; neither lists every thread.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "threads"
+                ],
+                "summary": "List threads",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "subject id",
+                        "name": "member",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "thread id",
+                        "name": "parent",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/thread.Thread"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "member or parent is not a uuid",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Mints a thread, optionally under a parent and with the subject that opened it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "threads"
+                ],
+                "summary": "Open a thread",
+                "parameters": [
+                    {
+                        "description": "parent and opened_by, both optional",
+                        "name": "thread",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/thread.NewThread"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/thread.Thread"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "No thread with the given parent id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/threads/{id}": {
+            "get": {
+                "description": "The thread with its name (from its last update entry) and members (subjects whose last\njoin/leave is a join, in the order they joined).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "threads"
+                ],
+                "summary": "Read a thread",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "thread id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/thread.Thread"
+                        }
+                    },
+                    "400": {
+                        "description": "id is not a uuid",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "No such thread",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "The thread, its entries and its children's, for good.",
+                "tags": [
+                    "threads"
+                ],
+                "summary": "Delete a thread",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "thread id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "id is not a uuid",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "No such thread",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/threads/{id}/entries": {
+            "get": {
+                "description": "Oldest first, always. after: the entries after that seq (0 by default). before: the\nlimit entries before that seq. tail: the last limit entries. At most one of the three.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "entries"
+                ],
+                "summary": "Read entries",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "thread id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "seq",
+                        "name": "after",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "seq",
+                        "name": "before",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "the end of the thread",
+                        "name": "tail",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1..1000, 100 by default",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/thread.Entry"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "More than one of after, before, tail, or a number out of range",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "No such thread",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Stores the entry at the end of the thread; seq, id and at are filled in.\ncreate carries at least one block; join and leave nothing; update the new name.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "entries"
+                ],
+                "summary": "Append an entry",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "thread id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "sender, kind, content, name",
+                        "name": "entry",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/thread.NewEntry"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/thread.Entry"
+                        }
+                    },
+                    "400": {
+                        "description": "Unknown kind or block type, or content that does not fit the kind",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "No such thread",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "thread.Block": {
+            "type": "object",
+            "properties": {
+                "args": {
+                    "type": "object"
+                },
+                "call_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_error": {
+                    "type": "boolean"
+                },
+                "media_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sha256": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "transcript": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "thread.Entry": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/thread.Block"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sender": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "thread": {
+                    "type": "string"
+                }
+            }
+        },
+        "thread.NewEntry": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/thread.Block"
+                    }
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sender": {
+                    "type": "string"
+                }
+            }
+        },
+        "thread.NewThread": {
+            "type": "object",
+            "properties": {
+                "opened_by": {
+                    "type": "string"
+                },
+                "parent": {
+                    "type": "string"
+                }
+            }
+        },
+        "thread.Thread": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "members": {
+                    "description": "Members is filled on a single thread's read only.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "description": "Name is the name its last update entry gave it, empty if none did.",
+                    "type": "string"
+                },
+                "opened_by": {
+                    "type": "string"
+                },
+                "parent": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

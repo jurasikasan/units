@@ -1,0 +1,35 @@
+name: threads-showcase
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: threads
+      POSTGRES_PASSWORD: threads
+      POSTGRES_DB: threads
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "threads"]
+      interval: 1s
+      retries: 30
+
+  threads:
+    build: ..
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://threads:threads@postgres:5432/threads?sslmode=disable
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/ready"]
+      interval: 1s
+      retries: 30
+
+  demo:
+    image: curlimages/curl:8.11.1
+    depends_on:
+      threads:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - ./demo.sh:/demo.sh:ro
+    entrypoint: ["sh", "/demo.sh"]

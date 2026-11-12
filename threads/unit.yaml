@@ -1,0 +1,34 @@
+# Manifest — what a reader outside threads reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: threads
+kind: service
+summary: The traces subjects leave in the world — threads as append-only journals of entries (ActivityStreams kinds, typed content blocks). Own database; each compose runs its own.
+contract: CONTRACT.md
+maturity: probe
+
+provides:
+  rest:
+    port: 8085
+    spec: docs/swagger.yaml
+    routes:
+      - "POST /threads"
+      - "GET /threads"
+      - "GET /threads/{id}"
+      - "DELETE /threads/{id}"
+      - "POST /threads/{id}/entries"
+      - "GET /threads/{id}/entries"
+  health: GET :8085/health
+  ready: GET :8085/ready
+
+consumes:
+  infra: [postgres]     # its own, on a network only it joins
+
+wire: []
+
+config:
+  required:
+    DATABASE_URL: its own Postgres; the schema is migrated on boot
+  optional:
+    PORT: "8085"
+  secrets: {}
