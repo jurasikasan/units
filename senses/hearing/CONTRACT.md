@@ -88,7 +88,7 @@ Stream `hearing_events`. `data` is JSON; every event carries `session_id`.
 
 | `ce_type` | When | `data` beyond `session_id` |
 |---|---|---|
-| `speechrecog.start-of-input` | speech has gone on for `HEARING_ONSET` | `request_id`, `input_type` (`speech`), `started_at` |
+| `speechrecog.start-of-input` | speech has gone on for `HEARING_ONSET`; or a shorter burst was transcribed to words (then late, with its `recognition-complete`, see Short) | `request_id`, `input_type` (`speech`), `started_at` |
 | `speechrecog.recognition-complete` | the speaker stopped for `HEARING_MERGE_WINDOW`, or the session ended, or the utterance reached `HEARING_MAX_UTTERANCE` | `request_id`, `completion_cause`, `text`, `language`, `started_at`, `ended_at` |
 | `speechrecog.session-closed` | the session is over | `reason`: `closed` / `idle` / `failed` |
 
@@ -101,10 +101,18 @@ Guarantees:
 
 ### What the timings mean
 
-- **Onset.** A burst shorter than `HEARING_ONSET` (a cough, a click) is no speech:
-  no event at all. `start-of-input` comes `HEARING_ONSET` after the speech began, and
+- **Onset.** A burst shorter than `HEARING_ONSET` (a cough, a click) raises no early
+  `start-of-input`: nothing a driver could take for an interruption. `start-of-input` comes `HEARING_ONSET` after the speech began, and
   `started_at` is when it began. It is the earliest signal a driver gets — the one to
   build barge-in on. Whether a start interrupts anything is the driver's call.
+- **Short.** A burst under `HEARING_ONSET` may still be a word: some voices say «Да.»
+  in 128 ms of what the detector calls speech. With `HEARING_SHORT=transcribe` (the
+  default) such a burst, once a pause of `HEARING_MERGE_WINDOW` closes it, goes to STT;
+  if words come back it is an utterance like any other, and its `start-of-input` and
+  `recognition-complete` go out together, after the word. That `start-of-input` is
+  late on purpose: the onset still decides how early a start may be reported, so a
+  cough never interrupts anything. An empty transcription, or a failed one, reports
+  nothing. `HEARING_SHORT=drop` keeps the earlier rule: under the onset is no speech.
 - **Merge.** A pause shorter than `HEARING_MERGE_WINDOW` does not end an utterance:
   "I'd like… uh… to order" is one. The utterance ends `HEARING_MERGE_WINDOW` after the
   last speech; `ended_at` is when the last speech ended, not when the event went out.
@@ -164,6 +172,7 @@ Inside, everything is brought to 16 kHz mono for the detector and for STT.
 | `VAD_URL` | the VAD engine | `http://vad:8096` |
 | `HEARING_ONSET` | speech shorter than this is not reported | `200ms` |
 | `HEARING_MERGE_WINDOW` | a pause this long ends an utterance | `400ms` |
+| `HEARING_SHORT` | a burst under the onset: `transcribe` (reported if STT finds words) or `drop` | `transcribe` |
 | `HEARING_PREROLL` | audio before the first speech window that goes to STT; `0` for none | `300ms` |
 | `HEARING_MAX_UTTERANCE` | an utterance is cut at this length | `25s` |
 | `HEARING_MAX_SESSIONS` | sessions at once | `4` |

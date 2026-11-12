@@ -425,11 +425,13 @@ func alawNearest(v int16) byte {
 
 func TestBurstShorterThanOnsetIsSilent(t *testing.T) {
 	h := newHarness(t, nil)
+	h.stt.text = "" // a click: STT finds no words in it
 	id, addr := h.open(t)
 	s := newSender(t, addr, 0xA11CE)
 	s.tone(0, 8000, 0, 0.100) // 1 kHz, amplitude 8000, 100 ms
 	s.silence(0, 0.100, 0.5)
-	// the burst is shorter than HEARING_ONSET (200 ms): no speech events
+	// the burst is shorter than HEARING_ONSET (200 ms) and holds no words:
+	// no speech events
 	h.waitNoType(t, "speechrecog.start-of-input", 700*time.Millisecond)
 	h.waitNoType(t, "speechrecog.recognition-complete", 0)
 	if err := h.svc.Close(id); err != nil {
@@ -1295,4 +1297,80 @@ func TestPreRollReachesSTT(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- a word shorter than the onset (UNIT-6) ---
+
+// «Да.» in some voices is 128 ms of speech to silero, under HEARING_ONSET.
+// The onset still decides when start-of-input may come early enough to build
+// barge-in on; it no longer decides whether the word is heard. A short burst
+// closed by the merge window goes to STT, and if words come back both events
+// follow, together, after the word.
+func TestShortWordIsHeardLate(t *testing.T) {
+	h := newHarness(t, nil)
+	h.stt.text = "да"
+	_, addr := h.open(t)
+	s := newSender(t, addr, 0xA11CE)
+	s.tone(0, 8000, 0, 0.100)
+	sentAt := s.firstAt
+	s.silence(0, 0.100, 0.8)
+
+	heard := h.waitType(t, "speechrecog.recognition-complete", 1, 5*time.Second)
+	started := h.events("speechrecog.start-of-input")
+	if len(started) != 1 {
+		t.Fatalf("start-of-input events = %d, want 1", len(started))
+	}
+	if started[0].Data["request_id"] != heard[0].Data["request_id"] {
+		t.Fatalf("request_id %v != %v", started[0].Data["request_id"], heard[0].Data["request_id"])
+	}
+	if heard[0].Data["text"] != "да" || heard[0].Data["completion_cause"] != CauseSuccess {
+		t.Fatalf("heard = %v, want success, text да", heard[0].Data)
+	}
+	h.sink.mu.Lock()
+	order := []string{}
+	for _, ev := range h.sink.Events {
+		order = append(order, ev.Type)
+	}
+	h.sink.mu.Unlock()
+	if order[0] != "speechrecog.start-of-input" || order[1] != "speechrecog.recognition-complete" {
+		t.Fatalf("events in order %v, want start-of-input then recognition-complete", order)
+	}
+	startedAt, err := time.Parse(time.RFC3339Nano, started[0].Data["started_at"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := absDur(startedAt.Sub(sentAt)); d > 40*time.Millisecond {
+		t.Fatalf("started_at %v after the burst, want within 40 ms of it", startedAt.Sub(sentAt))
+	}
+}
+
+// HEARING_SHORT=drop keeps the old rule: under the onset is no speech.
+func TestShortWordDropped(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.ShortWords = ShortDrop })
+	h.stt.text = "да"
+	_, addr := h.open(t)
+	s := newSender(t, addr, 0xA11CE)
+	s.tone(0, 8000, 0, 0.100)
+	s.silence(0, 0.100, 0.8)
+	h.waitNoType(t, "speechrecog.start-of-input", 1200*time.Millisecond)
+	h.waitNoType(t, "speechrecog.recognition-complete", 0)
+	h.stt.mu.Lock()
+	asked := len(h.stt.wavLens)
+	h.stt.mu.Unlock()
+	if asked != 0 {
+		t.Fatalf("STT asked %d times, want 0", asked)
+	}
+}
+
+// A short burst whose transcription fails is not reported: it may have been
+// a cough, and an error says nothing either way.
+func TestShortWordSTTFailureIsSilent(t *testing.T) {
+	h := newHarness(t, nil)
+	h.stt.fail = true
+	_, addr := h.open(t)
+	s := newSender(t, addr, 0xA11CE)
+	s.tone(0, 8000, 0, 0.100)
+	s.silence(0, 0.100, 0.8)
+	h.waitNoType(t, "speechrecog.start-of-input", 1200*time.Millisecond)
+	h.waitNoType(t, "speechrecog.recognition-complete", 0)
 }

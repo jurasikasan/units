@@ -28,6 +28,7 @@ func main() {
 		Onset:           envDur("HEARING_ONSET", hearing.DefaultOnset),
 		MergeWindow:     envDur("HEARING_MERGE_WINDOW", hearing.DefaultMergeWindow),
 		PreRoll:         envDur("HEARING_PREROLL", hearing.DefaultPreRoll),
+		ShortWords:      envStr("HEARING_SHORT", hearing.DefaultShortWords),
 		MaxUtterance:    envDur("HEARING_MAX_UTTERANCE", hearing.DefaultMaxUtterance),
 		MaxSessions:     envInt("HEARING_MAX_SESSIONS", hearing.DefaultMaxSessions),
 		IdleTimeout:     envDur("HEARING_IDLE_TIMEOUT", hearing.DefaultIdleTimeout),

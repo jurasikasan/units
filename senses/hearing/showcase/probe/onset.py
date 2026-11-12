@@ -21,7 +21,9 @@ The transcript is printed beside it for reference only: one model, one voice and
 the same samples every run make it a poor judge (UNIT-5 thread, 2026-11-12).
 
 An item is a phrase, or a sequence "phrase+pause seconds+phrase…" (UNIT-6);
-the last phrase of a sequence is the one measured. Nothing here knows a bot.
+the last phrase of a sequence is the one measured. "noise:0.08" is 80 ms of
+white noise, a stand-in for a cough or a click: there the good outcome is no
+transcript at all. Nothing here knows a bot.
 """
 import audioop
 import io
@@ -84,6 +86,9 @@ threading.Thread(target=ThreadingHTTPServer(("0.0.0.0", 9000), Door).serve_forev
 
 
 def say(text):
+    if text.startswith("noise:"):  # a cough or a click: white noise this many seconds long
+        n = int(48000 * float(text.split(":")[1]))
+        return struct.pack(f"<{n}h", *(random.randint(-8000, 8000) for _ in range(n)))
     req = u.Request("http://piper:8000/v1/audio/speech", headers={"Content-Type": "application/json"},
                     data=json.dumps({"model": "piper", "input": text, "voice": VOICE}).encode())
     w = wave.open(io.BytesIO(u.urlopen(req, timeout=60).read()))

@@ -41,6 +41,18 @@ const (
 	DefaultPort            = 8080
 )
 
+// What becomes of a burst of speech shorter than HEARING_ONSET (C5 §3, Short).
+const (
+	// ShortTranscribe sends it to STT once the merge window closes it, and
+	// reports it only when words come back: start-of-input and
+	// recognition-complete together, after the word.
+	ShortTranscribe = "transcribe"
+	// ShortDrop treats it as no speech (a cough, a click), as before UNIT-6.
+	ShortDrop = "drop"
+	// DefaultShortWords is HEARING_SHORT's default.
+	DefaultShortWords = ShortTranscribe
+)
+
 // RecognizerSpeech is the only recognizer this step supports.
 const RecognizerSpeech = "speech"
 
@@ -66,6 +78,7 @@ type Config struct {
 	Onset           time.Duration
 	MergeWindow     time.Duration
 	PreRoll         time.Duration // audio before the first speech window that goes to STT; 0 is none
+	ShortWords      string        // ShortTranscribe or ShortDrop: a burst under the onset
 	MaxUtterance    time.Duration
 	MaxSessions     int
 	IdleTimeout     time.Duration
@@ -108,6 +121,9 @@ func NewService(cfg Config) *Service {
 	}
 	if cfg.MergeWindow <= 0 {
 		cfg.MergeWindow = DefaultMergeWindow
+	}
+	if cfg.ShortWords != ShortTranscribe && cfg.ShortWords != ShortDrop {
+		cfg.ShortWords = DefaultShortWords
 	}
 	if cfg.MaxUtterance <= 0 {
 		cfg.MaxUtterance = DefaultMaxUtterance
@@ -376,6 +392,8 @@ func (se *session) processWindow(ctx context.Context, win []int16, winStart, win
 			// closed the utterance): the same split as a silence gap.
 			if se.cand.started {
 				se.emitHeard(ctx, se.cand, false)
+			} else {
+				se.closeShort(ctx, se.cand)
 			}
 			se.cand = nil
 		}
@@ -419,9 +437,9 @@ func (se *session) processWindow(ctx context.Context, win []int16, winStart, win
 			// silence before any speech: kept as the next one's pre-roll
 			se.keepPreroll(win)
 		case !se.cand.started && !winStart.Before(se.cand.lastSpeechEnd.Add(cfg.MergeWindow)):
-			// the candidate never reached the onset: drop it, no events;
-			// its tail is what preceded whatever speech comes next
-			se.keepPreroll(se.cand.audio)
+			// the candidate never reached the onset: a cough, a click, or a
+			// word too short for the onset (C5 §3, Short)
+			se.closeShort(ctx, se.cand)
 			se.keepPreroll(win)
 			se.cand = nil
 		case !se.cand.started:
@@ -441,6 +459,44 @@ func (se *session) processWindow(ctx context.Context, win []int16, winStart, win
 				se.cand.guess = se.transcribe(ctx, slices.Clone(se.cand.audio))
 			}
 		}
+	}
+}
+
+// closeShort ends a candidate that never reached the onset. Under
+// ShortTranscribe its audio goes to STT and, if words come back, it is
+// reported as an utterance of its own: start-of-input and
+// recognition-complete together, after the word — too late to build barge-in
+// on, which is what the onset is for. Empty text or a failed transcription
+// reports nothing: it may have been a cough. Under ShortDrop, nothing; its
+// audio is kept as the next candidate's pre-roll.
+func (se *session) closeShort(ctx context.Context, u *utterance) {
+	if se.svc.cfg.ShortWords != ShortTranscribe {
+		se.keepPreroll(u.audio)
+		return
+	}
+	tr := se.transcribe(ctx, u.audio)
+	se.out <- func() {
+		<-tr.done
+		if tr.err != nil || strings.TrimSpace(tr.res.Text) == "" {
+			return
+		}
+		emit := func(typ string, data map[string]any) {
+			data["session_id"] = se.id
+			se.svc.cfg.Sink.Emit(ctx, Event{Type: typ, Subject: se.id, Data: data, Traceparent: se.traceparent})
+		}
+		emit(TypeStartOfInput, map[string]any{
+			"request_id": u.id,
+			"input_type": "speech",
+			"started_at": stamp(u.start),
+		})
+		emit(TypeRecognitionComplete, map[string]any{
+			"request_id":       u.id,
+			"completion_cause": CauseSuccess,
+			"text":             tr.res.Text,
+			"language":         tr.res.Language,
+			"started_at":       stamp(u.start),
+			"ended_at":         stamp(u.lastSpeechEnd),
+		})
 	}
 }
 
