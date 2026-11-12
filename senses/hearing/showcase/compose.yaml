@@ -14,11 +14,15 @@ services:
   whisper:
     build: ../../../engines/stt/whisper
     environment:
-      WHISPER_MODEL: base
+      # base for the demo; the onset probe wants production's: WHISPER_MODEL=large-v3
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      # hearing has cut the clip with its own VAD; a second pass drops short words
+      WHISPER_VAD_FILTER: "false"
+    volumes: [hf-cache:/root/.cache/huggingface]
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 5s
-      start_period: 120s
+      start_period: 600s   # a cold large-v3 is ~3 GB to download
 
   piper:
     build: ../../../engines/tts/piper
@@ -97,3 +101,63 @@ services:
         for _, f in read():
             e = dict(zip(f[::2], f[1::2]))
             print(f"event: {e['ce_type']:36} {e['data']}")
+
+  # --- the onset probe (UNIT-5, UNIT-6), not part of the demo:
+  #   WHISPER_MODEL=large-v3 docker compose --profile probe run --rm --use-aliases probe
+  # One hearing per HEARING_PREROLL value, the same audio sent to each. Their STT
+  # is the probe itself (probe/onset.py): it records each clip, then forwards it
+  # to whisper.
+  hearing-p0: &probe-hearing
+    profiles: [probe]
+    build: ..
+    environment: &probe-env
+      REDIS_ADDR: redis:6379
+      STT_URL: http://probe:9000/0/v1
+      STT_MODEL: whisper
+      VAD_URL: http://vad:8096
+      AUDIO_IN_HOST: hearing-p0
+      HEARING_PREROLL: "0"
+    depends_on:
+      redis:
+        condition: service_started
+      vad:
+        condition: service_healthy
+      whisper:
+        condition: service_healthy
+
+  hearing-p300:
+    <<: *probe-hearing
+    environment:
+      <<: *probe-env
+      AUDIO_IN_HOST: hearing-p300
+      STT_URL: http://probe:9000/300ms/v1
+      HEARING_PREROLL: 300ms
+
+  hearing-p500:
+    <<: *probe-hearing
+    environment:
+      <<: *probe-env
+      AUDIO_IN_HOST: hearing-p500
+      STT_URL: http://probe:9000/500ms/v1
+      HEARING_PREROLL: 500ms
+
+  probe:
+    profiles: [probe]
+    image: python:3.12-alpine
+    volumes: [./probe:/probe:ro]
+    environment:
+      N: ${N:-5}
+      PHRASES: ${PHRASES:-Сколько тебе лет?|Как тебя зовут?|Алло?|Да.|Ну?}
+      HEARINGS: 0=hearing-p0,300ms=hearing-p300,500ms=hearing-p500
+      VOICE: ${VOICE:-denis}
+      # empty: measure the clips only, no transcripts (much faster)
+      WHISPER: ${PROBE_WHISPER-http://whisper:8001/v1}
+    depends_on:
+      hearing-p0: {condition: service_started}
+      hearing-p300: {condition: service_started}
+      hearing-p500: {condition: service_started}
+      piper: {condition: service_healthy}
+    command: [python3, -u, -W, ignore, /probe/onset.py]
+
+volumes:
+  hf-cache:
