@@ -6,7 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/google/uuid v1.6.0
-	github.com/jurasikasan/units/shared v0.0.0
+	github.com/jurasikasan/units/shared v0.1.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pion/rtp v1.10.6
 	github.com/pion/webrtc/v4 v4.2.26

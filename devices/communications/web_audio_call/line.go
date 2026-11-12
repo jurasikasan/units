@@ -15,9 +15,8 @@ import (
 	"time"
 
 	redis "github.com/go-redis/redis/v8"
-	"github.com/google/uuid"
+	sharedevents "github.com/jurasikasan/units/shared/events"
 	shhttp "github.com/jurasikasan/units/shared/http"
-	sredis "github.com/jurasikasan/units/shared/redis"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pion/webrtc/v4"
 	"gopkg.in/hraban/opus.v2"
@@ -380,24 +379,10 @@ func (l *Line) emit(ceType string, c *Call, data map[string]any) {
 	if _, ok := data["call_id"]; !ok {
 		data["call_id"] = c.id
 	}
-	b, err := json.Marshal(data)
-	if err != nil {
-		l.log.Error("event data marshal failed", "type", ceType, "err", err)
-		return
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	args := sredis.XAddArgs(eventsStream, map[string]any{
-		"ce_specversion":     "1.0",
-		"ce_id":              uuid.NewString(),
-		"ce_source":          ceSource,
-		"ce_type":            ceType,
-		"ce_subject":         c.id,
-		"ce_time":            time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
-		"ce_datacontenttype": "application/json",
-		"data":               string(b),
-	})
-	if err := l.rdb.XAdd(ctx, args).Err(); err != nil {
+	pub := sharedevents.Redis{Client: l.rdb, Stream: eventsStream, Source: ceSource}
+	if err := pub.Publish(ctx, sharedevents.Event{Type: ceType, Subject: c.id, Data: data}); err != nil {
 		l.log.Warn("failed to publish event", "type", ceType, "call", c.id, "err", err)
 	}
 }

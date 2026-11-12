@@ -16,8 +16,8 @@ github.com/google/jsonschema-go v0.4.3 h1:/DBOLZTfDow7pe2GmaJNhltueGTtDKICi8V8p+
 github.com/google/jsonschema-go v0.4.3/go.mod h1:r5quNTdLOYEz95Ru18zA0ydNbBuYoo9tgaYcxEYhJVE=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/jurasikasan/units/shared v0.0.0 h1:Co52u5wh0/Etm51frB1oT+7BufwrxOWJdUbI9lzi+6Y=
-github.com/jurasikasan/units/shared v0.0.0/go.mod h1:jtpmf3B9gTlxjjb2gG+HfLKyD56IFDiYP8yvodL/UGc=
+github.com/jurasikasan/units/shared v0.1.0 h1:bK30gIkCys5b/kWku4s4I+6Eg9O5X/PKoutkUmGn9M8=
+github.com/jurasikasan/units/shared v0.1.0/go.mod h1:PR1RWYTthgOUsdJ2Ys40emn0pxj8tFn4MxPkKLAJsqQ=
 github.com/modelcontextprotocol/go-sdk v1.8.0 h1:KIvahhYqwtbeniWVPs3TcXEA7b8jEtwfBpOTAI+Urx4=
 github.com/modelcontextprotocol/go-sdk v1.8.0/go.mod h1:dL7u98E/zjJTGzEq+j30jQ8K2k1mb6LeAH4inEcSGts=
 github.com/nxadm/tail v1.4.8 h1:nPr65rt6Y5JFSKQO7qToXr7pePgD6Gwiw05lkbyAQTE=
