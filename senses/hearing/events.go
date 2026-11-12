@@ -2,14 +2,10 @@ package hearing
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
 	"log"
 	"sync"
-	"time"
 
-	redis "github.com/go-redis/redis/v8"
+	sharedevents "github.com/jurasikasan/units/shared/events"
 	sharedredis "github.com/jurasikasan/units/shared/redis"
 )
 
@@ -51,49 +47,31 @@ const (
 )
 
 // RedisSink writes events to the hearing_events Redis stream in the
-// CloudEvents 1.0 binary-mode envelope (contracts/events.md at the repository root).
+// CloudEvents 1.0 binary-mode envelope (contracts/events.md, shared/events).
 type RedisSink struct {
-	client *redis.Client
-	stream string
-	source string
+	pub sharedevents.Redis
 }
 
 // NewRedisSink connects to Redis (REDIS_ADDR) and returns a sink for
 // the hearing_events stream.
 func NewRedisSink(ctx context.Context) *RedisSink {
-	return &RedisSink{
-		client: sharedredis.GetRedisClient(ctx),
-		stream: EventStream,
-		source: EventSource,
-	}
+	return &RedisSink{pub: sharedevents.Redis{
+		Client: sharedredis.GetRedisClient(ctx),
+		Stream: EventStream,
+		Source: EventSource,
+	}}
 }
 
-// Emit implements Sink.
+// Emit implements Sink. A failure is logged; the session goes on.
 func (r *RedisSink) Emit(ctx context.Context, ev Event) {
-	data, err := json.Marshal(ev.Data)
+	err := r.pub.Publish(ctx, sharedevents.Event{
+		Type:        ev.Type,
+		Subject:     ev.Subject,
+		Data:        ev.Data,
+		Traceparent: ev.Traceparent,
+	})
 	if err != nil {
-		log.Printf("hearing: encode event %s: %v", ev.Type, err)
-		return
-	}
-	values := map[string]any{
-		"ce_specversion":     "1.0",
-		"ce_id":              newUUID(),
-		"ce_source":          r.source,
-		"ce_type":            ev.Type,
-		"ce_subject":         ev.Subject,
-		"ce_time":            time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
-		"ce_datacontenttype": "application/json",
-		"data":               string(data),
-	}
-	// ce_traceparent is the trace of the open call that caused this event
-	// (contracts/events.md); an open without one means no field at all, never a
-	// made-up value.
-	if ev.Traceparent != "" {
-		values["ce_traceparent"] = ev.Traceparent
-	}
-	args := sharedredis.XAddArgs(r.stream, values)
-	if _, err := r.client.XAdd(ctx, args).Result(); err != nil {
-		log.Printf("hearing: XAdd %s: %v", r.stream, err)
+		log.Printf("hearing: event %s: %v", ev.Type, err)
 	}
 }
 
@@ -109,15 +87,4 @@ func (m *InMemorySink) Emit(_ context.Context, ev Event) {
 	m.mu.Lock()
 	m.Events = append(m.Events, ev)
 	m.mu.Unlock()
-}
-
-func newUUID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "00000000-0000-0000-0000-000000000000"
-	}
-	b[6] = (b[6] & 0x0F) | 0x40
-	b[8] = (b[8] & 0x3F) | 0x80
-	hexs := hex.EncodeToString(b)
-	return hexs[0:8] + "-" + hexs[8:12] + "-" + hexs[12:16] + "-" + hexs[16:20] + "-" + hexs[20:32]
 }
