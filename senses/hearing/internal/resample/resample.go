@@ -34,7 +34,7 @@ func (r *Resampler) Push(src []int16) []int16 {
 	case 8000:
 		for _, s := range src {
 			if r.hasPrev {
-				out = append(out, (r.prev+s)/2)
+				out = append(out, int16((int32(r.prev)+int32(s))/2)) // int32: two loud samples overflow int16
 			}
 			out = append(out, s)
 			r.prev = s
@@ -45,7 +45,7 @@ func (r *Resampler) Push(src []int16) []int16 {
 			r.rem[r.remN] = s
 			r.remN++
 			if r.remN == 3 {
-				out = append(out, (r.rem[0]+r.rem[1]+r.rem[2])/3)
+				out = append(out, int16((int32(r.rem[0])+int32(r.rem[1])+int32(r.rem[2]))/3)) // int32, as above
 				r.remN = 0
 			}
 		}

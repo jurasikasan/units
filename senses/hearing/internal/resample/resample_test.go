@@ -46,3 +46,33 @@ func Test48kAverageEveryThree(t *testing.T) {
 		t.Fatalf("Emitted = %d, want 2", r.Emitted())
 	}
 }
+
+// Loud speech must come out loud, not wrapped: the sums were int16, so two
+// 8 kHz samples above 16383 or three 48 kHz samples above ~10922 overflowed
+// into the opposite sign, and silero heard clicks where a short loud word was
+// (UNIT-6).
+func TestLoudSamplesDoNotWrap(t *testing.T) {
+	for _, tc := range []struct {
+		rate int
+		src  []int16
+		want []int16
+	}{
+		{8000, []int16{30000, 30000}, []int16{30000, 30000, 30000}},
+		{8000, []int16{-30000, -30000}, []int16{-30000, -30000, -30000}},
+		{48000, []int16{20000, 20000, 20000}, []int16{20000}},
+		{48000, []int16{-32768, -32768, -32768}, []int16{-32768}},
+		{48000, []int16{32767, 32767, 32767}, []int16{32767}},
+	} {
+		r := &Resampler{}
+		r.SetRate(tc.rate)
+		got := r.Push(tc.src)
+		if len(got) != len(tc.want) {
+			t.Fatalf("%d Hz %v: got %v, want %v", tc.rate, tc.src, got, tc.want)
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Fatalf("%d Hz %v: got %v, want %v", tc.rate, tc.src, got, tc.want)
+			}
+		}
+	}
+}
