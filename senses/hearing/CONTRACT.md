@@ -112,7 +112,10 @@ Guarantees:
   `recognition-complete` go out together, after the word. That `start-of-input` is
   late on purpose: the onset still decides how early a start may be reported, so a
   cough never interrupts anything. An empty transcription, or a failed one, reports
-  nothing. `HEARING_SHORT=drop` keeps the earlier rule: under the onset is no speech.
+  nothing; so does text longer than that much speech can carry — more than 50 letters
+  per second of `HEARING_ONSET`, 10 at 200 ms. Whisper answers some such clips with a
+  sentence from its training («Субтитры сделал DimaTorzok»), as confident as a real
+  word, so only its length gives it away. `HEARING_SHORT=drop` keeps the earlier rule: under the onset is no speech.
 - **Merge.** A pause shorter than `HEARING_MERGE_WINDOW` does not end an utterance:
   "I'd like… uh… to order" is one. The utterance ends `HEARING_MERGE_WINDOW` after the
   last speech; `ended_at` is when the last speech ended, not when the event went out.

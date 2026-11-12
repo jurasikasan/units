@@ -40,7 +40,9 @@ words is someone else's job.
 - A burst shorter than `HEARING_ONSET` is still sent to STT once the merge
   window closes it (`HEARING_SHORT=transcribe`, default); if words come back,
   its `start-of-input` and `recognition-complete` go out together, after the
-  word. `HEARING_SHORT=drop` ignores it, as before.
+  word. Text longer than such a burst can carry (over 50 letters per second
+  of `HEARING_ONSET`) is STT inventing a sentence and is not reported.
+  `HEARING_SHORT=drop` ignores it, as before.
 - What goes to STT starts `HEARING_PREROLL` (default 300 ms) before the first
   speech window, since the detector rises late on an onset consonant;
   `started_at` stays where speech was detected.

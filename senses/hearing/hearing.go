@@ -9,11 +9,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/jurasikasan/units/senses/hearing/internal/rtpin"
 	"github.com/jurasikasan/units/senses/hearing/internal/stt"
@@ -52,6 +54,32 @@ const (
 	// DefaultShortWords is HEARING_SHORT's default.
 	DefaultShortWords = ShortTranscribe
 )
+
+// shortLettersPerSecond caps the text a burst under HEARING_ONSET may come
+// back with: at most this many letters per second of the onset, 10 at the
+// default 200 ms (UNIT-13). Whisper large-v3, local and groq's, answers some
+// ~0.85 s clips of one short word with a sentence from its subtitle training
+// («Субтитры сделал DimaTorzok», «С вами был Игорь Негода.»: 19–22 letters);
+// those segments are no less confident than the real words (no_speech_prob
+// 0.06–0.57, avg_logprob -0.30 to -0.49, against up to 0.68 and down to -0.86
+// for real ones), so STT's own numbers cannot tell them apart. Their length
+// can: the fastest piper phrase measured is 20 letters per second of speech,
+// 4 letters in 200 ms, and real short-burst transcripts were 1 word of at
+// most 6 letters. The cap is 2.5 times that rate, and half the shortest
+// hallucination seen.
+const shortLettersPerSecond = 50
+
+// plausibleShort says whether text can be what was said in a burst under
+// onset: a few letters, not a sentence.
+func plausibleShort(text string, onset time.Duration) bool {
+	letters := 0
+	for _, r := range text {
+		if unicode.IsLetter(r) {
+			letters++
+		}
+	}
+	return float64(letters) <= shortLettersPerSecond*onset.Seconds()
+}
 
 // RecognizerSpeech is the only recognizer this step supports.
 const RecognizerSpeech = "speech"
@@ -478,6 +506,11 @@ func (se *session) closeShort(ctx context.Context, u *utterance) {
 	se.out <- func() {
 		<-tr.done
 		if tr.err != nil || strings.TrimSpace(tr.res.Text) == "" {
+			return
+		}
+		if !plausibleShort(tr.res.Text, se.svc.cfg.Onset) {
+			log.Printf("hearing: session %s: a burst under the onset came back as %q, too long to be what was said; dropped",
+				se.id, tr.res.Text)
 			return
 		}
 		emit := func(typ string, data map[string]any) {

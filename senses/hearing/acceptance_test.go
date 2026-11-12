@@ -1374,3 +1374,44 @@ func TestShortWordSTTFailureIsSilent(t *testing.T) {
 	h.waitNoType(t, "speechrecog.start-of-input", 1200*time.Millisecond)
 	h.waitNoType(t, "speechrecog.recognition-complete", 0)
 }
+
+// A short burst that comes back as a sentence is STT inventing one (UNIT-13):
+// whisper large-v3 answered dmitri's «Да.» with «Субтитры сделал DimaTorzok».
+// Nothing is reported, as for a cough.
+func TestShortWordInventedSentenceIsSilent(t *testing.T) {
+	h := newHarness(t, nil)
+	h.stt.text = "Субтитры сделал DimaTorzok"
+	_, addr := h.open(t)
+	s := newSender(t, addr, 0xA11CE)
+	s.tone(0, 8000, 0, 0.100)
+	s.silence(0, 0.100, 0.8)
+	h.waitNoType(t, "speechrecog.start-of-input", 1200*time.Millisecond)
+	h.waitNoType(t, "speechrecog.recognition-complete", 0)
+	h.stt.mu.Lock()
+	asked := len(h.stt.wavLens)
+	h.stt.mu.Unlock()
+	if asked != 1 {
+		t.Fatalf("STT asked %d times, want 1", asked)
+	}
+}
+
+// What a burst under the onset may come back as: what the probe's four voices
+// were transcribed to stays; the sentences whisper invented do not; the cap
+// moves with HEARING_ONSET.
+func TestPlausibleShort(t *testing.T) {
+	onset := 200 * time.Millisecond
+	for _, text := range []string{"Да.", "Что?", "Ну?", "Стоп!", "Сдан.", "здание", "«То».", "Ном.", "Привет!", "Okay.", "嗯"} {
+		if !plausibleShort(text, onset) {
+			t.Errorf("plausibleShort(%q, %v) = false, want true", text, onset)
+		}
+	}
+	for _, text := range []string{"Субтитры сделал DimaTorzok", "С вами был Игорь Негода.",
+		"Подписывайтесь на мой канал.", "Продолжение следует...", "Thanks for watching!"} {
+		if plausibleShort(text, onset) {
+			t.Errorf("plausibleShort(%q, %v) = true, want false", text, onset)
+		}
+	}
+	if !plausibleShort("Продолжение следует...", time.Second) {
+		t.Errorf("a 1 s onset should allow 19 letters")
+	}
+}
