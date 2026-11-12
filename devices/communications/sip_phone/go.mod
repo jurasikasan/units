@@ -6,7 +6,7 @@ require (
 	github.com/emiago/sipgo v1.6.0
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/icholy/digest v1.1.0
-	github.com/jurasikasan/units/shared v0.0.0
+	github.com/jurasikasan/units/shared v0.1.0
 	github.com/modelcontextprotocol/go-sdk v1.1.0
 	github.com/pion/rtp v1.10.3
 	github.com/stretchr/testify v1.12.1

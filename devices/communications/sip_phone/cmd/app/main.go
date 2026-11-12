@@ -53,7 +53,7 @@ func main() {
 	}
 
 	rdb := sharedredis.GetRedisClient(ctx)
-	pub := events.Redis{Client: rdb}
+	pub := events.Redis(rdb)
 	m := call.NewManager(cfg, cli, pub)
 	srv.OnBye(m.OnBye)
 	srv.OnInvite(m.OnInvite)
