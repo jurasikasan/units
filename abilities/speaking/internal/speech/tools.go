@@ -2,6 +2,8 @@ package speech
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -19,6 +21,9 @@ type openResult struct {
 type speakArgs struct {
 	SessionID string `json:"session_id"`
 	Text      string `json:"text"`
+	// SynthesisTimeoutMS is how long the line may wait for a piece of this
+	// phrase's audio before the phrase fails (C4 §2.2); absent, the session's.
+	SynthesisTimeoutMS *int `json:"synthesis_timeout_ms,omitempty"`
 }
 
 type speakResult struct {
@@ -61,10 +66,18 @@ func Server(sp *Speech) *mcp.Server {
 	})
 
 	mcp.AddTool[speakArgs, speakResult](srv, &mcp.Tool{
-		Name:        "speak",
-		Description: "SPEAK: speak text on an open session. Requests play in the order they were made; every request gets exactly one speak-complete event.",
+		Name: "speak",
+		Description: "SPEAK: speak text on an open session. Requests play in the order they were made; every request gets exactly one speak-complete event. " +
+			"synthesis_timeout_ms (optional) is how long the line may wait for a piece of this phrase's audio: past it the phrase ends, cause error, and the next one plays.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in speakArgs) (*mcp.CallToolResult, speakResult, error) {
-		rid, err := sp.Speak(in.SessionID, in.Text)
+		var opt SpeakOptions
+		if in.SynthesisTimeoutMS != nil {
+			if *in.SynthesisTimeoutMS <= 0 {
+				return nil, speakResult{}, fmt.Errorf("bad_argument: synthesis_timeout_ms must be positive, got %d", *in.SynthesisTimeoutMS)
+			}
+			opt.SynthesisTimeout = time.Duration(*in.SynthesisTimeoutMS) * time.Millisecond
+		}
+		rid, err := sp.SpeakWith(in.SessionID, in.Text, opt)
 		if err != nil {
 			return nil, speakResult{}, err
 		}

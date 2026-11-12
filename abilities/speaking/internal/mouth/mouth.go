@@ -47,8 +47,19 @@ type Played struct {
 
 var ErrClosed = errors.New("mouth closed")
 
+// Request is one utterance to speak and how.
+type Request struct {
+	Text, Voice string
+	// SynthesisTimeout is the longest the line waits for a piece of this
+	// utterance's audio: when the next piece is due and not synthesised within
+	// it, the utterance ends there, cause error, and the next one plays. Zero
+	// waits as long as synthesis takes.
+	SynthesisTimeout time.Duration
+}
+
 type utterance struct {
 	id, text, voice string
+	synthTimeout    time.Duration
 	ctx             context.Context
 	cancel          context.CancelFunc
 	done            chan struct{}
@@ -79,10 +90,18 @@ func New(tts TTS, sink Sink, onPlayed func(Played)) *Mouth {
 	return m
 }
 
-// Speak queues a text and returns its request_id.
+// Speak queues a text with no synthesis timeout and returns its request_id.
 func (m *Mouth) Speak(text, voice string) (string, error) {
+	return m.SpeakWith(Request{Text: text, Voice: voice})
+}
+
+// SpeakWith queues a request and returns its request_id.
+func (m *Mouth) SpeakWith(r Request) (string, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &utterance{id: newUtteranceID(), text: text, voice: voice, ctx: ctx, cancel: cancel, done: make(chan struct{})}
+	s := &utterance{
+		id: newUtteranceID(), text: r.Text, voice: r.Voice, synthTimeout: r.SynthesisTimeout,
+		ctx: ctx, cancel: cancel, done: make(chan struct{}),
+	}
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -250,15 +269,13 @@ func (m *Mouth) play(s *utterance) (string, bool) {
 	defer ticker.Stop()
 
 	for i, sn := range sentences {
-		var got synthesized
-		var ok bool
-		select {
-		case got, ok = <-ready:
-		case <-ctx.Done():
-		}
+		got, ok := await(ctx, ready, s.synthTimeout)
 		if !ok || got.err != nil {
-			if got.err != nil {
+			switch {
+			case got.err != nil:
 				log.Printf("[mouth %s] tts: %v", s.id, got.err)
+			case ctx.Err() == nil:
+				log.Printf("[mouth %s] tts: no audio for sentence %d within %s", s.id, i+1, s.synthTimeout)
 			}
 			return credit.spoken(), false
 		}
@@ -292,6 +309,26 @@ func (m *Mouth) play(s *utterance) (string, bool) {
 		}
 	}
 	return s.text, true
+}
+
+// await is the next synthesised sentence; ok is false when ctx ends first, the
+// synthesis gave up, or timeout (if not zero) passes with nothing ready. The
+// clock starts when playback needs the sentence: time it spent synthesising
+// while the one before played is not counted against it.
+func await(ctx context.Context, ready <-chan synthesized, timeout time.Duration) (synthesized, bool) {
+	var expired <-chan time.Time
+	if timeout > 0 {
+		t := time.NewTimer(timeout)
+		defer t.Stop()
+		expired = t.C
+	}
+	select {
+	case got, ok := <-ready:
+		return got, ok
+	case <-ctx.Done():
+	case <-expired:
+	}
+	return synthesized{}, false
 }
 
 func frame(pcm []int16, f int) []int16 {

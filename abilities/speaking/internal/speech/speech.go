@@ -34,6 +34,20 @@ type Config struct {
 	// IdleTimeout is how long an open-but-quiet session lives before it ends
 	// on its own with reason "idle" (SPEECH_IDLE_TIMEOUT).
 	IdleTimeout time.Duration
+	// SynthesisTimeout is how long a phrase may keep the line waiting for a
+	// piece of its audio, when its speak names no timeout of its own
+	// (SPEECH_SYNTHESIS_TIMEOUT, C4 §2.2).
+	SynthesisTimeout time.Duration
+}
+
+// DefaultSynthesisTimeout is Config.SynthesisTimeout when none is set.
+const DefaultSynthesisTimeout = 10 * time.Second
+
+// SpeakOptions are what a speak may set beyond its text (C4 §2.2).
+type SpeakOptions struct {
+	// SynthesisTimeout overrides Config.SynthesisTimeout for this phrase; zero
+	// keeps the session's.
+	SynthesisTimeout time.Duration
 }
 
 // SynthClient is the TTS side the mouth needs. *tts.Client satisfies it; tests
@@ -55,13 +69,16 @@ type Speech struct {
 }
 
 // New builds the manager. Zero cfg fields fall back to the C4 defaults:
-// 4 sessions, 2m idle timeout.
+// 4 sessions, 2m idle timeout, 10s synthesis timeout.
 func New(cfg Config, tts SynthClient, pub events.Publisher) *Speech {
 	if cfg.MaxSessions <= 0 {
 		cfg.MaxSessions = 4
 	}
 	if cfg.IdleTimeout <= 0 {
 		cfg.IdleTimeout = 2 * time.Minute
+	}
+	if cfg.SynthesisTimeout <= 0 {
+		cfg.SynthesisTimeout = DefaultSynthesisTimeout
 	}
 	return &Speech{
 		cfg:      cfg,
@@ -121,8 +138,20 @@ func (sp *Speech) Open(ctx context.Context, to, voice, codec, traceparent string
 	return sess.id, nil
 }
 
-// Speak queues text to an open session and returns the request id (C4 §2.2).
+// Speak queues text to an open session with the default options and returns
+// the request id (C4 §2.2).
 func (sp *Speech) Speak(sessionID, text string) (string, error) {
+	return sp.SpeakWith(sessionID, text, SpeakOptions{})
+}
+
+// SpeakWith is Speak with the options a speak call may set.
+func (sp *Speech) SpeakWith(sessionID, text string, opt SpeakOptions) (string, error) {
+	if opt.SynthesisTimeout < 0 {
+		return "", fmt.Errorf("bad_argument: synthesis_timeout_ms must be positive")
+	}
+	if opt.SynthesisTimeout == 0 {
+		opt.SynthesisTimeout = sp.cfg.SynthesisTimeout
+	}
 	sess := sp.get(sessionID)
 	if sess == nil {
 		return "", fmt.Errorf("unknown_session: %s", sessionID)
@@ -131,7 +160,11 @@ func (sp *Speech) Speak(sessionID, text string) (string, error) {
 		return "", fmt.Errorf("unknown_session: %s has closed", sessionID)
 	}
 	sess.touch()
-	uid, err := sess.mouth.Speak(text, sess.voice)
+	uid, err := sess.mouth.SpeakWith(mouth.Request{
+		Text:             text,
+		Voice:            sess.voice,
+		SynthesisTimeout: opt.SynthesisTimeout,
+	})
 	if err != nil {
 		if errors.Is(err, mouth.ErrClosed) {
 			return "", fmt.Errorf("unknown_session: %s has closed", sessionID)

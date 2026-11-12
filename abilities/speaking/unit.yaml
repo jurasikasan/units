@@ -42,6 +42,7 @@ config:
     REDIS_ADDR: localhost:6379
     SPEECH_MAX_SESSIONS: "4"
     SPEECH_IDLE_TIMEOUT: 2m
+    SPEECH_SYNTHESIS_TIMEOUT: 10s   # a phrase's deadline when its speak names none
     PORT: "8080"
   secrets: {}
 

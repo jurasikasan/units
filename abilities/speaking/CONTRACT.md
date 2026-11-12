@@ -1,6 +1,7 @@
 # abilities/speaking — contract (C4)
 
-Revision 4. Revision 3 took MRCPv2's vocabulary (§7): `say` → `speak`, `hush` → `stop`,
+Revision 5. Revision 5 gives `speak` a deadline: `synthesis_timeout_ms` (§2.2), how long
+the line may wait for a piece of a phrase's audio before the phrase fails. Revision 3 took MRCPv2's vocabulary (§7): `say` → `speak`, `hush` → `stop`,
 `barge_in_occurred` added, `utterance.spoken` → `speechsynth.speak-complete` with a
 completion cause. Revision 4 names what went out `spoken` (it was `heard`): the organ knows
 what it sent, not what anyone heard.
@@ -60,7 +61,7 @@ Errors are MCP tool errors (`isError: true`) whose text starts with a code from 
 
 Over the session limit `open` fails at once with `capacity`; it does not queue.
 
-### 2.2 `speak(session_id, text)` → `request_id`
+### 2.2 `speak(session_id, text, synthesis_timeout_ms?)` → `request_id`
 
 SPEAK. Adds one whole utterance to the session. Utterances play one after another, in the
 order of `speak` (FIFO); within one, the text is cut into pieces at sentence ends and each
@@ -77,6 +78,16 @@ its sentences.
 ```
 
 Every `request_id` gets exactly one `speechsynth.speak-complete` (§3).
+
+**A deadline per phrase.** `synthesis_timeout_ms` (optional, > 0; default
+`SPEECH_SYNTHESIS_TIMEOUT`, 10 s) is how long the line may wait for a piece of this
+phrase's audio. The clock starts when the piece is due — when the phrase's turn comes,
+or the piece before it has played — not when its synthesis began, so time it spent
+synthesising while something else played is not counted. Past it the phrase ends there:
+cause `error`, `spoken` up to the piece, its synthesis abandoned, and the next phrase
+plays. It bounds silence, not length: a long phrase whose pieces come in time plays to
+the end. A stalled engine silences the call for at most this long per phrase; what to
+do then (a filler, another voice, giving up) is the driver's.
 
 **Text that arrives in pieces** — tokens from a model, half a letter at a time — is the
 same utterance fed by deltas over a stream instead of one `speak`. Its transport (a
@@ -119,6 +130,7 @@ from the first SSRC only.
 | `bad_target` | `to` is not `host:port`, or the host does not resolve |
 | `unknown_session` | no such session, or it has closed |
 | `unsupported_codec` | `codec` is not one this speech sends |
+| `bad_argument` | an argument is out of range (`synthesis_timeout_ms` ≤ 0) |
 
 ## 3. Events
 
@@ -144,15 +156,15 @@ What went out, not what was sent to TTS:
 - `spoken` — the prefix of the text whose audio was sent, cut at a word boundary; a word
   more than half sent counts. Empty for an utterance dropped before it began.
 - `completion_cause` — RFC 6787 §8.4.4: `normal` (000) only when the whole text was sent;
-  `barge-in` (001) cut by `barge_in_occurred`; `error` (004) a piece failed to synthesise
-  or could not be sent; `cancelled` (007) cut by `stop` or by the session closing.
+  `barge-in` (001) cut by `barge_in_occurred`; `error` (004) a piece failed to synthesise,
+  was not synthesised within `synthesis_timeout_ms` (§2.2), or could not be sent; `cancelled` (007) cut by `stop` or by the session closing.
 
 "Sent" is the honest limit of an organ that is not the device: what left speech on RTP.
 What the far end actually played is behind the device's buffer — tens of milliseconds
 on one box or a LAN, more across the world. A driver that needs the wire's truth asks
 the device, not speech.
 
-A piece the engine failed to synthesise ends the utterance there: cause `error`,
+A piece the engine failed to synthesise, or did not synthesise in time, ends the utterance there: cause `error`,
 `spoken` up to it, and the session goes on with the next utterance.
 
 ## 4. Audio out
@@ -182,6 +194,7 @@ when that matters.
 | `TTS_KEY` | its bearer (a router's key); empty for an engine |
 | `SPEECH_MAX_SESSIONS` | sessions at once; default 4 |
 | `SPEECH_IDLE_TIMEOUT` | an idle session closes by itself; default `2m` |
+| `SPEECH_SYNTHESIS_TIMEOUT` | a phrase's deadline when its `speak` names none (§2.2); default `10s` |
 | `REDIS_ADDR` | where `speech_events` goes |
 | `PORT` | MCP and `GET /health`; default 8080 |
 

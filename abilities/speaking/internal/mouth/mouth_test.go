@@ -323,3 +323,73 @@ func TestNextUtteranceIsSynthesisedWhileTheCurrentPlays(t *testing.T) {
 	gap := sk.at[n].Sub(sk.at[n-1])
 	assert.Less(t, gap, synth/2, "a gap of %v between the utterances: the second was synthesised only after the first", gap)
 }
+
+// stallTTS never answers for a sentence it is told to stall on: it waits for
+// its context, as an engine that has hung would leave a request.
+type stallTTS struct {
+	fakeTTS
+	stall     string
+	abandoned chan struct{}
+}
+
+func (f *stallTTS) Synth(ctx context.Context, s, v string) ([]int16, error) {
+	if s == f.stall {
+		<-ctx.Done()
+		close(f.abandoned)
+		return nil, ctx.Err()
+	}
+	return f.fakeTTS.Synth(ctx, s, v)
+}
+
+// UNIT-4: a sentence the engine never answers ends its utterance within the
+// request's synthesis timeout, cause error, with what went out before it; its
+// synthesis is abandoned and the next utterance is spoken.
+func TestSynthesisTimeout_FailsThePhraseAndTheNextPlays(t *testing.T) {
+	fast(t)
+	tts := &stallTTS{stall: "Зависло.", abandoned: make(chan struct{})}
+	sk, log := newSink(-1), newLog()
+	m := New(tts, sk, log.add)
+	defer m.Close()
+
+	const timeout = 150 * time.Millisecond
+	start := time.Now()
+	first, err := m.SpeakWith(Request{Text: "Раз. Зависло.", Voice: "v", SynthesisTimeout: timeout})
+	require.NoError(t, err)
+	second, err := m.SpeakWith(Request{Text: "Два.", Voice: "v", SynthesisTimeout: timeout})
+	require.NoError(t, err)
+
+	p := log.next(t)
+	failedAfter := time.Since(start)
+	assert.Equal(t, Played{RequestID: first, Spoken: "Раз.", Cause: CauseError}, p)
+	// "Раз." is 4 frames of 1 ms, then the wait: well under a second, not "never".
+	assert.GreaterOrEqual(t, failedAfter, timeout)
+	assert.Less(t, failedAfter, timeout+time.Second)
+
+	select {
+	case <-tts.abandoned:
+	case <-time.After(time.Second):
+		t.Fatal("the stalled synthesis was not cancelled")
+	}
+
+	assert.Equal(t, Played{RequestID: second, Spoken: "Два.", Cause: CauseNormal}, log.next(t))
+}
+
+// Without a timeout the mouth waits for synthesis as long as it takes: the
+// stalled utterance is still playing when Stop cuts it.
+func TestSynthesisTimeout_ZeroWaits(t *testing.T) {
+	fast(t)
+	tts := &stallTTS{stall: "Зависло.", abandoned: make(chan struct{})}
+	sk, log := newSink(-1), newLog()
+	m := New(tts, sk, log.add)
+	defer m.Close()
+
+	id, err := m.SpeakWith(Request{Text: "Зависло.", Voice: "v"})
+	require.NoError(t, err)
+	select {
+	case p := <-log.ch:
+		t.Fatalf("finished on its own: %+v", p)
+	case <-time.After(300 * time.Millisecond):
+	}
+	m.Stop(CauseCancelled)
+	assert.Equal(t, Played{RequestID: id, Cause: CauseCancelled}, log.next(t))
+}

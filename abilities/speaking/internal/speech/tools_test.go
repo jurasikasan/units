@@ -9,6 +9,7 @@ package speech_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -184,5 +185,63 @@ func TestTwoSessions_EachKeepsItsOwnTraceparent(t *testing.T) {
 		require.True(t, ok, "an event for an unknown session: %v", e)
 		assert.Equal(t, tp, e.Traceparent,
 			"session %s under %s: event %s carries its own traceparent", e.Subject, tp, e.Type)
+	}
+}
+
+// UNIT-4, through the tool: a speak whose synthesis never answers fails within
+// its own synthesis_timeout_ms — cause error, spoken up to the stalled piece,
+// the engine's request cancelled — and the phrase after it is spoken whole.
+func TestSpeak_SynthesisTimeoutFailsThePhrase(t *testing.T) {
+	g := newFakeGateway(t, "piper_denis")
+	g.slowContains = "stall"
+	g.slowDur = time.Minute // an engine that has hung
+	pub := &fakePub{}
+	// the session's default is far longer than the test: the request's own wins
+	sp := newSpeech(t, speech.Config{SynthesisTimeout: time.Minute}, g, pub)
+	tap := startTap(t)
+	cs := connectTools(t, sp)
+
+	out, errText := callTool(t, cs, "open", map[string]any{"to": tap.addr(), "voice_name": "piper_denis"}, nil)
+	require.Empty(t, errText)
+	id := out["session_id"].(string)
+
+	start := time.Now()
+	const text1 = "Минутку. stall stall stall."
+	out, errText = callTool(t, cs, "speak", map[string]any{"session_id": id, "text": text1, "synthesis_timeout_ms": 400}, nil)
+	require.Empty(t, errText)
+	u1 := out["request_id"].(string)
+	out, errText = callTool(t, cs, "speak", map[string]any{"session_id": id, "text": "Продолжаем."}, nil)
+	require.Empty(t, errText)
+	u2 := out["request_id"].(string)
+
+	waitFor(t, 10*time.Second, "the first speak-complete", func() bool { return len(pub.list()) >= 1 })
+	failedAfter := time.Since(start)
+	l := pub.list()
+	assert.Equal(t, u1, l[0].Data["request_id"])
+	assert.Equal(t, "error", l[0].Data["completion_cause"])
+	assert.Equal(t, "Минутку.", l[0].Data["spoken"])
+	// "Минутку." plays ~0.1 s of audio, then 0.4 s of waiting: nowhere near the
+	// session's minute or the engine's.
+	assert.Less(t, failedAfter, 3*time.Second)
+	waitFor(t, 5*time.Second, "the stalled synthesis cancelled", g.wasCancelled)
+
+	waitFor(t, 10*time.Second, "the second speak-complete", func() bool { return len(pub.list()) >= 2 })
+	l = pub.list()
+	assert.Equal(t, u2, l[1].Data["request_id"])
+	assert.Equal(t, "normal", l[1].Data["completion_cause"])
+	assert.Equal(t, "Продолжаем.", l[1].Data["spoken"])
+}
+
+func TestSpeak_SynthesisTimeoutMustBePositive(t *testing.T) {
+	g := newFakeGateway(t, "piper_denis")
+	sp := newSpeech(t, speech.Config{}, g, &fakePub{})
+	tap := startTap(t)
+	cs := connectTools(t, sp)
+
+	out, errText := callTool(t, cs, "open", map[string]any{"to": tap.addr(), "voice_name": "piper_denis"}, nil)
+	require.Empty(t, errText)
+	for _, ms := range []int{0, -5} {
+		_, errText = callTool(t, cs, "speak", map[string]any{"session_id": out["session_id"], "text": "x", "synthesis_timeout_ms": ms}, nil)
+		assert.True(t, strings.HasPrefix(errText, "bad_argument:"), "%d: %q", ms, errText)
 	}
 }

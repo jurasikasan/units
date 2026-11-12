@@ -13,7 +13,7 @@ synthesizer verbs (RFC 6787 §8; CONTRACT.md §7):
 | tool                | args                          | returns            | error codes                                                    |
 |---------------------|-------------------------------|--------------------|----------------------------------------------------------------|
 | `open`              | `to`, `voice_name`, `codec?`  | `{"session_id"}`   | `unsupported_codec`, `unknown_voice`, `capacity`, `bad_target` |
-| `speak`             | `session_id`, `text`          | `{"request_id"}`   | `unknown_session`                                              |
+| `speak`             | `session_id`, `text`, `synthesis_timeout_ms?` | `{"request_id"}` | `unknown_session`, `bad_argument`                   |
 | `stop`              | `session_id`                  | `{"ok": true}`     | `unknown_session`                                              |
 | `barge_in_occurred` | `session_id`                  | `{"ok": true}`     | `unknown_session`                                              |
 | `close`             | `session_id`                  | `{"ok": true}`     | `unknown_session`                                              |
@@ -42,8 +42,9 @@ On the Redis stream `speech_events`, CloudEvents envelope (C0 §5),
   counts; empty if the request was dropped before it began).
   `completion_cause` is `normal` only when the whole text was sent; `barge-in`
   or `cancelled` when `barge_in_occurred` or `stop`/`close` cut it; `error`
-  when a piece the engine failed ends it there (`spoken` up to it) — the
-  session goes on.
+  when a piece the engine failed, or did not deliver within the phrase's
+  `synthesis_timeout_ms`, ends it there (`spoken` up to it) — the session
+  goes on.
 - `speechsynth.session-closed` — `{"session_id", "reason"}`, reason `closed` (the tool),
   `idle` (quiet longer than `SPEECH_IDLE_TIMEOUT` with nothing queued or
   playing), or `failed`. Always the last event for the session. Closing an
@@ -58,6 +59,7 @@ On the Redis stream `speech_events`, CloudEvents envelope (C0 §5),
 | `REDIS_ADDR`          | `localhost:6379`           | event stream, through `units/shared/redis`          |
 | `SPEECH_MAX_SESSIONS` | `4`                        | how many sessions at once                     |
 | `SPEECH_IDLE_TIMEOUT` | `2m`                       | quiet time that ends a session by itself      |
+| `SPEECH_SYNTHESIS_TIMEOUT` | `10s`                 | a phrase's wait for its audio when `speak` names none |
 | `PORT`                | `8080`                     | MCP and `/health` (`{"status":"ok"}`)         |
 
 ## Run
@@ -76,7 +78,8 @@ httptest), a UDP loopback tap for the RTP, and an in-memory publisher:
 RTP shape and pace, two says in order, the timestamp jump over a gap, a
 mid-utterance close (cut + drop + cancellation), a mid-utterance stop (the
 same cut, the session and its RTP stream going on), a TTS failure ending one
-utterance while the session goes on, every error code, and the idle timeout.
+utterance while the session goes on, a stalled engine failing the phrase
+within its `synthesis_timeout_ms`, every error code, and the idle timeout.
 
 ## Not this step
 

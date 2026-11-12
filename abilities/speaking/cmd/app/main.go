@@ -40,13 +40,19 @@ func main() {
 	if err != nil || idleTimeout <= 0 {
 		log.Fatalf("speech: bad SPEECH_IDLE_TIMEOUT %q", os.Getenv("SPEECH_IDLE_TIMEOUT"))
 	}
+	synthesisTimeout, err := time.ParseDuration(envOr("SPEECH_SYNTHESIS_TIMEOUT", speech.DefaultSynthesisTimeout.String()))
+	if err != nil || synthesisTimeout <= 0 {
+		log.Fatalf("speech: bad SPEECH_SYNTHESIS_TIMEOUT %q", os.Getenv("SPEECH_SYNTHESIS_TIMEOUT"))
+	}
 
 	// REDIS_ADDR is read by shared/redis; it waits for the broker before we
 	// start serving, because every event has to land somewhere.
 	client := sharedredis.GetRedisClient(context.Background())
 	pub := events.Redis{Client: client}
 
-	sp := speech.New(speech.Config{MaxSessions: maxSessions, IdleTimeout: idleTimeout},
+	sp := speech.New(speech.Config{
+		MaxSessions: maxSessions, IdleTimeout: idleTimeout, SynthesisTimeout: synthesisTimeout,
+	},
 		tts.New(ttsURL, ttsKey), pub)
 
 	srv := speech.Server(sp)
