@@ -1,0 +1,37 @@
+# Manifest — what a reader outside job_runner reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: job_runner
+kind: service
+summary: An isolated machine for agents — files in, a script runs under gVisor with no network unless asked, files out — answered when it ends, looked at with peek while it runs.
+contract: CONTRACT.md
+maturity: probe
+
+provides:
+  mcp:
+    hub_name: job_runner   # the prefix mcp-hub gives its tools: job_runner.run, …
+    port: 8080
+    tools: [run, peek, list]
+  health: GET :8080/health
+
+consumes:
+  infra: [docker]          # its own daemon with gVisor: the image in dind/
+  outside: [http]          # inputs, outputs and the log, under TRANSFER_URLS only
+
+wire: []
+
+config:
+  required:
+    IMAGES: "the images a run may name, name=reference,…; the first is the default"
+  optional:
+    DOCKER_HOST: unix:///var/run/dind/docker.sock
+    NETWORKS: "the daemon's networks a run may name besides none and internet, name=network,…"
+    TRANSFER_URLS: "prefixes an input, output or log URL must start with; none: no transfers"
+    MAX_KEEP: 4h
+    RUN_MEMORY: 2g
+    RUN_PIDS: "512"
+    RUN_CPUS: "2"
+    HELPERS_DIR: "a directory, as the daemon sees it, read-only at /opt/helpers"
+    PORT: "8080"
+  # SECRET_<NAME>: the secret NAME, any number of them, read by prefix.
+  secrets: {}

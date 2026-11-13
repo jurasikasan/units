@@ -1,0 +1,65 @@
+name: job_runner-showcase
+
+volumes:
+  socket:
+  storage:
+
+networks:
+  # job_runner and the file server it fetches from and sends to.
+  inside: {}
+  # The daemon's way out: what it can reach, a run on internet can — after
+  # the egress rule.
+  egress: {}
+
+services:
+  dind:
+    build: ../dind
+    privileged: true
+    volumes:
+      - socket:/var/run/dind
+      - storage:/var/lib/docker
+    networks: [egress]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /run/egress-ready && docker info >/dev/null"]
+      interval: 2s
+      retries: 60
+
+  files:
+    image: python:3.12-alpine
+    volumes:
+      - ./files.py:/files.py:ro
+    command: ["python", "/files.py"]
+    networks: [inside]
+
+  job_runner:
+    build: ..
+    environment:
+      IMAGES: shell=bash:5.2
+      TRANSFER_URLS: http://files:8000/v1/
+      SECRET_FILES_TOKEN: showcase-token
+      RUN_MEMORY: 256m
+      RUN_PIDS: "128"
+      RUN_CPUS: "1"
+    volumes:
+      - socket:/var/run/dind
+    depends_on:
+      dind:
+        condition: service_healthy
+    networks: [inside]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 1s
+      retries: 30
+
+  demo:
+    image: python:3.12-alpine
+    depends_on:
+      job_runner:
+        condition: service_healthy
+      files:
+        condition: service_started
+    restart: "no"
+    volumes:
+      - ./demo.py:/demo.py:ro
+    command: ["python", "-u", "/demo.py"]
+    networks: [inside]
