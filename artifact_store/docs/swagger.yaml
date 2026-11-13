@@ -1,0 +1,189 @@
+basePath: /
+definitions:
+  health.Status:
+    properties:
+      status:
+        type: string
+    type: object
+  store.File:
+    properties:
+      content_type:
+        type: string
+      created_by:
+        type: string
+      name:
+        type: string
+      sha256:
+        type: string
+      size:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: 'A store of named files in spaces: put, get, list and delete.'
+  title: artifact_store API
+  version: "1.0"
+paths:
+  /health:
+    get:
+      description: The process is up; nothing about its dependencies is checked.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/health.Status'
+      summary: Liveness probe
+      tags:
+      - health
+  /v1/{space}:
+    get:
+      description: The space's files whose name starts with the prefix parameter (all
+        of them without it), as their metadata, ordered by name. An empty or unknown
+        space is an empty list.
+      parameters:
+      - description: space
+        in: path
+        name: space
+        required: true
+        type: string
+      - description: list only names that start with it
+        in: query
+        name: prefix
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/store.File'
+            type: array
+        "400":
+          description: space breaks its alphabet
+          schema:
+            type: string
+        "503":
+          description: MinIO or Postgres unavailable
+          schema:
+            type: string
+      summary: List a space's files
+      tags:
+      - store
+  /v1/{space}/{name}:
+    delete:
+      description: Removes the file under name in space. 204 when the file was there,
+        404 when it was not; afterwards the name no longer answers and is out of the
+        listing.
+      parameters:
+      - description: space
+        in: path
+        name: space
+        required: true
+        type: string
+      - description: name
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: space or name breaks its alphabet
+          schema:
+            type: string
+        "404":
+          description: no such file
+          schema:
+            type: string
+        "503":
+          description: MinIO or Postgres unavailable
+          schema:
+            type: string
+      summary: Remove a file
+      tags:
+      - store
+    get:
+      description: The file's bytes, with Content-Type, Content-Length and ETag "<sha256>"
+        of the bytes.
+      parameters:
+      - description: space
+        in: path
+        name: space
+        required: true
+        type: string
+      - description: name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: space or name breaks its alphabet
+          schema:
+            type: string
+        "404":
+          description: no such file
+          schema:
+            type: string
+        "503":
+          description: MinIO or Postgres unavailable
+          schema:
+            type: string
+      summary: Read a file back
+      tags:
+      - store
+    put:
+      description: Stores the request body as the file under name in space, keeping
+        Content-Type; created_by is the X-Principal-Id header as received or null.
+        A second PUT under the same name replaces the file; a broken upload leaves
+        the previous file as it was.
+      parameters:
+      - description: space
+        in: path
+        name: space
+        required: true
+        type: string
+      - description: name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: who wrote the file
+        in: header
+        name: X-Principal-Id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/store.File'
+        "400":
+          description: space or name breaks its alphabet
+          schema:
+            type: string
+        "413":
+          description: body over the size limit
+          schema:
+            type: string
+        "503":
+          description: MinIO or Postgres unavailable
+          schema:
+            type: string
+      summary: Store a file
+      tags:
+      - store
+swagger: "2.0"

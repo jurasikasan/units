@@ -1,0 +1,38 @@
+# Manifest — what a reader outside artifact_store reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: artifact_store
+kind: service
+summary: Named files in spaces — put, get, list, delete; identical bytes kept once, expiry per space. Names in its own Postgres, bytes in MinIO or any S3.
+contract: CONTRACT.md
+maturity: probe
+
+provides:
+  rest:
+    port: 8094
+    spec: docs/swagger.yaml
+    routes:
+      - "PUT /v1/{space}/{name}"
+      - "GET /v1/{space}/{name}"
+      - "GET /v1/{space}"
+      - "DELETE /v1/{space}/{name}"
+  health: GET :8094/health
+
+consumes:
+  infra: [postgres, s3]   # its own Postgres; the bucket is created on first upload
+
+wire: []
+
+config:
+  required:
+    DATABASE_URL: its own Postgres; the schema is migrated on start
+    MINIO_ENDPOINT: host:port of MinIO or another S3
+  optional:
+    PORT: "8094"
+    MINIO_BUCKET: "artifact-store"
+    MINIO_USE_SSL: "false"
+    RETENTION: "rules per space, e.g. docs=90d,archive=never; without it nothing expires"
+    STORE_SWEEP_PERIOD: "1h"
+  secrets:
+    MINIO_ACCESS_KEY_ID: S3 access key
+    MINIO_SECRET_ACCESS_KEY: S3 secret key

@@ -1,0 +1,273 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "A store of named files in spaces: put, get, list and delete.",
+        "title": "artifact_store API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/",
+    "paths": {
+        "/health": {
+            "get": {
+                "description": "The process is up; nothing about its dependencies is checked.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Liveness probe",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/health.Status"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/{space}": {
+            "get": {
+                "description": "The space's files whose name starts with the prefix parameter (all of them without it), as their metadata, ordered by name. An empty or unknown space is an empty list.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "store"
+                ],
+                "summary": "List a space's files",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "space",
+                        "name": "space",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "list only names that start with it",
+                        "name": "prefix",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/store.File"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "space breaks its alphabet",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "MinIO or Postgres unavailable",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/{space}/{name}": {
+            "get": {
+                "description": "The file's bytes, with Content-Type, Content-Length and ETag \"\u003csha256\u003e\" of the bytes.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "store"
+                ],
+                "summary": "Read a file back",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "space",
+                        "name": "space",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "space or name breaks its alphabet",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "no such file",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "MinIO or Postgres unavailable",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Stores the request body as the file under name in space, keeping Content-Type; created_by is the X-Principal-Id header as received or null. A second PUT under the same name replaces the file; a broken upload leaves the previous file as it was.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "store"
+                ],
+                "summary": "Store a file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "space",
+                        "name": "space",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "who wrote the file",
+                        "name": "X-Principal-Id",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/store.File"
+                        }
+                    },
+                    "400": {
+                        "description": "space or name breaks its alphabet",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "413": {
+                        "description": "body over the size limit",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "MinIO or Postgres unavailable",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Removes the file under name in space. 204 when the file was there, 404 when it was not; afterwards the name no longer answers and is out of the listing.",
+                "tags": [
+                    "store"
+                ],
+                "summary": "Remove a file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "space",
+                        "name": "space",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "space or name breaks its alphabet",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "no such file",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "MinIO or Postgres unavailable",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "health.Status": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "store.File": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sha256": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}
