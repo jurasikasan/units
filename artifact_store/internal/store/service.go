@@ -21,6 +21,7 @@ const DefaultMaxSize = 512 << 20
 var (
 	ErrBadIdent    = errors.New("space or name breaks its alphabet")
 	ErrBadBody     = errors.New("cannot read the request body")
+	ErrBadSha      = errors.New("sha256 must be 64 lowercase hex characters")
 	ErrNotFound    = errors.New("no such file")
 	ErrTooLarge    = errors.New("body exceeds the size limit")
 	ErrUnavailable = errors.New("MinIO or Postgres unavailable")
@@ -44,6 +45,10 @@ type ObjectStore interface {
 	// Delete removes the object under key. A key that is not there is
 	// ErrNotFound; anything else is ErrUnavailable.
 	Delete(ctx context.Context, key string) error
+	// GetBySha returns the bytes with that sha256 and the Content-Type of
+	// the most recently written name pointing to them. Bytes no name
+	// points to are ErrNotFound, even while they still sit in the store.
+	GetBySha(ctx context.Context, sha string) (data []byte, contentType string, err error)
 }
 
 // Service is what the handlers talk to.
@@ -52,6 +57,7 @@ type Service interface {
 	Get(ctx context.Context, space, name string) (data []byte, contentType string, err error)
 	List(ctx context.Context, space, prefix string) ([]File, error)
 	Delete(ctx context.Context, space, name string) error
+	GetBySha(ctx context.Context, sha string) (data []byte, contentType string, err error)
 }
 
 // DefaultService is the Service on top of an ObjectStore.
@@ -179,4 +185,15 @@ func (s *DefaultService) Delete(ctx context.Context, space, name string) error {
 		return ErrBadIdent
 	}
 	return s.Store.Delete(ctx, ObjectKey(space, name))
+}
+
+// GetBySha returns the bytes whose sha256 is sha while some name points
+// to them, with the Content-Type of the most recently written such name.
+// A sha that is not 64 lowercase hex characters is refused before the
+// store is reached.
+func (s *DefaultService) GetBySha(ctx context.Context, sha string) ([]byte, string, error) {
+	if !ShaValid(sha) {
+		return nil, "", ErrBadSha
+	}
+	return s.Store.GetBySha(ctx, sha)
 }

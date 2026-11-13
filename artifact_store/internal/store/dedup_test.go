@@ -100,6 +100,7 @@ type fakeNames struct {
 	delErr    error
 	expErr    error
 	refErr    error
+	shaErr    error
 }
 
 func newFakeNames() *fakeNames {
@@ -173,6 +174,31 @@ func (f *fakeNames) Referenced(ctx context.Context) (map[string]bool, error) {
 		}
 	}
 	return out, nil
+}
+
+// LatestBySha answers the newest row pointing to sha, ties by space and
+// name, the order the Postgres query keeps.
+func (f *fakeNames) LatestBySha(ctx context.Context, sha string) (NamedFile, bool, error) {
+	if f.shaErr != nil {
+		return NamedFile{}, false, f.shaErr
+	}
+	var (
+		best  NamedFile
+		found bool
+	)
+	for _, byName := range f.files {
+		for _, file := range byName {
+			if file.Sha256 != sha {
+				continue
+			}
+			newer := file.UpdatedAt.After(best.UpdatedAt) ||
+				(file.UpdatedAt.Equal(best.UpdatedAt) && (file.Space < best.Space || (file.Space == best.Space && file.Name < best.Name)))
+			if !found || newer {
+				best, found = file, true
+			}
+		}
+	}
+	return best, found, nil
 }
 
 // newDedupStore stands a MinioStore over the fakes, the way the

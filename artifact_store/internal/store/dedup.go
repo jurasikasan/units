@@ -89,6 +89,9 @@ type NameDB interface {
 	Expire(ctx context.Context, space string, olderThan time.Time) error
 	// Referenced returns the set of sha256 some name points to.
 	Referenced(ctx context.Context) (map[string]bool, error)
+	// LatestBySha returns the most recently written row pointing to sha;
+	// ok is false when no name points to it.
+	LatestBySha(ctx context.Context, sha string) (NamedFile, bool, error)
 }
 
 // MinioStore is the ObjectStore of the real deployment: names in
@@ -177,6 +180,25 @@ func (m *MinioStore) Get(ctx context.Context, key string) ([]byte, string, error
 		return nil, "", ErrNotFound
 	}
 	data, err := m.bytes.Get(ctx, file.Sha256)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, file.ContentType, nil
+}
+
+// GetBySha answers the bytes under sha while a name points to them, with
+// the Content-Type of the most recently written such name. Existence
+// follows the names, not the bucket: bytes no name points to are
+// ErrNotFound even while they wait for the sweep.
+func (m *MinioStore) GetBySha(ctx context.Context, sha string) ([]byte, string, error) {
+	file, ok, err := m.names.LatestBySha(ctx, sha)
+	if err != nil {
+		return nil, "", err
+	}
+	if !ok {
+		return nil, "", ErrNotFound
+	}
+	data, err := m.bytes.Get(ctx, sha)
 	if err != nil {
 		return nil, "", err
 	}
@@ -416,9 +438,11 @@ func (p *PostgresNames) ensureSchema(ctx context.Context) bool {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if _, err := db.ExecContext(cctx, schemaDDL); err != nil {
-		_ = db.Close()
-		return false
+	for _, ddl := range schemaDDL {
+		if _, err := db.ExecContext(cctx, ddl); err != nil {
+			_ = db.Close()
+			return false
+		}
 	}
 	db.SetMaxOpenConns(8)
 	p.db = db
@@ -437,7 +461,9 @@ func (p *PostgresNames) EnsureSchema(ctx context.Context) error {
 
 // schemaDDL is the store's own schema (CONTRACT.md section 2: "its own
 // Postgres: which name points to which bytes; schema migrated on start").
-const schemaDDL = `
+// The statements run in order; each is safe to repeat. The index serves
+// the read by sha256, which asks for the newest name pointing to a sha.
+var schemaDDL = []string{`
 CREATE TABLE IF NOT EXISTS store_files (
     space        text        NOT NULL,
     name         text        NOT NULL,
@@ -447,7 +473,9 @@ CREATE TABLE IF NOT EXISTS store_files (
     created_by   text,
     updated_at   timestamptz NOT NULL,
     PRIMARY KEY (space, name)
-)`
+)`, `
+CREATE INDEX IF NOT EXISTS store_files_sha256 ON store_files (sha256, updated_at DESC)`,
+}
 
 // Upsert stores the row, replacing the previous row under the same
 // name. created_by is stored as NULL when empty, so a GET hands back
@@ -592,4 +620,32 @@ func (p *PostgresNames) Referenced(ctx context.Context) (map[string]bool, error)
 		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	return out, nil
+}
+
+// LatestBySha returns the most recently written row pointing to sha; ok
+// is false when no name points to it. Rows written at the same instant
+// are ordered by space and name, so the answer does not wander.
+func (p *PostgresNames) LatestBySha(ctx context.Context, sha string) (NamedFile, bool, error) {
+	if !p.ensureSchema(ctx) {
+		return NamedFile{}, false, ErrUnavailable
+	}
+	var (
+		file      NamedFile
+		createdBy sql.NullString
+	)
+	err := p.db.QueryRowContext(ctx, `
+		SELECT space, name, size, content_type, created_by, updated_at
+		FROM store_files
+		WHERE sha256 = $1
+		ORDER BY updated_at DESC, space, name
+		LIMIT 1`, sha).
+		Scan(&file.Space, &file.Name, &file.Size, &file.ContentType, &createdBy, &file.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return NamedFile{}, false, nil
+	}
+	if err != nil {
+		return NamedFile{}, false, fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	file.Sha256, file.CreatedBy = sha, createdBy.String
+	return file, true, nil
 }

@@ -35,6 +35,53 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/_sha256/{hex}": {
+            "get": {
+                "description": "The bytes whose sha256 is hex, while at least one name points to them; 404 once no name does, even before the bytes are swept. Content-Type is that of the most recently written name pointing to them. ETag \"\u003csha256\u003e\", Cache-Control public, max-age=31536000, immutable.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "store"
+                ],
+                "summary": "Read bytes by their sha256",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "sha256, 64 lowercase hex characters",
+                        "name": "hex",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "hex is not 64 lowercase hex characters",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "no name points to these bytes",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "MinIO or Postgres unavailable",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/{space}": {
             "get": {
                 "description": "The space's files whose name starts with the prefix parameter (all of them without it), as their metadata, ordered by name. An empty or unknown space is an empty list.",
@@ -286,7 +333,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "artifact_store API",
-	Description:      "A store of named files in spaces: put, get, list and delete.",
+	Description:      "A store of named files in spaces: put, get, list and delete, and a read of the bytes by their sha256.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

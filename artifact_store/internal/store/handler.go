@@ -23,11 +23,11 @@ func NewHandler(service Service) *Handler {
 }
 
 // statusFor is the one place where a store error becomes an HTTP status:
-// 400 a broken alphabet, 404 no such file, 413 body over the limit,
+// 400 a broken alphabet or sha256, 404 no such file, 413 body over the limit,
 // 503 MinIO or Postgres unavailable (CONTRACT.md section 6).
 func statusFor(err error) (code int, message string) {
 	switch {
-	case errors.Is(err, ErrBadIdent), errors.Is(err, ErrBadBody):
+	case errors.Is(err, ErrBadIdent), errors.Is(err, ErrBadBody), errors.Is(err, ErrBadSha):
 		return http.StatusBadRequest, err.Error()
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound, err.Error()
@@ -130,6 +130,38 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.Header().Set("ETag", "\""+hex.EncodeToString(sum[:])+"\"")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+// GetBySha handles GET /v1/_sha256/{hex}: the bytes with that sha256
+// while some name points to them, under the Content-Type of the most
+// recently written such name. The bytes under a sha never change, so the
+// answer may be cached for good.
+//
+// @Summary      Read bytes by their sha256
+// @Description  The bytes whose sha256 is hex, while at least one name points to them; 404 once no name does, even before the bytes are swept. Content-Type is that of the most recently written name pointing to them. ETag "<sha256>", Cache-Control public, max-age=31536000, immutable.
+// @Tags         store
+// @Produce      application/octet-stream
+// @Param        hex  path string true "sha256, 64 lowercase hex characters"
+// @Success      200  {file}   file
+// @Failure      400  {string} string "hex is not 64 lowercase hex characters"
+// @Failure      404  {string} string "no name points to these bytes"
+// @Failure      503  {string} string "MinIO or Postgres unavailable"
+// @Router       /v1/_sha256/{hex} [get]
+func (h *Handler) GetBySha(w http.ResponseWriter, r *http.Request) {
+	sha := mux.Vars(r)["hex"]
+
+	data, contentType, err := h.service.GetBySha(r.Context(), sha)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.Header().Set("ETag", "\""+sha+"\"")
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }

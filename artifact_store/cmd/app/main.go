@@ -14,7 +14,7 @@ import (
 
 // @title       artifact_store API
 // @version     1.0
-// @description A store of named files in spaces: put, get, list and delete.
+// @description A store of named files in spaces: put, get, list and delete, and a read of the bytes by their sha256.
 // @BasePath    /
 func main() {
 	port := os.Getenv("PORT")

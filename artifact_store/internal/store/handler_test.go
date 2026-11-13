@@ -86,6 +86,27 @@ func (f *fakeObjectStore) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// GetBySha answers the bytes of the newest object recorded with that
+// sha256; none is ErrNotFound.
+func (f *fakeObjectStore) GetBySha(ctx context.Context, sha string) ([]byte, string, error) {
+	if f.getErr != nil {
+		return nil, "", f.getErr
+	}
+	var (
+		best  fakeObject
+		found bool
+	)
+	for _, fo := range f.objects {
+		if fo.meta.Sha256 == sha && (!found || fo.meta.UpdatedAt.After(best.meta.UpdatedAt)) {
+			best, found = fo, true
+		}
+	}
+	if !found {
+		return nil, "", ErrNotFound
+	}
+	return append([]byte(nil), best.data...), best.meta.ContentType, nil
+}
+
 func (f *fakeObjectStore) has(key string) bool {
 	_, ok := f.objects[key]
 	return ok
@@ -96,6 +117,7 @@ func (f *fakeObjectStore) has(key string) bool {
 func newTestRouter(svc Service) *mux.Router {
 	r := mux.NewRouter()
 	h := NewHandler(svc)
+	r.HandleFunc("/v1/_sha256/{hex}", h.GetBySha).Methods(http.MethodGet)
 	r.HandleFunc("/v1/{space}/{name}", h.Put).Methods(http.MethodPut)
 	r.HandleFunc("/v1/{space}/{name}", h.Get).Methods(http.MethodGet)
 	r.HandleFunc("/v1/{space}", h.List).Methods(http.MethodGet)
