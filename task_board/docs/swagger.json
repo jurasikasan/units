@@ -1,0 +1,1388 @@
+{
+    "schemes": [
+        "http"
+    ],
+    "swagger": "2.0",
+    "info": {
+        "description": "The task board: projects, tasks with a per-project spoken\nhandle (ABC-12), the DRAFT→TODO→IN_PROGRESS→QA→UAT→DONE flow\nplus CANCELLED, assignees and reporters by nick, dependencies,\nsubtasks, labels and components. Every status move and\nassignee write is published to the board_events Redis stream.\n\nThe board also serves an MCP endpoint on /mcp, which is not\ndescribed here.",
+        "title": "Task Board",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8099",
+    "paths": {
+        "/api/v1/labels": {
+            "get": {
+                "description": "The labels that exist on the project's tasks — closed ones\nincluded, which is why a label can answer with 0 — ordered by\nthe number of open tasks carrying them, busiest first. This is\nthe list a caller chooses from when tagging, and a label not\nhere is added by writing it on a task: there is no registry.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "labels"
+                ],
+                "summary": "List a project's labels with their open-task counts",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project key, like ABC",
+                        "name": "project",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Existing labels, busiest first",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/task.LabelCount"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "missing or invalid project key",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "summary": "List projects",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/task.Project"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Registers a line of work with its own numbering. The key is\nupper-cased and must be an uppercase letter followed by 1 to 9\nmore letters or digits; creating a project that already exists\nis a 400.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Create a project",
+                "parameters": [
+                    {
+                        "description": "Project key and name",
+                        "name": "project",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/task.CreateProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/task.Project"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid key or the project already exists",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{key}": {
+            "delete": {
+                "description": "Refused while the project still holds tasks; it does not cascade.",
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Delete a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project key",
+                        "name": "key",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Deleted; no body"
+                    },
+                    "404": {
+                        "description": "no such project",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "the project still holds tasks",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{key}/components": {
+            "put": {
+                "description": "Replaces the whole list — that is also how a\ncomponent is removed, and there is deliberately no additive\nform: a registry you can only grow is a label. Blanks and\nduplicates are normalised, the way a labels list is.\nRefused with 409 and the number of such tasks while a value the\nnew list drops is still the component of one of the project's\ntasks; clear it on them first (PATCH with \"component\": \"\").",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Replace a project's component list",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project key",
+                        "name": "key",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The new whole list",
+                        "name": "components",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/task.ComponentsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/task.Project"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid key or request body",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "no such project",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "a value the list removes is still held by the project's tasks",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks": {
+            "get": {
+                "description": "Every item is the task without its long texts: description,\nacceptance_criteria and summary_report are absent from the\nanswer, and GET /tasks/{id} is the one that answers them.\nAll filters are optional. status takes a comma-separated list\nfrom the flow's vocabulary; ready=true and open=true are each\nrefused together with status (open=true and ready=true is\nallowed — ready is already open); order is number, updated or\ncreated (the default). label is repeated for more than one:\nevery named label must be on the task, so ?label=a\u0026label=b ANDs.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "List tasks",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Only tasks born here (the origin link, as stored)",
+                        "name": "origin",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only tasks of this project",
+                        "name": "project_key",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only tasks assigned to this nick; none: only unassigned ones",
+                        "name": "assignee",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "A handle (ABC-45, any case) finds that task, a bare number that number in every project; anything else is a case-insensitive piece of the goal",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated statuses, e.g. QA,UAT",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only tasks carrying this label; repeat the parameter for tasks carrying all of them",
+                        "name": "label",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only tasks with this component — one of the project's components",
+                        "name": "component",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "true: only TODO tasks with no open dependency and no open subtask",
+                        "name": "ready",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "true: only tasks that are not DONE or CANCELLED",
+                        "name": "open",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "number, updated or created (default created)",
+                        "name": "order",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/task.TaskBrief"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "invalid filter",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "The task is always born DRAFT. project_key, goal,\nacceptance_criteria and reporter (a nick) are required;\norigin and discussion are optional links the board does not open.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Create a task",
+                "parameters": [
+                    {
+                        "description": "The task to create",
+                        "name": "task",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/task.CreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/task.Task"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid request or unknown chat/reporter",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}": {
+            "get": {
+                "description": "The id segment takes the UUID or the spoken handle ABC-12;\nthey identify the same row.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Get a task by UUID or spoken handle",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task UUID or a handle like ABC-12",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/task.Task"
+                        }
+                    },
+                    "400": {
+                        "description": "neither a UUID nor a handle",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "no such task",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Takes the task's thread with it. Refused, with 409 naming which,\nwhile the task has children or while tasks were born in its thread.",
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Delete a task",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Deleted; no body"
+                    },
+                    "400": {
+                        "description": "invalid task id",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "no such task",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "still has children or tasks born in its thread",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "description": "Edits goal, description and acceptance_criteria. A field that\nwas not sent cannot be cleared, and identity — project, handle,\norigin, reporter — is not offered at all. discussion sets the\nlink to the chat the task is talked over in. labels, when\nsent, replaces the whole set; [] clears them, and labels not\nsent are left alone. component, when sent, must be in the\nproject's list (400 naming the list otherwise); \"\" clears it,\nand not sending it leaves it alone.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Patch a task",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The fields to change",
+                        "name": "patch",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/task.PatchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/task.Task"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "no such task",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/assignee": {
+            "put": {
+                "description": "null hands the task back to nobody; \"\" is a 400 — omit the\nfield or send null to mean none. Every successful write is\npublished to the board_events stream.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Assign or unassign a task",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "assignee (a nick), or null to unassign",
+                        "name": "assignee",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/task.AssigneeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/task.Task"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "no such task",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/dependencies": {
+            "put": {
+                "description": "Replaces the whole set; an empty list clears it. A link to an\nunknown task, to the task itself, or into a longer cycle is a 400.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Replace a task's dependency set",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The new whole set",
+                        "name": "depends_on",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/task.DependenciesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/task.Task"
+                        }
+                    },
+                    "400": {
+                        "description": "unknown task, self-link or cycle",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "no such task",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/return": {
+            "post": {
+                "description": "The only way from IN_PROGRESS to TODO: the task also goes to\nits reporter, and the reason becomes a line in its thread from\nactor_id — all in one write. For an executor giving up and for\na watcher whose budget ran out. Published to board_events as\nan ordinary move. A task anywhere but IN_PROGRESS is a 409.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Put work in progress back in the queue",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Who returns it and why",
+                        "name": "return",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/task.ReturnRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/task.Task"
+                        }
+                    },
+                    "400": {
+                        "description": "missing actor_id or reason",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "no such task",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "the task is not IN_PROGRESS",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/status": {
+            "put": {
+                "description": "The move must be legal from the task's current status; setting\nthe status it already has is a no-op 200. The vocabulary is\nDRAFT, TODO, IN_PROGRESS, QA, UAT, DONE, CANCELLED; there is\nno REVIEW and no BLOCKED. With from, the task must\nalso be in that status, or the answer is 409: this is how a task\nis claimed, since two claimants sending from=TODO cannot both win.\nA successful move is published to the board_events stream.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Move a task through the flow",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The new status",
+                        "name": "status",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/task.StatusRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/task.Task"
+                        }
+                    },
+                    "400": {
+                        "description": "not a status",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "no such task",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "illegal transition from the current status, or the task is not in from",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/summary": {
+            "put": {
+                "description": "What was done, why, and where the artefacts are. Blank is refused.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Set the task's summary",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "summary_report",
+                        "name": "summary",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/task.SummaryRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/task.Task"
+                        }
+                    },
+                    "400": {
+                        "description": "blank summary",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "no such task",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/health": {
+            "get": {
+                "description": "Answers if the process is serving HTTP at all, and says nothing\nabout Postgres. version is the git describe of the tree the\nbinary was built from, so a deployment can be compared with\nits checkout to find services running stale code.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Liveness probe and build version",
+                "responses": {
+                    "200": {
+                        "description": "status and version",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ready": {
+            "get": {
+                "description": "200 when a ping to Postgres succeeds, 503 when it does not.\nThis is what a compose healthcheck should ask, so a stopped\ndatabase turns the container unhealthy. Kept apart from\n/health on purpose: /health must keep answering with the\nversion while the database is down, because a reader of the\nversion treats any non-200 as unreachable.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Readiness probe: can this instance reach Postgres",
+                "responses": {
+                    "200": {
+                        "description": "status ok",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "status unavailable and the ping error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "task.AssigneeRequest": {
+            "type": "object",
+            "properties": {
+                "assignee": {
+                    "type": "string"
+                }
+            }
+        },
+        "task.ComponentsRequest": {
+            "type": "object",
+            "properties": {
+                "components": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "task.CreateProjectRequest": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "task.CreateRequest": {
+            "type": "object",
+            "properties": {
+                "acceptance_criteria": {
+                    "type": "string"
+                },
+                "assignee": {
+                    "type": "string"
+                },
+                "component": {
+                    "description": "Component is one of the project's components: absent means the\ntask has none, and a value outside the project's list is a 400 naming\nthe list. Unlike labels there is a registry, because it is the project's\nproperty.",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "discussion": {
+                    "type": "string"
+                },
+                "goal": {
+                    "type": "string"
+                },
+                "labels": {
+                    "description": "Labels are free-form tags; absent or empty is an ordinary\ntask, answered back as []. The service normalises them, so a caller\nsending \" bug \", \"bug\" and \"\" stores the single label \"bug\".",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "origin": {
+                    "type": "string"
+                },
+                "parent_task_id": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "integer"
+                },
+                "project_key": {
+                    "type": "string"
+                },
+                "reporter": {
+                    "type": "string"
+                }
+            }
+        },
+        "task.DependenciesRequest": {
+            "type": "object",
+            "properties": {
+                "depends_on": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "task.Handle": {
+            "type": "object",
+            "properties": {
+                "number": {
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "project": {
+                    "type": "string"
+                }
+            }
+        },
+        "task.LabelCount": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "open_tasks": {
+                    "type": "integer"
+                }
+            }
+        },
+        "task.PatchRequest": {
+            "type": "object",
+            "properties": {
+                "acceptance_criteria": {
+                    "type": "string"
+                },
+                "component": {
+                    "description": "Component, when sent, must be in the project's list or the patch is a\n400 naming the list; sent as \"\" it clears the value, which is the only\nendpoint for unsetting it — \"not sent\" must leave it alone.",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "discussion": {
+                    "description": "Discussion links the chat the task is talked over in, set by whoever\nopens it.",
+                    "type": "string"
+                },
+                "goal": {
+                    "type": "string"
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "points": {
+                    "type": "integer"
+                }
+            }
+        },
+        "task.Project": {
+            "type": "object",
+            "properties": {
+                "components": {
+                    "description": "Components is the project's own list: a task's component is\none of these, and a list that removes a value a task still carries is\nrefused. Always non-nil — the column is NOT NULL DEFAULT '{}', so a\nproject without components answers [] and never null.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "task.ReturnRequest": {
+            "type": "object",
+            "properties": {
+                "actor_id": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "task.StatusRequest": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "task.SummaryRequest": {
+            "type": "object",
+            "properties": {
+                "summary_report": {
+                    "type": "string"
+                }
+            }
+        },
+        "task.Task": {
+            "type": "object",
+            "properties": {
+                "acceptance_criteria": {
+                    "type": "string"
+                },
+                "assignee": {
+                    "type": "string"
+                },
+                "blocked_by": {
+                    "description": "BlockedBy is derived, never stored: the handles of the dependencies that\nare not yet DONE or CANCELLED. This is the answer to the question a status\ncalled OPEN or BLOCKED would have answered, and it cannot drift out of\nagreement with the graph because there is nothing to keep in agreement.\n\nHandles rather than ids because the only thing anyone does with this is\nread it or say it — \"ABC-15 is waiting on ABC-12\".",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/task.Handle"
+                    }
+                },
+                "blocks": {
+                    "description": "Blocks is the other edge of the same graph, derived on every read and\nnever stored: the handles of the tasks waiting on this one. It is the\nsecond half of the question a card should answer — \"ABC-2 is in UAT, and\nbecause of it ABC-4 stands\" — and it inherits BlockedBy's guarantee:\nthere is nothing stored, so there is nothing to drift out of agreement\nwith the links table.\n\nThe DONE or CANCELLED filter sits on this side, the reverse of where\nBlockedBy puts it: a closed task holds nothing, so the subquery answers\nempty for one. On the wrong side, a closed task would still claim to be\nholding.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/task.Handle"
+                    }
+                },
+                "closed_at": {
+                    "description": "ClosedAt is when the task entered DONE or CANCELLED; null while open. A\ntrigger keeps it (migration 0004), whichever query moved the status.",
+                    "type": "string"
+                },
+                "component": {
+                    "description": "Component is the one value this task draws from the project's list: the\nlist is the project's, the choice is the task's. nil is \"no component\" —\na task spanning several components has none, and they can be recorded as\nlabels instead — which is why this is nullable\nwhere Labels is not: an absent component is a state, an absent label set\nis just no labels.",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "depends_on": {
+                    "description": "DependsOn is what this task waits on, in the order the links were made.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "discussion": {
+                    "type": "string"
+                },
+                "goal": {
+                    "type": "string"
+                },
+                "handle": {
+                    "$ref": "#/definitions/task.Handle"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "labels": {
+                    "description": "Labels are free-form tags: a fixed vocabulary would decide in\nadvance what may be said about the work. Always non-nil — the column is\nNOT NULL DEFAULT '{}', and the service normalises what is written, so a\ntask with no labels answers [] and never null.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "open_subtasks": {
+                    "description": "OpenSubtasks is derived the same way: the handles of this task's\nchildren that are not yet DONE or CANCELLED. A task with any is not\nready (repository.go, List), and this is where a reader sees why.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/task.Handle"
+                    }
+                },
+                "origin": {
+                    "description": "Origin is where the task was born, Discussion where it is talked over:\nlinks the board keeps and never opens, and either may be absent.",
+                    "type": "string"
+                },
+                "parent_task_id": {
+                    "type": "string"
+                },
+                "points": {
+                    "description": "Points is the estimate, like story points: nil is \"not estimated\", a\ndifferent fact from an estimate of 1.",
+                    "type": "integer"
+                },
+                "project_key": {
+                    "type": "string"
+                },
+                "reporter": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "summary_report": {
+                    "description": "SummaryReport is what was done, why, and where the artefacts are — shaped\nlike a commit message. Nullable because a task that has not been worked\nhas nothing to report, and an empty string would claim otherwise.",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "task.TaskBrief": {
+            "type": "object",
+            "properties": {
+                "assignee": {
+                    "type": "string"
+                },
+                "blocked_by": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/task.Handle"
+                    }
+                },
+                "blocks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/task.Handle"
+                    }
+                },
+                "closed_at": {
+                    "type": "string"
+                },
+                "component": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "depends_on": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "discussion": {
+                    "type": "string"
+                },
+                "goal": {
+                    "type": "string"
+                },
+                "handle": {
+                    "$ref": "#/definitions/task.Handle"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "open_subtasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/task.Handle"
+                    }
+                },
+                "origin": {
+                    "type": "string"
+                },
+                "parent_task_id": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "integer"
+                },
+                "project_key": {
+                    "type": "string"
+                },
+                "reporter": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

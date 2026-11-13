@@ -1,0 +1,1056 @@
+definitions:
+  task.AssigneeRequest:
+    properties:
+      assignee:
+        type: string
+    type: object
+  task.ComponentsRequest:
+    properties:
+      components:
+        items:
+          type: string
+        type: array
+    type: object
+  task.CreateProjectRequest:
+    properties:
+      key:
+        type: string
+      name:
+        type: string
+    type: object
+  task.CreateRequest:
+    properties:
+      acceptance_criteria:
+        type: string
+      assignee:
+        type: string
+      component:
+        description: |-
+          Component is one of the project's components: absent means the
+          task has none, and a value outside the project's list is a 400 naming
+          the list. Unlike labels there is a registry, because it is the project's
+          property.
+        type: string
+      description:
+        type: string
+      discussion:
+        type: string
+      goal:
+        type: string
+      labels:
+        description: |-
+          Labels are free-form tags; absent or empty is an ordinary
+          task, answered back as []. The service normalises them, so a caller
+          sending " bug ", "bug" and "" stores the single label "bug".
+        items:
+          type: string
+        type: array
+      origin:
+        type: string
+      parent_task_id:
+        type: string
+      points:
+        type: integer
+      project_key:
+        type: string
+      reporter:
+        type: string
+    type: object
+  task.DependenciesRequest:
+    properties:
+      depends_on:
+        items:
+          type: string
+        type: array
+    type: object
+  task.Handle:
+    properties:
+      number:
+        format: int64
+        type: integer
+      project:
+        type: string
+    type: object
+  task.LabelCount:
+    properties:
+      label:
+        type: string
+      open_tasks:
+        type: integer
+    type: object
+  task.PatchRequest:
+    properties:
+      acceptance_criteria:
+        type: string
+      component:
+        description: |-
+          Component, when sent, must be in the project's list or the patch is a
+          400 naming the list; sent as "" it clears the value, which is the only
+          endpoint for unsetting it — "not sent" must leave it alone.
+        type: string
+      description:
+        type: string
+      discussion:
+        description: |-
+          Discussion links the chat the task is talked over in, set by whoever
+          opens it.
+        type: string
+      goal:
+        type: string
+      labels:
+        items:
+          type: string
+        type: array
+      points:
+        type: integer
+    type: object
+  task.Project:
+    properties:
+      components:
+        description: |-
+          Components is the project's own list: a task's component is
+          one of these, and a list that removes a value a task still carries is
+          refused. Always non-nil — the column is NOT NULL DEFAULT '{}', so a
+          project without components answers [] and never null.
+        items:
+          type: string
+        type: array
+      key:
+        type: string
+      name:
+        type: string
+    type: object
+  task.ReturnRequest:
+    properties:
+      actor_id:
+        type: string
+      reason:
+        type: string
+    type: object
+  task.StatusRequest:
+    properties:
+      from:
+        type: string
+      status:
+        type: string
+    type: object
+  task.SummaryRequest:
+    properties:
+      summary_report:
+        type: string
+    type: object
+  task.Task:
+    properties:
+      acceptance_criteria:
+        type: string
+      assignee:
+        type: string
+      blocked_by:
+        description: |-
+          BlockedBy is derived, never stored: the handles of the dependencies that
+          are not yet DONE or CANCELLED. This is the answer to the question a status
+          called OPEN or BLOCKED would have answered, and it cannot drift out of
+          agreement with the graph because there is nothing to keep in agreement.
+
+          Handles rather than ids because the only thing anyone does with this is
+          read it or say it — "ABC-15 is waiting on ABC-12".
+        items:
+          $ref: '#/definitions/task.Handle'
+        type: array
+      blocks:
+        description: |-
+          Blocks is the other edge of the same graph, derived on every read and
+          never stored: the handles of the tasks waiting on this one. It is the
+          second half of the question a card should answer — "ABC-2 is in UAT, and
+          because of it ABC-4 stands" — and it inherits BlockedBy's guarantee:
+          there is nothing stored, so there is nothing to drift out of agreement
+          with the links table.
+
+          The DONE or CANCELLED filter sits on this side, the reverse of where
+          BlockedBy puts it: a closed task holds nothing, so the subquery answers
+          empty for one. On the wrong side, a closed task would still claim to be
+          holding.
+        items:
+          $ref: '#/definitions/task.Handle'
+        type: array
+      closed_at:
+        description: |-
+          ClosedAt is when the task entered DONE or CANCELLED; null while open. A
+          trigger keeps it (migration 0004), whichever query moved the status.
+        type: string
+      component:
+        description: |-
+          Component is the one value this task draws from the project's list: the
+          list is the project's, the choice is the task's. nil is "no component" —
+          a task spanning several components has none, and they can be recorded as
+          labels instead — which is why this is nullable
+          where Labels is not: an absent component is a state, an absent label set
+          is just no labels.
+        type: string
+      created_at:
+        type: string
+      depends_on:
+        description: DependsOn is what this task waits on, in the order the links
+          were made.
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      discussion:
+        type: string
+      goal:
+        type: string
+      handle:
+        $ref: '#/definitions/task.Handle'
+      id:
+        type: string
+      labels:
+        description: |-
+          Labels are free-form tags: a fixed vocabulary would decide in
+          advance what may be said about the work. Always non-nil — the column is
+          NOT NULL DEFAULT '{}', and the service normalises what is written, so a
+          task with no labels answers [] and never null.
+        items:
+          type: string
+        type: array
+      open_subtasks:
+        description: |-
+          OpenSubtasks is derived the same way: the handles of this task's
+          children that are not yet DONE or CANCELLED. A task with any is not
+          ready (repository.go, List), and this is where a reader sees why.
+        items:
+          $ref: '#/definitions/task.Handle'
+        type: array
+      origin:
+        description: |-
+          Origin is where the task was born, Discussion where it is talked over:
+          links the board keeps and never opens, and either may be absent.
+        type: string
+      parent_task_id:
+        type: string
+      points:
+        description: |-
+          Points is the estimate, like story points: nil is "not estimated", a
+          different fact from an estimate of 1.
+        type: integer
+      project_key:
+        type: string
+      reporter:
+        type: string
+      status:
+        type: string
+      summary_report:
+        description: |-
+          SummaryReport is what was done, why, and where the artefacts are — shaped
+          like a commit message. Nullable because a task that has not been worked
+          has nothing to report, and an empty string would claim otherwise.
+        type: string
+      updated_at:
+        type: string
+    type: object
+  task.TaskBrief:
+    properties:
+      assignee:
+        type: string
+      blocked_by:
+        items:
+          $ref: '#/definitions/task.Handle'
+        type: array
+      blocks:
+        items:
+          $ref: '#/definitions/task.Handle'
+        type: array
+      closed_at:
+        type: string
+      component:
+        type: string
+      created_at:
+        type: string
+      depends_on:
+        items:
+          type: string
+        type: array
+      discussion:
+        type: string
+      goal:
+        type: string
+      handle:
+        $ref: '#/definitions/task.Handle'
+      id:
+        type: string
+      labels:
+        items:
+          type: string
+        type: array
+      open_subtasks:
+        items:
+          $ref: '#/definitions/task.Handle'
+        type: array
+      origin:
+        type: string
+      parent_task_id:
+        type: string
+      points:
+        type: integer
+      project_key:
+        type: string
+      reporter:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
+host: localhost:8099
+info:
+  contact: {}
+  description: |-
+    The task board: projects, tasks with a per-project spoken
+    handle (ABC-12), the DRAFT→TODO→IN_PROGRESS→QA→UAT→DONE flow
+    plus CANCELLED, assignees and reporters by nick, dependencies,
+    subtasks, labels and components. Every status move and
+    assignee write is published to the board_events Redis stream.
+
+    The board also serves an MCP endpoint on /mcp, which is not
+    described here.
+  title: Task Board
+  version: "1.0"
+paths:
+  /api/v1/labels:
+    get:
+      description: |-
+        The labels that exist on the project's tasks — closed ones
+        included, which is why a label can answer with 0 — ordered by
+        the number of open tasks carrying them, busiest first. This is
+        the list a caller chooses from when tagging, and a label not
+        here is added by writing it on a task: there is no registry.
+      parameters:
+      - description: Project key, like ABC
+        in: query
+        name: project
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Existing labels, busiest first
+          schema:
+            items:
+              $ref: '#/definitions/task.LabelCount'
+            type: array
+        "400":
+          description: missing or invalid project key
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List a project's labels with their open-task counts
+      tags:
+      - labels
+  /api/v1/projects:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/task.Project'
+            type: array
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List projects
+      tags:
+      - projects
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Registers a line of work with its own numbering. The key is
+        upper-cased and must be an uppercase letter followed by 1 to 9
+        more letters or digits; creating a project that already exists
+        is a 400.
+      parameters:
+      - description: Project key and name
+        in: body
+        name: project
+        required: true
+        schema:
+          $ref: '#/definitions/task.CreateProjectRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/task.Project'
+        "400":
+          description: invalid key or the project already exists
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a project
+      tags:
+      - projects
+  /api/v1/projects/{key}:
+    delete:
+      description: Refused while the project still holds tasks; it does not cascade.
+      parameters:
+      - description: Project key
+        in: path
+        name: key
+        required: true
+        type: string
+      responses:
+        "204":
+          description: Deleted; no body
+        "404":
+          description: no such project
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: the project still holds tasks
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete a project
+      tags:
+      - projects
+  /api/v1/projects/{key}/components:
+    put:
+      consumes:
+      - application/json
+      description: |-
+        Replaces the whole list — that is also how a
+        component is removed, and there is deliberately no additive
+        form: a registry you can only grow is a label. Blanks and
+        duplicates are normalised, the way a labels list is.
+        Refused with 409 and the number of such tasks while a value the
+        new list drops is still the component of one of the project's
+        tasks; clear it on them first (PATCH with "component": "").
+      parameters:
+      - description: Project key
+        in: path
+        name: key
+        required: true
+        type: string
+      - description: The new whole list
+        in: body
+        name: components
+        required: true
+        schema:
+          $ref: '#/definitions/task.ComponentsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/task.Project'
+        "400":
+          description: invalid key or request body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: no such project
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: a value the list removes is still held by the project's tasks
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Replace a project's component list
+      tags:
+      - projects
+  /api/v1/tasks:
+    get:
+      description: |-
+        Every item is the task without its long texts: description,
+        acceptance_criteria and summary_report are absent from the
+        answer, and GET /tasks/{id} is the one that answers them.
+        All filters are optional. status takes a comma-separated list
+        from the flow's vocabulary; ready=true and open=true are each
+        refused together with status (open=true and ready=true is
+        allowed — ready is already open); order is number, updated or
+        created (the default). label is repeated for more than one:
+        every named label must be on the task, so ?label=a&label=b ANDs.
+      parameters:
+      - description: Only tasks born here (the origin link, as stored)
+        in: query
+        name: origin
+        type: string
+      - description: Only tasks of this project
+        in: query
+        name: project_key
+        type: string
+      - description: 'Only tasks assigned to this nick; none: only unassigned ones'
+        in: query
+        name: assignee
+        type: string
+      - description: A handle (ABC-45, any case) finds that task, a bare number that
+          number in every project; anything else is a case-insensitive piece of the
+          goal
+        in: query
+        name: q
+        type: string
+      - description: Comma-separated statuses, e.g. QA,UAT
+        in: query
+        name: status
+        type: string
+      - description: Only tasks carrying this label; repeat the parameter for tasks
+          carrying all of them
+        in: query
+        name: label
+        type: string
+      - description: Only tasks with this component — one of the project's components
+        in: query
+        name: component
+        type: string
+      - description: 'true: only TODO tasks with no open dependency and no open subtask'
+        in: query
+        name: ready
+        type: string
+      - description: 'true: only tasks that are not DONE or CANCELLED'
+        in: query
+        name: open
+        type: string
+      - description: number, updated or created (default created)
+        in: query
+        name: order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/task.TaskBrief'
+            type: array
+        "400":
+          description: invalid filter
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List tasks
+      tags:
+      - tasks
+    post:
+      consumes:
+      - application/json
+      description: |-
+        The task is always born DRAFT. project_key, goal,
+        acceptance_criteria and reporter (a nick) are required;
+        origin and discussion are optional links the board does not open.
+      parameters:
+      - description: The task to create
+        in: body
+        name: task
+        required: true
+        schema:
+          $ref: '#/definitions/task.CreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/task.Task'
+        "400":
+          description: invalid request or unknown chat/reporter
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a task
+      tags:
+      - tasks
+  /api/v1/tasks/{id}:
+    delete:
+      description: |-
+        Takes the task's thread with it. Refused, with 409 naming which,
+        while the task has children or while tasks were born in its thread.
+      parameters:
+      - description: Task UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: Deleted; no body
+        "400":
+          description: invalid task id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: no such task
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: still has children or tasks born in its thread
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete a task
+      tags:
+      - tasks
+    get:
+      description: |-
+        The id segment takes the UUID or the spoken handle ABC-12;
+        they identify the same row.
+      parameters:
+      - description: Task UUID or a handle like ABC-12
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/task.Task'
+        "400":
+          description: neither a UUID nor a handle
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: no such task
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get a task by UUID or spoken handle
+      tags:
+      - tasks
+    patch:
+      consumes:
+      - application/json
+      description: |-
+        Edits goal, description and acceptance_criteria. A field that
+        was not sent cannot be cleared, and identity — project, handle,
+        origin, reporter — is not offered at all. discussion sets the
+        link to the chat the task is talked over in. labels, when
+        sent, replaces the whole set; [] clears them, and labels not
+        sent are left alone. component, when sent, must be in the
+        project's list (400 naming the list otherwise); "" clears it,
+        and not sending it leaves it alone.
+      parameters:
+      - description: Task UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The fields to change
+        in: body
+        name: patch
+        required: true
+        schema:
+          $ref: '#/definitions/task.PatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/task.Task'
+        "400":
+          description: invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: no such task
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Patch a task
+      tags:
+      - tasks
+  /api/v1/tasks/{id}/assignee:
+    put:
+      consumes:
+      - application/json
+      description: |-
+        null hands the task back to nobody; "" is a 400 — omit the
+        field or send null to mean none. Every successful write is
+        published to the board_events stream.
+      parameters:
+      - description: Task UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: assignee (a nick), or null to unassign
+        in: body
+        name: assignee
+        required: true
+        schema:
+          $ref: '#/definitions/task.AssigneeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/task.Task'
+        "400":
+          description: invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: no such task
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Assign or unassign a task
+      tags:
+      - tasks
+  /api/v1/tasks/{id}/dependencies:
+    put:
+      consumes:
+      - application/json
+      description: |-
+        Replaces the whole set; an empty list clears it. A link to an
+        unknown task, to the task itself, or into a longer cycle is a 400.
+      parameters:
+      - description: Task UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The new whole set
+        in: body
+        name: depends_on
+        required: true
+        schema:
+          $ref: '#/definitions/task.DependenciesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/task.Task'
+        "400":
+          description: unknown task, self-link or cycle
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: no such task
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Replace a task's dependency set
+      tags:
+      - tasks
+  /api/v1/tasks/{id}/return:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        The only way from IN_PROGRESS to TODO: the task also goes to
+        its reporter, and the reason becomes a line in its thread from
+        actor_id — all in one write. For an executor giving up and for
+        a watcher whose budget ran out. Published to board_events as
+        an ordinary move. A task anywhere but IN_PROGRESS is a 409.
+      parameters:
+      - description: Task UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Who returns it and why
+        in: body
+        name: return
+        required: true
+        schema:
+          $ref: '#/definitions/task.ReturnRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/task.Task'
+        "400":
+          description: missing actor_id or reason
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: no such task
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: the task is not IN_PROGRESS
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Put work in progress back in the queue
+      tags:
+      - tasks
+  /api/v1/tasks/{id}/status:
+    put:
+      consumes:
+      - application/json
+      description: |-
+        The move must be legal from the task's current status; setting
+        the status it already has is a no-op 200. The vocabulary is
+        DRAFT, TODO, IN_PROGRESS, QA, UAT, DONE, CANCELLED; there is
+        no REVIEW and no BLOCKED. With from, the task must
+        also be in that status, or the answer is 409: this is how a task
+        is claimed, since two claimants sending from=TODO cannot both win.
+        A successful move is published to the board_events stream.
+      parameters:
+      - description: Task UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The new status
+        in: body
+        name: status
+        required: true
+        schema:
+          $ref: '#/definitions/task.StatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/task.Task'
+        "400":
+          description: not a status
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: no such task
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: illegal transition from the current status, or the task is
+            not in from
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Move a task through the flow
+      tags:
+      - tasks
+  /api/v1/tasks/{id}/summary:
+    put:
+      consumes:
+      - application/json
+      description: What was done, why, and where the artefacts are. Blank is refused.
+      parameters:
+      - description: Task UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: summary_report
+        in: body
+        name: summary
+        required: true
+        schema:
+          $ref: '#/definitions/task.SummaryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/task.Task'
+        "400":
+          description: blank summary
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: no such task
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Set the task's summary
+      tags:
+      - tasks
+  /health:
+    get:
+      description: |-
+        Answers if the process is serving HTTP at all, and says nothing
+        about Postgres. version is the git describe of the tree the
+        binary was built from, so a deployment can be compared with
+        its checkout to find services running stale code.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: status and version
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Liveness probe and build version
+      tags:
+      - health
+  /ready:
+    get:
+      description: |-
+        200 when a ping to Postgres succeeds, 503 when it does not.
+        This is what a compose healthcheck should ask, so a stopped
+        database turns the container unhealthy. Kept apart from
+        /health on purpose: /health must keep answering with the
+        version while the database is down, because a reader of the
+        version treats any non-200 as unreachable.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: status ok
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: status unavailable and the ping error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 'Readiness probe: can this instance reach Postgres'
+      tags:
+      - health
+schemes:
+- http
+swagger: "2.0"

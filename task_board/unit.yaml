@@ -1,0 +1,54 @@
+# Manifest — what a reader outside task_board reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: task_board
+kind: service
+summary: Tasks and their flow — per-project handles, statuses with the moves allowed between them, assignees by nick, dependencies and subtasks — over its own Postgres; every move published on a Redis stream.
+contract: CONTRACT.md
+maturity: probe
+
+provides:
+  rest:
+    port: 8099
+    spec: docs/swagger.yaml
+    routes:
+      - "POST /api/v1/projects"
+      - "GET /api/v1/projects"
+      - "DELETE /api/v1/projects/{key}"
+      - "PUT /api/v1/projects/{key}/components"
+      - "GET /api/v1/labels"
+      - "POST /api/v1/tasks"
+      - "GET /api/v1/tasks"
+      - "GET /api/v1/tasks/{id}"
+      - "PATCH /api/v1/tasks/{id}"
+      - "DELETE /api/v1/tasks/{id}"
+      - "PUT /api/v1/tasks/{id}/status"
+      - "POST /api/v1/tasks/{id}/return"
+      - "PUT /api/v1/tasks/{id}/dependencies"
+      - "PUT /api/v1/tasks/{id}/assignee"
+      - "PUT /api/v1/tasks/{id}/summary"
+  mcp:
+    port: 8099
+    path: /mcp
+    tools: [list_tasks, get_task, create_task, give_up, set_status, set_assignee, edit_task, append_to_description]
+  events:
+    stream: board_events
+    envelope: cloudevents-1.0     # contracts/events.md
+    source: /task_board
+    types:
+      - task_board.task.status_changed
+      - task_board.task.assignee_changed
+  health: GET :8099/health
+  ready: GET :8099/ready
+
+consumes:
+  infra: [postgres, redis]   # its own Postgres; Redis for the stream
+
+wire: []
+
+config:
+  required:
+    DATABASE_URL: its own Postgres; the schema is migrated on boot
+  optional:
+    PORT: "8099"
+  secrets: {}

@@ -1,0 +1,56 @@
+name: task_board-showcase
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: board
+      POSTGRES_PASSWORD: board
+      POSTGRES_DB: board
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "board"]
+      interval: 1s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      retries: 30
+
+  task_board:
+    build: ..
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://board:board@postgres:5432/board?sslmode=disable
+      REDIS_ADDR: redis:6379
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8099/ready"]
+      interval: 1s
+      retries: 30
+
+  demo:
+    image: curlimages/curl:8.11.1
+    depends_on:
+      task_board:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - ./demo.sh:/demo.sh:ro
+    entrypoint: ["sh", "/demo.sh"]
+
+  # What the demo's moves put on the stream, read once the demo is done.
+  events:
+    image: redis:7-alpine
+    depends_on:
+      demo:
+        condition: service_completed_successfully
+    restart: "no"
+    volumes:
+      - ./events.sh:/events.sh:ro
+    entrypoint: ["sh", "/events.sh"]
