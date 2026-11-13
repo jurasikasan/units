@@ -70,6 +70,21 @@ func TestMinioStoreLive(t *testing.T) {
 		t.Fatalf("Put of the kept file: %v", err)
 	}
 
+	// The read by sha256 on the live store: the bytes while a name holds
+	// them, under the Content-Type of the newest such name.
+	if data, ct, err := store.GetBySha(ctx, sha); err != nil || !bytes.Equal(data, body) || ct != contentType {
+		t.Errorf("GetBySha while named: err = %v, bytes = %q, Content-Type = %q", err, data, ct)
+	}
+	time.Sleep(2 * time.Millisecond)
+	metaJSON := meta
+	metaJSON.ContentType, metaJSON.UpdatedAt = "application/json", time.Now()
+	if err := store.Put(ctx, keyB, body, metaJSON); err != nil {
+		t.Fatalf("Put of the second name as JSON: %v", err)
+	}
+	if _, ct, err := store.GetBySha(ctx, sha); err != nil || ct != "application/json" {
+		t.Errorf("GetBySha after the newer name: err = %v, Content-Type = %q, want application/json", err, ct)
+	}
+
 	if err := store.Delete(ctx, key); err != nil {
 		t.Fatalf("Delete of the first name: %v", err)
 	}
@@ -83,8 +98,17 @@ func TestMinioStoreLive(t *testing.T) {
 	if err := store.Delete(ctx, keyB); err != nil {
 		t.Fatalf("Delete of the second name: %v", err)
 	}
+	if _, err := store.bytes.Get(ctx, sha); err != nil {
+		t.Fatalf("the bytes are gone before the sweep; the 404 below would prove nothing")
+	}
+	if _, _, err := store.GetBySha(ctx, sha); err != ErrNotFound {
+		t.Errorf("GetBySha with no name, before the sweep = %v, want ErrNotFound", err)
+	}
 	if err := store.Sweep(ctx); err != nil {
 		t.Fatalf("Sweep: %v", err)
+	}
+	if _, _, err := store.GetBySha(ctx, sha); err != ErrNotFound {
+		t.Errorf("GetBySha after the sweep = %v, want ErrNotFound", err)
 	}
 	if _, err := store.bytes.Get(ctx, sha); err == nil || err != ErrNotFound {
 		t.Errorf("the bytes under %s survived the sweep; no name points to them", sha)

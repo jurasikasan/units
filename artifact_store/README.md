@@ -1,7 +1,8 @@
 # artifact_store
 
-Named files in spaces: put, get, list, delete. Identical bytes are kept once;
-a space can expire what nobody wrote for a while. What it promises is
+Named files in spaces: put, get, list, delete, and a read of the bytes by
+their sha256. Identical bytes are kept once; a space can expire what nobody
+wrote for a while. What it promises is
 `CONTRACT.md`; this file is for working inside it.
 
 - `internal/store` — handler → service; `dedup.go` keeps names in Postgres and

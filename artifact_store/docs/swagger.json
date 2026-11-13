@@ -1,7 +1,7 @@
 {
     "swagger": "2.0",
     "info": {
-        "description": "A store of named files in spaces: put, get, list and delete.",
+        "description": "A store of named files in spaces: put, get, list and delete, and a read of the bytes by their sha256.",
         "title": "artifact_store API",
         "contact": {},
         "version": "1.0"
@@ -23,6 +23,53 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/health.Status"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/_sha256/{hex}": {
+            "get": {
+                "description": "The bytes whose sha256 is hex, while at least one name points to them; 404 once no name does, even before the bytes are swept. Content-Type is that of the most recently written name pointing to them. ETag \"\u003csha256\u003e\", Cache-Control public, max-age=31536000, immutable.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "store"
+                ],
+                "summary": "Read bytes by their sha256",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "sha256, 64 lowercase hex characters",
+                        "name": "hex",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "hex is not 64 lowercase hex characters",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "no name points to these bytes",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "MinIO or Postgres unavailable",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }

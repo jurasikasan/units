@@ -36,6 +36,12 @@ What the spec cannot say:
   A reader never gets half a file.
 - `created_by` is the `X-Principal-Id` header as received, or `null`. Whoever stands in
   front of the store vouches for it.
+- **Read by content:** `GET /v1/_sha256/{hex}` answers the bytes whose sha256 is `hex`
+  (the `sha256` a PUT or the listing gave) while at least one name in any space points to
+  them; once none does it is 404, even while the bytes still wait for the cleanup.
+  Content-Type is that of the most recently written name pointing to them. The answer
+  carries `ETag: "<sha256>"` and `Cache-Control: public, max-age=31536000, immutable`.
+  `_` cannot start a space, so this route shadows no file.
 
 ## 4. Identifiers
 
@@ -52,6 +58,10 @@ What the spec cannot say:
   stored.
 - **Deduplication:** identical bytes are stored once. The only visible sign is equal
   `sha256`. Bytes no name points to any more are removed in the background.
+- **A read by sha256 gives immutability of content, not permanence.** What it answers
+  never changes, but the bytes live only while a name holds them: when the last name
+  goes (deleted, replaced or expired), the sha read is 404. To keep bytes readable by
+  their sha256, keep a name pointing to them in a space that does not expire.
 - **Expiry:** `RETENTION="docs=90d,archive=never"`. A file not written for that long is
   removed. A space not listed never expires. A malformed value stops the start with a
   message that names it.
@@ -63,8 +73,8 @@ What the spec cannot say:
 
 | Status | Means | Consumer does |
 |---|---|---|
-| 400 | `space` or `name` breaks its alphabet, or the body cannot be read | fix the name; retrying will not help |
-| 404 | no such file | treat it as absent |
+| 400 | `space` or `name` breaks its alphabet, a sha256 is not 64 lowercase hex characters, or the body cannot be read | fix the request; retrying will not help |
+| 404 | no such file; for a read by sha256, no name points to those bytes | treat it as absent |
 | 413 | body over 512 MiB | do not retry |
 | 503 | MinIO or Postgres unavailable | retry later |
 
@@ -82,9 +92,11 @@ curl -fsS -X PUT --data-binary @/tmp/b $S/v1/test/K-1.a      # replace
 curl -fsS $S/v1/test/K-1.a                                   # world
 curl -fsS -X PUT --data-binary @/tmp/b $S/v1/test/K-2.b
 curl -fsS "$S/v1/test?prefix=K-1." | grep -o '"name"' | wc -l  # 1
+curl -fsS $S/v1/_sha256/$(sha256sum < /tmp/b | cut -d' ' -f1)  # world
 curl -s -o /dev/null -w '%{http_code}\n' $S/v1/test/no.such  # 404
 curl -s -o /dev/null -w '%{http_code}\n' -X PUT --data-binary x "$S/v1/Test/x"  # 400
 curl -fsS -X DELETE $S/v1/test/K-1.a && curl -fsS -X DELETE $S/v1/test/K-2.b
+curl -s -o /dev/null -w '%{http_code}\n' $S/v1/_sha256/$(sha256sum < /tmp/b | cut -d' ' -f1)  # 404
 ```
 
 Plus a test against a real MinIO: equal bytes under two names are one object, and

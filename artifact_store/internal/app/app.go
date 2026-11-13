@@ -42,6 +42,9 @@ func NewRouter(svc store.Service) *Router {
 	files := store.NewHandler(svc)
 
 	router.Route("/health", []string{http.MethodGet}, health.NewHandler().Health)
+	// Before the space routes: mux takes the first match, and "_" cannot
+	// start a space, so no file is shadowed by it.
+	router.Route("/v1/_sha256/{hex}", []string{http.MethodGet}, files.GetBySha)
 	router.Route("/v1/{space}/{name}", []string{http.MethodPut}, files.Put)
 	router.Route("/v1/{space}/{name}", []string{http.MethodGet}, files.Get)
 	router.Route("/v1/{space}", []string{http.MethodGet}, files.List)

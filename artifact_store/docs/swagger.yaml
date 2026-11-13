@@ -22,7 +22,8 @@ definitions:
     type: object
 info:
   contact: {}
-  description: 'A store of named files in spaces: put, get, list and delete.'
+  description: 'A store of named files in spaces: put, get, list and delete, and a
+    read of the bytes by their sha256.'
   title: artifact_store API
   version: "1.0"
 paths:
@@ -39,6 +40,40 @@ paths:
       summary: Liveness probe
       tags:
       - health
+  /v1/_sha256/{hex}:
+    get:
+      description: The bytes whose sha256 is hex, while at least one name points to
+        them; 404 once no name does, even before the bytes are swept. Content-Type
+        is that of the most recently written name pointing to them. ETag "<sha256>",
+        Cache-Control public, max-age=31536000, immutable.
+      parameters:
+      - description: sha256, 64 lowercase hex characters
+        in: path
+        name: hex
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: hex is not 64 lowercase hex characters
+          schema:
+            type: string
+        "404":
+          description: no name points to these bytes
+          schema:
+            type: string
+        "503":
+          description: MinIO or Postgres unavailable
+          schema:
+            type: string
+      summary: Read bytes by their sha256
+      tags:
+      - store
   /v1/{space}:
     get:
       description: The space's files whose name starts with the prefix parameter (all

@@ -3,7 +3,7 @@
 
 unit: artifact_store
 kind: service
-summary: Named files in spaces — put, get, list, delete; identical bytes kept once, expiry per space. Names in its own Postgres, bytes in MinIO or any S3.
+summary: Named files in spaces — put, get, list, delete, read by sha256; identical bytes kept once, expiry per space. Names in its own Postgres, bytes in MinIO or any S3.
 contract: CONTRACT.md
 maturity: probe
 
@@ -16,6 +16,7 @@ provides:
       - "GET /v1/{space}/{name}"
       - "GET /v1/{space}"
       - "DELETE /v1/{space}/{name}"
+      - "GET /v1/_sha256/{hex}"
   health: GET :8094/health
 
 consumes:
