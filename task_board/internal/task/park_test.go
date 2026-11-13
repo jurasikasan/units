@@ -49,12 +49,13 @@ func TestSetDependenciesParksWorkInProgressUnderAnOpenDependency(t *testing.T) {
 	line := rec.events[0].Note
 	require.Contains(t, line, "Parked")
 	require.Contains(t, line, "ABC-4", "the line names what the work waits for")
-	require.Equal(t, schedulerID.String(), rec.events[0].NoteBy,
-		"said by the Scheduler: the executor would read its own line as words it said")
+	require.Empty(t, rec.events[0].NoteBy,
+		"said by nobody: the executor would read its own line as words it said, "+
+			"and the board knows no other subject — the consumer attributes it")
 	require.Equal(t, []Event{{
 		Type: EventStatus, TaskID: task.ID, Handle: task.Handle,
 		From: StatusInProgress, To: StatusTodo, Assignee: &executor,
-		Note: line, NoteBy: schedulerID.String(),
+		Note: line,
 	}}, rec.events)
 }
 

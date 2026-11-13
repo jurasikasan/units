@@ -739,7 +739,7 @@
         },
         "/api/v1/tasks/{id}/return": {
             "post": {
-                "description": "The only way from IN_PROGRESS to TODO: the task also goes to\nits reporter, and the reason becomes a line in its thread from\nactor_id — all in one write. For an executor giving up and for\na watcher whose budget ran out. Published to board_events as\nan ordinary move. A task anywhere but IN_PROGRESS is a 409.",
+                "description": "The only way from IN_PROGRESS to TODO: the task also goes to\nits reporter, and the reason becomes a line in its thread from\nactor, a nick — all in one write. For an executor giving up and for\na watcher whose budget ran out. Published to board_events as\nan ordinary move. A task anywhere but IN_PROGRESS is a 409.",
                 "consumes": [
                     "application/json"
                 ],
@@ -776,7 +776,7 @@
                         }
                     },
                     "400": {
-                        "description": "missing actor_id or reason",
+                        "description": "missing actor or reason, or actor_id sent",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1178,7 +1178,7 @@
         "task.ReturnRequest": {
             "type": "object",
             "properties": {
-                "actor_id": {
+                "actor": {
                     "type": "string"
                 },
                 "reason": {

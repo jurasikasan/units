@@ -16,10 +16,10 @@ import (
 // a caller sees here is the service's sentence, because that sentence is the
 // model's repair signal.
 //
-// Who acts is an argument (actor_id), not a header. An aggregator may forward
+// Who acts is an argument (actor, a nick), not a header. An aggregator may forward
 // every call over one shared session, so nothing about the original caller
 // survives the hop except the arguments. The host running the agent is
-// expected to overwrite actor_id with the subject whose turn it is, so a model
+// expected to overwrite actor with the subject whose turn it is, so a model
 // cannot speak as somebody else by filling the field in. Only the tools that
 // record a writer take it.
 //
@@ -54,7 +54,7 @@ func NewMCPServer(svc *Service) *mcp.Server {
 		Name: "give_up",
 		Description: "Give up on a task you are working on: it goes back to TODO and to its reporter, and the reason " +
 			"is written in its thread. Use it when you cannot finish — say what you tried and what stopped you. " +
-			"Only for a task IN_PROGRESS. actor_id is filled in by the system for agents inside it; outside " +
+			"Only for a task IN_PROGRESS. actor (by nick) is filled in by the system for agents inside it; outside " +
 			"the system, put in the subject who gives up.",
 	}, b.giveUp)
 	mcp.AddTool(s, &mcp.Tool{
@@ -79,10 +79,6 @@ func NewMCPServer(svc *Service) *mcp.Server {
 	}, b.appendDescription)
 	return s
 }
-
-// schedulerID is the fixed id of the system subject ("Scheduler") that the
-// board's own lines are said by, such as the parking line.
-var schedulerID = uuid.MustParse("00000000-0000-0000-0000-000000000003")
 
 type mcpBoard struct{ svc *Service }
 
@@ -321,9 +317,9 @@ func (b *mcpBoard) setStatus(ctx context.Context, _ *mcp.CallToolRequest, in Set
 
 // GiveUpParams is give_up's input.
 type GiveUpParams struct {
-	Task    string `json:"task" jsonschema:"the task's handle, like ABC-12, or its UUID"`
-	Reason  string `json:"reason" jsonschema:"what you tried and what stopped you"`
-	ActorID string `json:"actor_id" jsonschema:"who gives up. Filled in by the system for agents inside it; outside the system, the subject who gives up."`
+	Task   string `json:"task" jsonschema:"the task's handle, like ABC-12, or its UUID"`
+	Reason string `json:"reason" jsonschema:"what you tried and what stopped you"`
+	Actor  string `json:"actor" jsonschema:"who gives up, by nick. Filled in by the system for agents inside it; outside the system, the subject who gives up."`
 }
 
 func (b *mcpBoard) giveUp(ctx context.Context, _ *mcp.CallToolRequest, in GiveUpParams) (*mcp.CallToolResult, TaskView, error) {
@@ -331,7 +327,7 @@ func (b *mcpBoard) giveUp(ctx context.Context, _ *mcp.CallToolRequest, in GiveUp
 	if err != nil {
 		return nil, TaskView{}, err
 	}
-	t, err = b.svc.Return(ctx, t.ID, ReturnRequest{ActorID: in.ActorID, Reason: in.Reason})
+	t, err = b.svc.Return(ctx, t.ID, ReturnRequest{Actor: in.Actor, Reason: in.Reason})
 	if err != nil {
 		return nil, TaskView{}, err
 	}

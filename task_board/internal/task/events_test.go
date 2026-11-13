@@ -205,3 +205,13 @@ func TestRedisPublisherWritesTheEntry(t *testing.T) {
 	assert.Equal(t, "task_board.task.assignee_changed", second["ce_type"])
 	assert.JSONEq(t, `{"handle":"ABC-311","from":"TODO","to":"TODO","assignee":null}`, second["data"].(string))
 }
+
+// A note the board says itself carries no note_by: the consumer attributes it.
+func TestBoardsOwnNoteHasNoNoteBy(t *testing.T) {
+	h, err := ParseHandle("ABC-2")
+	require.NoError(t, err)
+	d := Event{Type: EventStatus, Handle: h, From: StatusInProgress, To: StatusTodo,
+		Note: "Parked: waits for ABC-1; resumes when it closes"}.Data()
+	assert.Equal(t, "Parked: waits for ABC-1; resumes when it closes", d["note"])
+	assert.NotContains(t, d, "note_by")
+}

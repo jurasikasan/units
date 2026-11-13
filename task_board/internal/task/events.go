@@ -44,15 +44,16 @@ type Event struct {
 	To       string
 	Assignee *string
 	// Note is a line for the task's discussion — why a task was returned or
-	// parked — said by NoteBy. The board keeps no thread; whoever holds the
-	// discussion writes it.
+	// parked — said by NoteBy, a nick, or by nobody for the board's own lines.
+	// The board keeps no thread; whoever holds the discussion writes it.
 	Note   string
 	NoteBy string
 }
 
 // Data is the event's payload; the task's id is the envelope's subject. An
-// unassigned task has "assignee": null, and note and note_by are present only
-// when there is a note.
+// unassigned task has "assignee": null. note is present only when there is a
+// note, and note_by only when a subject says it: a note the board makes itself
+// (parking) is the consumer's to attribute.
 func (e Event) Data() map[string]any {
 	d := map[string]any{
 		"handle":   e.Handle.String(),
@@ -62,7 +63,9 @@ func (e Event) Data() map[string]any {
 	}
 	if e.Note != "" {
 		d["note"] = e.Note
-		d["note_by"] = e.NoteBy
+		if e.NoteBy != "" {
+			d["note_by"] = e.NoteBy
+		}
 	}
 	return d
 }

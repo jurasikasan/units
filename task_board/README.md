@@ -16,7 +16,7 @@ Doors:
   `create_task`, `give_up`, `set_status`, `set_assignee`, `edit_task`,
   `append_to_description`. It is an adapter over the same `Service`; a refusal
   is the service's sentence, because that sentence is the model's repair
-  signal. The acting subject is an argument (`actor`/`actor_id`), which the
+  signal. The acting subject is an argument (`actor`, a nick), which the
   host running the agent is expected to overwrite with the subject whose turn
   it is.
 - Events on the Redis stream `board_events`, below.

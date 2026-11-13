@@ -401,7 +401,7 @@ func (h *Handler) SetStatus(w http.ResponseWriter, r *http.Request) {
 // @Summary      Put work in progress back in the queue
 // @Description  The only way from IN_PROGRESS to TODO: the task also goes to
 // @Description  its reporter, and the reason becomes a line in its thread from
-// @Description  actor_id — all in one write. For an executor giving up and for
+// @Description  actor, a nick — all in one write. For an executor giving up and for
 // @Description  a watcher whose budget ran out. Published to board_events as
 // @Description  an ordinary move. A task anywhere but IN_PROGRESS is a 409.
 // @Tags         tasks
@@ -410,7 +410,7 @@ func (h *Handler) SetStatus(w http.ResponseWriter, r *http.Request) {
 // @Param        id      path  string         true  "Task UUID"
 // @Param        return  body  ReturnRequest  true  "Who returns it and why"
 // @Success      200     {object}  Task
-// @Failure      400     {object}  map[string]string  "missing actor_id or reason"
+// @Failure      400     {object}  map[string]string  "missing actor or reason, or actor_id sent"
 // @Failure      404     {object}  map[string]string  "no such task"
 // @Failure      409     {object}  map[string]string  "the task is not IN_PROGRESS"
 // @Failure      500     {object}  map[string]string  "internal error"

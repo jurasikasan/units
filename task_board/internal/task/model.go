@@ -432,19 +432,27 @@ type StatusRequest struct {
 // ReturnRequest is the body of POST /tasks/{id}/return: who puts the work
 // back and why. Both are required — the reason is the whole record of the
 // failure, and it is what the reporter reads before deciding what next.
+//
+// The actor is a nick, like every subject the board names. ActorID is here only
+// to refuse it by name: a caller still sending a uuid learns which field to use
+// instead of reading "actor is required".
 type ReturnRequest struct {
-	ActorID string `json:"actor_id"`
-	Reason  string `json:"reason"`
+	Actor   string  `json:"actor"`
+	Reason  string  `json:"reason"`
+	ActorID *string `json:"actor_id,omitempty" swaggerignore:"true"`
 }
 
-func (r ReturnRequest) validate() (uuid.UUID, string, error) {
+func (r ReturnRequest) validate() (string, string, error) {
+	if r.ActorID != nil {
+		return "", "", fmt.Errorf("%w: actor_id is not taken — send actor, "+
+			"the nick of who returns the task", ErrInvalid)
+	}
 	reason := strings.TrimSpace(r.Reason)
 	if reason == "" {
-		return uuid.Nil, "", fmt.Errorf("%w: reason is required — it is what "+
+		return "", "", fmt.Errorf("%w: reason is required — it is what "+
 			"the reporter reads to decide what to do with the task", ErrInvalid)
 	}
-	actor, err := requiredUUID("actor_id", r.ActorID,
-		" — the line in the thread is said by somebody")
+	actor, err := nick("actor", r.Actor)
 	return actor, reason, err
 }
 
@@ -538,17 +546,6 @@ func (r CreateRequest) Validate() (parsed, error) {
 		return out, err
 	}
 	return out, nil
-}
-
-func requiredUUID(field, raw, why string) (uuid.UUID, error) {
-	if strings.TrimSpace(raw) == "" {
-		return uuid.Nil, fmt.Errorf("%w: %s is required%s", ErrInvalid, field, why)
-	}
-	id, err := uuid.Parse(raw)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("%w: %s is not a valid UUID", ErrInvalid, field)
-	}
-	return id, nil
 }
 
 // nick is a subject's address as the board keeps it: the board does not

@@ -122,7 +122,7 @@ definitions:
     type: object
   task.ReturnRequest:
     properties:
-      actor_id:
+      actor:
         type: string
       reason:
         type: string
@@ -852,7 +852,7 @@ paths:
       description: |-
         The only way from IN_PROGRESS to TODO: the task also goes to
         its reporter, and the reason becomes a line in its thread from
-        actor_id — all in one write. For an executor giving up and for
+        actor, a nick — all in one write. For an executor giving up and for
         a watcher whose budget ran out. Published to board_events as
         an ordinary move. A task anywhere but IN_PROGRESS is a 409.
       parameters:
@@ -875,7 +875,7 @@ paths:
           schema:
             $ref: '#/definitions/task.Task'
         "400":
-          description: missing actor_id or reason
+          description: missing actor or reason, or actor_id sent
           schema:
             additionalProperties:
               type: string

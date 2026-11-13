@@ -307,9 +307,10 @@ func (s *Service) SetDependencies(ctx context.Context, id uuid.UUID, req Depende
 			}
 			line := "Parked: waits for " + joinHandles(open) + "; resumes when " + verb
 
-			// Said by the Scheduler, the system subject — not by the executor: in the executor's
-			// history its own lines are read back as the model's prior words,
-			// and "Parked: …" is not something it said.
+			// Said by nobody in particular: not by the executor, because in its
+			// history its own lines read back as the model's prior words, and
+			// "Parked: …" is not something it said. The consumer that writes the
+			// note into the discussion picks whom to attribute it to.
 			t, perr := s.repo.Park(ctx, id, deps)
 			if errors.Is(perr, ErrStaleStatus) {
 				// Zero rows, like in Return: the task moved or was deleted
@@ -327,7 +328,7 @@ func (s *Service) SetDependencies(ctx context.Context, id uuid.UUID, req Depende
 			}
 			s.publish(ctx, Event{Type: EventStatus, TaskID: t.ID, Handle: t.Handle,
 				From: StatusInProgress, To: t.Status, Assignee: t.Assignee,
-				Note: line, NoteBy: schedulerID.String()})
+				Note: line})
 			return t, nil
 		}
 	}
@@ -418,7 +419,7 @@ func (s *Service) Return(ctx context.Context, id uuid.UUID, req ReturnRequest) (
 	}
 	s.publish(ctx, Event{Type: EventStatus, TaskID: t.ID, Handle: t.Handle,
 		From: StatusInProgress, To: t.Status, Assignee: t.Assignee,
-		Note: "Returned to the reporter: " + reason, NoteBy: actor.String()})
+		Note: "Returned to the reporter: " + reason, NoteBy: actor})
 	return t, nil
 }
 

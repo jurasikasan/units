@@ -7,7 +7,8 @@ on a stream when a task moved or changed hands. It does not do the work, pick
 who does it, or keep the conversation about it: those belong to whoever reads
 the board.
 
-Subjects are named by nick, which the board stores and never resolves.
+Subjects are named by nick everywhere — reporter, assignee, the actor of a
+return — which the board stores and never resolves.
 `origin` and `discussion` are links it stores and never opens.
 
 ## 1. What it keeps
@@ -64,7 +65,7 @@ any open status ──► CANCELLED ──► DRAFT;  TODO ──► DRAFT
 - `IN_PROGRESS` needs an assignee and no open dependency.
 - `IN_PROGRESS → TODO` is made only by the service: **return**
   (`POST /tasks/{id}/return`, MCP `give_up`: the task goes to its reporter,
-  with a reason) and **parking** (an open dependency added to work in
+  with a reason and the `actor` who returns it, by nick) and **parking** (an open dependency added to work in
   progress).
 - A status write may carry `from`, the status the caller expects: found
   anywhere else, it is a 409 and nothing is written. That is how two claimers
@@ -101,7 +102,8 @@ id. One entry per status move and per assignee write, published after the write.
 | `handle` | the task's handle |
 | `from`, `to` | its status before and after the write |
 | `assignee` | its assignee after the write, nick or null |
-| `note`, `note_by` | present only when the write has a line for the discussion — why a task was returned or parked — and the subject who says it (a uuid; a park is said by `00000000-0000-0000-0000-000000000003`) |
+| `note` | present only when the write has a line for the discussion: why a task was returned or parked |
+| `note_by` | the nick of who says the note: the actor of a return. Absent on a note the board makes itself (parking) — the consumer attributes it |
 
 An entry is a wake-up, not the record. Delivery is best-effort (a failed write
 to the stream is logged and the move stands) and the stream is capped. A
