@@ -174,6 +174,15 @@ type Spec struct {
 	// ReadOnly are host paths, as the daemon sees them, bound read-only:
 	// source → target.
 	ReadOnly map[string]string
+
+	// The confinement of a run; zero values leave the daemon's defaults.
+	Runtime         string // runsc: gVisor's kernel instead of the host's
+	Network         string // NetworkMode: none, bridge, or a network's name
+	DropAllCaps     bool
+	NoNewPrivileges bool
+	PidsLimit       int64
+	Memory          int64 // bytes; swap is held to the same, so none
+	NanoCPUs        int64
 }
 
 // Create makes a container and returns its id. A taken name is ErrConflict.
@@ -184,7 +193,7 @@ func (c *Client) Create(ctx context.Context, s Spec) (string, error) {
 		// NoCopy: an empty volume mounted where the container's own
 		// filesystem has a directory — WorkingDir creates one, as root — takes
 		// that directory's owner, and the folder handed to uid 1000 goes back
-		// to root (found live, BOT-434).
+		// to root (found live).
 		mounts = append(mounts, map[string]any{"Type": "volume", "Source": s.Volume, "Target": s.VolumeAt,
 			"VolumeOptions": map[string]any{"NoCopy": true}})
 	}
@@ -194,11 +203,33 @@ func (c *Client) Create(ctx context.Context, s Spec) (string, error) {
 	if mounts != nil {
 		host["Mounts"] = mounts
 	}
+	if s.Runtime != "" {
+		host["Runtime"] = s.Runtime
+	}
+	if s.Network != "" {
+		host["NetworkMode"] = s.Network
+	}
+	if s.DropAllCaps {
+		host["CapDrop"] = []string{"ALL"}
+	}
+	if s.NoNewPrivileges {
+		host["SecurityOpt"] = []string{"no-new-privileges"}
+	}
+	if s.PidsLimit > 0 {
+		host["PidsLimit"] = s.PidsLimit
+	}
+	if s.Memory > 0 {
+		host["Memory"] = s.Memory
+		host["MemorySwap"] = s.Memory
+	}
+	if s.NanoCPUs > 0 {
+		host["NanoCpus"] = s.NanoCPUs
+	}
 	body := map[string]any{
 		"Image": s.Image, "Entrypoint": s.Entrypoint, "Cmd": s.Cmd, "User": s.User,
 		"WorkingDir": s.WorkDir, "Env": s.Env, "Labels": s.Labels,
 		// No TTY: a script sees a pipe, as in CI, so tools print no colours
-		// and no \r\n into the answer (found live, BOT-434). The log then
+		// and no \r\n into the answer (found live). The log then
 		// comes in frames, which Logs takes apart.
 		"Tty":        false,
 		"HostConfig": host,
@@ -267,11 +298,67 @@ func (c *Client) List(ctx context.Context, label string) ([]Listed, error) {
 // Logs returns the container's whole output, stdout and stderr in the order
 // they were written.
 func (c *Client) Logs(ctx context.Context, id string) ([]byte, error) {
+	return c.LogsTail(ctx, id, 0)
+}
+
+// LogsTail returns the last n lines of the container's output; 0 is all of it.
+func (c *Client) LogsTail(ctx context.Context, id string, n int) ([]byte, error) {
+	q := "stdout=1&stderr=1"
+	if n > 0 {
+		q += fmt.Sprintf("&tail=%d", n)
+	}
 	var buf bytes.Buffer
-	if err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/logs?stdout=1&stderr=1", nil, &buf); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/logs?"+q, nil, &buf); err != nil {
 		return nil, err
 	}
 	return Demux(buf.Bytes())
+}
+
+// PutArchive extracts a tar into the container at path, a directory that
+// exists in it; a volume mounted there receives the files. The container
+// need not be running.
+func (c *Client) PutArchive(ctx context.Context, id, path string, tar io.Reader) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		c.base+"/containers/"+url.PathEscape(id)+"/archive?path="+url.QueryEscape(path), tar)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-tar")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("PUT archive %s: %d %s", path, resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+	return nil
+}
+
+// GetArchive streams path from the container as a tar, its first component
+// the path's last element. The container need not be running; a path that
+// is not there is ErrNotFound. The caller closes the stream.
+func (c *Client) GetArchive(ctx context.Context, id, path string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.base+"/containers/"+url.PathEscape(id)+"/archive?path="+url.QueryEscape(path), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("GET archive %s: %w", path, ErrNotFound)
+	}
+	if resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("GET archive %s: %d %s", path, resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+	return resp.Body, nil
 }
 
 // Demux joins the frames of a container's log without a TTY: each frame is an

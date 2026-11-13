@@ -23,7 +23,10 @@ func newRunner(t *testing.T, f *enginetest.Fake) *Runner {
 	t.Cleanup(f.Close)
 	return &Runner{
 		Docker:       engine.NewHTTP(f.URL, f.Client()),
-		DefaultImage: "bash:5.2",
+		Images:       []Image{{"shell", "bash:5.2"}, {"alp", "alpine:3.19"}},
+		Runtime:      "runsc",
+		Limits:       Limits{Memory: 1 << 30, Pids: 256, NanoCPUs: 2e9},
+		TransferTime: 5 * time.Second,
 		MaxKeep:      time.Hour,
 		Minute:       50 * time.Millisecond,
 		Now:          time.Now,
@@ -72,7 +75,7 @@ func TestRunAnswers(t *testing.T) {
 	require.Equal(t, "/work", c.WorkDir)
 	require.Equal(t, "/work", c.Mounts[0]["Target"])
 	// Without NoCopy the daemon gives the empty volume the owner of the
-	// image's /work (root), undoing the chown (BOT-434).
+	// image's /work (root), undoing the chown.
 	require.Equal(t, map[string]any{"NoCopy": true}, c.Mounts[0]["VolumeOptions"])
 	require.Equal(t, []string{"echo hello world"}, c.Cmd)
 }
@@ -116,7 +119,7 @@ func TestAKeyAnswersTheSameUntilItsKeepEnds(t *testing.T) {
 	require.NotEqual(t, rs[0].Labels[labelVolume], rs[1].Labels[labelVolume])
 }
 
-// BOT-433, found live: a hub took the answer for a caller that had died. The
+// Found live: a hub took the answer for a caller that had died. The
 // next call with the key gets the same answer, and nothing runs twice.
 func TestAnAnswerTakenForADeadCallerIsStillThere(t *testing.T) {
 	f := enginetest.New("bash:5.2")
@@ -267,12 +270,14 @@ func TestTheSweepRemovesStrayVolumes(t *testing.T) {
 	require.Empty(t, f.Volumes())
 }
 
-// c6 and the default: the image named, else the server's; a missing one is
-// pulled; a pull the registry refuses is an error and nothing is left.
+// Images by name only (section 3): the name given, else the first of
+// IMAGES; a missing one is pulled; a name the server lacks, or a reference
+// in place of a name, is refused before anything is made; a pull the
+// registry refuses is an error and nothing is left.
 func TestImages(t *testing.T) {
 	f := enginetest.New("bash:5.2")
 	r := newRunner(t, f)
-	_, err := r.Run(context.Background(), Request{Key: "a", Script: "cat /etc/alpine-release", Image: "alpine:3.19"})
+	_, err := r.Run(context.Background(), Request{Key: "a", Script: "cat /etc/alpine-release", Image: "alp"})
 	require.NoError(t, err)
 	require.Equal(t, []string{"alpine:3.19"}, f.Pulled)
 	require.Equal(t, "alpine:3.19", runs(f)[0].Image)
@@ -281,12 +286,21 @@ func TestImages(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "bash:5.2", runs(f)[1].Image)
 
+	before := len(f.Log)
+	for _, img := range []string{"alpine:3.19", "python:3.12", "evil"} {
+		_, err = r.Run(context.Background(), Request{Key: "x", Script: "true", Image: img})
+		var ue *UsageError
+		require.ErrorAs(t, err, &ue, img)
+	}
+	require.Len(t, f.Log, before)
+
+	r.Images = append(r.Images, Image{"broken", "nope:1"})
 	f.FailPull("nope:1", "manifest unknown")
-	before := f.Containers()
-	_, err = r.Run(context.Background(), Request{Key: "c", Script: "true", Image: "nope:1"})
+	containers := f.Containers()
+	_, err = r.Run(context.Background(), Request{Key: "c", Script: "true", Image: "broken"})
 	require.ErrorContains(t, err, "manifest unknown")
-	require.Equal(t, before, f.Containers())
-	require.Len(t, f.Volumes(), before)
+	require.Equal(t, containers, f.Containers())
+	require.Len(t, f.Volumes(), containers)
 }
 
 // The script runs under bash where the image has it and sh where it does not.

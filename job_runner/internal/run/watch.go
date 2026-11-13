@@ -7,8 +7,9 @@ import (
 )
 
 // Watch keeps the promises nobody is waiting to keep: a run past its limit is
-// killed, an answer past its keep is dropped with its run, and a volume no run
-// holds any more (a start that failed halfway) is removed.
+// killed, a run that ended with nobody following it (this process restarted)
+// gets its outputs sent, an answer past its keep is dropped with its run, and
+// a volume no run holds any more (a start that failed halfway) is removed.
 func (r *Runner) Watch(ctx context.Context, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -50,7 +51,15 @@ func (r *Runner) Sweep(ctx context.Context) {
 		if err != nil {
 			keep = r.MaxKeep
 		}
-		if c.State.FinishedAt.IsZero() || now.Sub(c.State.FinishedAt) < keep || r.followed(key) {
+		if c.State.FinishedAt.IsZero() || r.followed(key) {
+			continue
+		}
+		if now.Sub(c.State.FinishedAt) < keep {
+			if r.endedAnswer(l.ID) == nil {
+				if _, err := r.finish(ctx, l.ID); err != nil {
+					log.Printf("watch: run %s: %v", key, err)
+				}
+			}
 			continue
 		}
 		log.Printf("watch: run %s: its answer waited %s and nobody took it; dropped", key, keep)

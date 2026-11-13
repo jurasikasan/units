@@ -26,13 +26,19 @@ func call(t *testing.T, r *Runner, args map[string]any) *mcp.CallToolResult {
 
 func text(res *mcp.CallToolResult) string { return res.Content[0].(*mcp.TextContent).Text }
 
-// Section 3: the answer says how it ended, then the output, and never the script.
+// Section 3: the answer says how it ended, what changed in /work, then the
+// output, and never the script; the same as structured content.
 func TestTheToolAnswers(t *testing.T) {
 	f := enginetest.New("bash:5.2")
 	f.Behave = echo
 	res := call(t, newRunner(t, f), map[string]any{"key": "c1", "script": "echo hello world"})
 	require.False(t, res.IsError)
-	require.Regexp(t, `^exit code 0 after \S+\n\nOutput:\nhello world$`, text(res))
+	require.Regexp(t, `^exit code 0 after \S+\n\nChanges: \+0 ~0 -0\n\nOutput:\nhello world$`, text(res))
+	sc, ok := res.StructuredContent.(map[string]any)
+	require.True(t, ok, "%T", res.StructuredContent)
+	require.Equal(t, float64(0), sc["exit_code"])
+	require.Equal(t, false, sc["stopped_by_limit"])
+	require.Equal(t, "hello world", sc["output_tail"])
 }
 
 // Section 6: a wrong call is a tool error, and nothing runs.

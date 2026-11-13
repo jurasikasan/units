@@ -1,11 +1,14 @@
 #!/bin/sh
-# job_runner_dind's entrypoint (BOT-673): dockerd as the image starts it, then a
-# run may reach the internet and nothing private — not the stack, not the LAN,
-# not the host. Fails closed: if the rule cannot be set, dockerd is stopped and
-# the container exits, so job_runner (healthy-gated on this) never starts runs.
+# The entrypoint of job_runner's daemon: dockerd as the image starts it, with
+# gVisor as the runtime runsc, then the rule that a run on the daemon's bridge
+# (network internet) reaches public addresses and nothing private — not the
+# stack, not the LAN, not the host. Fails closed: if the rule cannot be set,
+# dockerd is stopped and the container exits, so job_runner (healthy-gated on
+# this) never starts runs.
 set -u
 
-dockerd-entrypoint.sh dockerd --host=unix:///var/run/dind/docker.sock &
+dockerd-entrypoint.sh dockerd --host=unix:///var/run/dind/docker.sock \
+  --add-runtime runsc=/usr/local/bin/runsc &
 pid=$!
 trap 'kill -TERM $pid; wait $pid; exit 0' TERM INT
 

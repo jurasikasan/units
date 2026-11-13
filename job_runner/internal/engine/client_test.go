@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The compose daemon listens on a unix socket only (BOT-420).
+// The compose daemon listens on a unix socket only.
 func TestAUnixSocketReachesTheDaemon(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "docker.sock")
 	ln, err := net.Listen("unix", sock)

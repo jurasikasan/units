@@ -1,5 +1,6 @@
-// Package run is job_runner's one operation: a script in a fresh container,
-// in an empty folder, answered when it has ended (CONTRACT.md).
+// Package run is job_runner's operation: a script in a fresh, confined
+// container, with the files the call brought, answered when it has ended
+// (CONTRACT.md).
 //
 // A run is a container named after its key, with the run's facts in labels
 // and its folder in a volume of its own. The container is the whole state:
@@ -8,17 +9,25 @@
 // the ones waiting, and any that come until the run's keep runs out; then the
 // run and its folder go (watch.go). Handing an answer over removes nothing: a
 // caller in between (a hub) may take it for a caller that died, and the next
-// call with the key must still get it, not start the work again (BOT-433).
+// call with the key must still get it, not start the work again.
+//
+// Outputs and the log are sent once the run has ended, by whoever finds it
+// ended first: the flight following it, or the sweep after a restart. A
+// restart in the middle may send them again; a PUT of the same bytes to the
+// same URL is harmless.
 package run
 
 import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -26,12 +35,18 @@ import (
 	"github.com/jurasikasan/units/job_runner/internal/engine"
 )
 
-// Labels on a run's container. The values of env are never among them.
+// Labels on a run's container, in Docker's reverse-DNS form for a tool's
+// labels; they are the run's stored facts, so their names last across
+// versions. The values of env are never among them.
 const (
-	labelKey      = "job_runner.key"
-	labelDeadline = "job_runner.deadline" // RFC 3339: killed past it
-	labelKeep     = "job_runner.keep"     // Go duration an undelivered answer waits
-	labelVolume   = "job_runner.volume"
+	labelPrefix   = "io.github.jurasikasan.units.job_runner."
+	labelKey      = labelPrefix + "key"
+	labelDeadline = labelPrefix + "deadline" // RFC 3339: killed past it
+	labelKeep     = labelPrefix + "keep"     // Go duration an undelivered answer waits
+	labelVolume   = labelPrefix + "volume"
+	labelImage    = labelPrefix + "image"     // the name from IMAGES
+	labelNetwork  = labelPrefix + "network"   // none, internet, or a deployer's name
+	labelTransfer = labelPrefix + "transfers" // JSON: what came in, what goes out
 )
 
 const (
@@ -55,32 +70,71 @@ var (
 var entrypoint = []string{"sh", "-c",
 	`export PATH="` + helpersDir + `:$PATH"; if command -v bash >/dev/null 2>&1; then exec bash -c "$1"; fi; exec sh -c "$1"`, "job_runner"}
 
+// The networks every instance has; NETWORKS adds the deployer's.
+const (
+	NetworkNone     = "none"
+	NetworkInternet = "internet"
+)
+
 // Request is one call of run.
 type Request struct {
 	Key          string
 	Script       string
-	Image        string
+	Image        string // a name from IMAGES
+	Network      string
+	Inputs       []Input
+	Outputs      []Output
+	Log          *LogTo
 	Env          map[string]string
 	Secrets      []string
 	LimitMinutes int
 	KeepMinutes  int
 }
 
-// Answer is how a run ended.
+// Answer is how a run ended, and what came of it.
 type Answer struct {
 	ExitCode int
 	Stopped  bool // by its limit
 	Ran      time.Duration
 	Output   string // the tail
+	Changes  *Changes
+	Outputs  []Sent
+	Log      string   // how sending the log went; "" without one
+	Notes    []string // what could not be told: a report that failed, say
+}
+
+// Image is a name a run may use and the reference behind it.
+type Image struct{ Name, Ref string }
+
+// Limits hold every run.
+type Limits struct {
+	Memory   int64 // bytes
+	Pids     int64
+	NanoCPUs int64
 }
 
 // Runner starts runs and hands out their answers.
 type Runner struct {
-	Docker       *engine.Client
-	DefaultImage string
-	MaxKeep      time.Duration
-	// Secrets are the values a run may ask for by name (SECRET_<NAME>).
+	Docker *engine.Client
+	// Images are the images a run may name; the first is the default, and
+	// it also prepares each run's folder.
+	Images []Image
+	// Networks are the deployer's networks a run may name, name → the
+	// daemon's network; none and internet are always there.
+	Networks map[string]string
+	Limits   Limits
+	// Runtime is the OCI runtime of a run: runsc. "" is the daemon's
+	// default, which only tests use.
+	Runtime string
+	MaxKeep time.Duration
+	// Secrets are the values a run or a transfer may use by name (SECRET_<NAME>).
 	Secrets map[string]string
+	// TransferURLs are the prefixes an input, output or log URL must start
+	// with. None: no transfers at all. A secret goes only to these.
+	TransferURLs []string
+	// TransferTime bounds the outputs and the log of one run, sent after it.
+	TransferTime time.Duration
+	HTTP         *http.Client
 	// HelpersDir is bound read-only at /opt/helpers in every run; "" = none.
 	HelpersDir string
 	// Minute is how long a minute of limit_minutes and keep_minutes is.
@@ -90,6 +144,13 @@ type Runner struct {
 
 	mu      sync.Mutex
 	flights map[string]*flight
+	ended   map[string]*ending // by container id
+}
+
+// ending is a run's answer as it is put together once it has ended.
+type ending struct {
+	mu     sync.Mutex
+	answer *Answer
 }
 
 // flight is one key's run as this process follows it. Every caller of the
@@ -134,10 +195,59 @@ func (r *Runner) validate(req *Request) error {
 			return usage("secret %q: this instance has none by that name", name)
 		}
 	}
-	if req.Image == "" {
-		req.Image = r.DefaultImage
+	if req.Image == "" && len(r.Images) > 0 {
+		req.Image = r.Images[0].Name
 	}
-	return nil
+	if r.imageRef(req.Image) == "" {
+		return usage("image %q: not one of %s", req.Image, strings.Join(r.imageNames(), ", "))
+	}
+	if req.Network == "" {
+		req.Network = NetworkNone
+	}
+	if r.dockerNetwork(req.Network) == "" {
+		return usage("network %q: not one of %s", req.Network, strings.Join(r.networkNames(), ", "))
+	}
+	return r.validateTransfers(req)
+}
+
+func (r *Runner) imageRef(name string) string {
+	for _, i := range r.Images {
+		if i.Name == name {
+			return i.Ref
+		}
+	}
+	return ""
+}
+
+func (r *Runner) imageNames() []string {
+	var out []string
+	for _, i := range r.Images {
+		out = append(out, i.Name)
+	}
+	return out
+}
+
+// dockerNetwork is the daemon's NetworkMode for a run's network; "" for one
+// this instance does not have. internet is the daemon's own bridge, which
+// the daemon's egress rule holds to public addresses.
+func (r *Runner) dockerNetwork(name string) string {
+	switch name {
+	case NetworkNone:
+		return "none"
+	case NetworkInternet:
+		return "bridge"
+	}
+	return r.Networks[name]
+}
+
+func (r *Runner) networkNames() []string {
+	out := []string{NetworkNone, NetworkInternet}
+	var extra []string
+	for n := range r.Networks {
+		extra = append(extra, n)
+	}
+	sort.Strings(extra)
+	return append(out, extra...)
 }
 
 func (r *Runner) keep(req Request) time.Duration {
@@ -204,34 +314,36 @@ func (r *Runner) fly(f *flight, req Request) {
 		finish(nil, err)
 		return
 	}
-
-	// Ended. The answer stays with the run until its keep runs out.
-	r.mu.Lock()
-	waiting := f.waiters
-	r.mu.Unlock()
-	if waiting == 0 {
-		log.Printf("run %s: ended with nobody waiting; its answer waits for the next call with the key", req.Key)
-		finish(nil, nil)
-		return
-	}
-	a, err := r.answer(ctx, c.ID)
-	finish(a, err)
+	// Ended: its outputs go now, whether anyone waits or not. The answer
+	// stays with the run until its keep runs out.
+	finish(r.finish(ctx, c.ID))
 }
 
-// start makes the key's run: the image (pulled within the limit), a volume
-// for /work owned by the run's user, and the container.
+// start makes the key's run: the image (pulled within the limit), its
+// inputs fetched, a volume for /work owned by the run's user with the
+// inputs in it, and the container, confined.
 func (r *Runner) start(ctx context.Context, req Request) (*engine.Container, error) {
 	begun := r.Now()
 	deadline := begun.Add(time.Duration(req.LimitMinutes) * r.Minute)
 	pctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	if err := r.ensureImage(pctx, req.Image); err != nil {
+	ref := r.imageRef(req.Image)
+	if err := r.ensureImage(pctx, ref); err != nil {
 		return nil, err
 	}
-	if err := r.ensureImage(pctx, r.DefaultImage); err != nil {
+	if err := r.ensureImage(pctx, r.Images[0].Ref); err != nil {
 		return nil, err
 	}
+	in, err := r.fetchInputs(pctx, req.Inputs)
+	if err != nil {
+		return nil, err
+	}
+	defer in.close()
 
+	tr, err := json.Marshal(transfers{Inputs: in.manifest, Outputs: req.Outputs, Log: req.Log})
+	if err != nil {
+		return nil, err
+	}
 	vol := containerName(req.Key) + "-" + randomHex(4)
 	if err := r.Docker.CreateVolume(ctx, vol, map[string]string{labelKey: req.Key}); err != nil {
 		return nil, fmt.Errorf("create the run's folder: %w", err)
@@ -253,15 +365,21 @@ func (r *Runner) start(ctx context.Context, req Request) (*engine.Container, err
 		ro = map[string]string{r.HelpersDir: helpersDir}
 	}
 	id, err := r.Docker.Create(ctx, engine.Spec{
-		Name: containerName(req.Key), Image: req.Image,
+		Name: containerName(req.Key), Image: ref,
 		Entrypoint: entrypoint, Cmd: []string{req.Script},
 		User: runUser, WorkDir: workDir, Env: env,
 		Volume: vol, VolumeAt: workDir, ReadOnly: ro,
+		Runtime: r.Runtime, Network: r.dockerNetwork(req.Network),
+		DropAllCaps: true, NoNewPrivileges: true,
+		PidsLimit: r.Limits.Pids, Memory: r.Limits.Memory, NanoCPUs: r.Limits.NanoCPUs,
 		Labels: map[string]string{
 			labelKey:      req.Key,
 			labelDeadline: deadline.UTC().Format(time.RFC3339Nano),
 			labelKeep:     r.keep(req).String(),
 			labelVolume:   vol,
+			labelImage:    req.Image,
+			labelNetwork:  req.Network,
+			labelTransfer: string(tr),
 		},
 	})
 	if errors.Is(err, engine.ErrConflict) {
@@ -273,12 +391,23 @@ func (r *Runner) start(ctx context.Context, req Request) (*engine.Container, err
 		_ = r.Docker.RemoveVolume(ctx, vol)
 		return nil, fmt.Errorf("create the run: %w", err)
 	}
-	if err := r.Docker.Start(ctx, id); err != nil {
+	fail := func(what string, err error) (*engine.Container, error) {
 		_ = r.Docker.Remove(ctx, id)
 		_ = r.Docker.RemoveVolume(ctx, vol)
-		return nil, fmt.Errorf("start the run: %w", err)
+		return nil, fmt.Errorf("%s: %w", what, err)
 	}
-	log.Printf("run %s: started in %s", req.Key, req.Image)
+	if in.tar != nil {
+		if _, err := in.tar.Seek(0, 0); err != nil {
+			return fail("put the inputs in", err)
+		}
+		if err := r.Docker.PutArchive(pctx, id, workDir, in.tar); err != nil {
+			return fail("put the inputs in", err)
+		}
+	}
+	if err := r.Docker.Start(ctx, id); err != nil {
+		return fail("start the run", err)
+	}
+	log.Printf("run %s: started in %s on network %s with %d input(s)", req.Key, req.Image, req.Network, len(in.manifest))
 	return r.Docker.Inspect(ctx, id)
 }
 
@@ -304,8 +433,9 @@ func (r *Runner) ensureImage(ctx context.Context, image string) error {
 // image, so the run's own image needs no chown.
 func (r *Runner) own(ctx context.Context, vol string) error {
 	id, err := r.Docker.Create(ctx, engine.Spec{
-		Image: r.DefaultImage, Entrypoint: []string{"chown", runUser, workDir},
+		Image: r.Images[0].Ref, Entrypoint: []string{"chown", runUser, workDir},
 		User: "0", Volume: vol, VolumeAt: workDir,
+		Runtime: r.Runtime, Network: "none", NoNewPrivileges: true,
 	})
 	if err != nil {
 		return fmt.Errorf("prepare the run's folder: %w", err)
@@ -362,6 +492,75 @@ func (r *Runner) waitOut(ctx context.Context, c *engine.Container) error {
 	}
 }
 
+// finish is a stopped run's answer: how it ended, what changed in /work,
+// the outputs sent and the log. Put together once per run and kept with it.
+func (r *Runner) finish(ctx context.Context, id string) (*Answer, error) {
+	r.mu.Lock()
+	if r.ended == nil {
+		r.ended = map[string]*ending{}
+	}
+	e := r.ended[id]
+	if e == nil {
+		e = &ending{}
+		r.ended[id] = e
+	}
+	r.mu.Unlock()
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.answer != nil {
+		return e.answer, nil
+	}
+	a, err := r.answer(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	c, err := r.Docker.Inspect(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	var t transfers
+	if err := json.Unmarshal([]byte(c.Config.Labels[labelTransfer]), &t); err != nil {
+		a.Notes = append(a.Notes, "the run's transfers are unreadable: no change report, no outputs")
+		e.answer = a
+		return a, nil
+	}
+	tctx, cancel := context.WithTimeout(ctx, r.TransferTime)
+	defer cancel()
+	ch, err := r.changes(tctx, id, t.Inputs)
+	if err != nil {
+		a.Notes = append(a.Notes, "no change report: "+r.mask(err.Error()))
+	} else {
+		a.Changes = ch
+	}
+	for _, o := range t.Outputs {
+		a.Outputs = append(a.Outputs, Sent{From: o.From, Status: r.mask(r.sendOutput(tctx, id, o))})
+	}
+	if t.Log != nil {
+		a.Log = r.mask(r.sendLog(tctx, id, *t.Log, a))
+	}
+	log.Printf("run %s: ended, %s", c.Config.Labels[labelKey], firstLine(Render(a)))
+	e.answer = a
+	return a, nil
+}
+
+// endedAnswer is a run's answer if it has been put together.
+func (r *Runner) endedAnswer(id string) *Answer {
+	r.mu.Lock()
+	e := r.ended[id]
+	r.mu.Unlock()
+	if e == nil || !e.mu.TryLock() {
+		return nil
+	}
+	defer e.mu.Unlock()
+	return e.answer
+}
+
+func firstLine(s string) string {
+	l, _, _ := strings.Cut(s, "\n")
+	return l
+}
+
 // answer reads the answer from a stopped run.
 func (r *Runner) answer(ctx context.Context, id string) (*Answer, error) {
 	c, err := r.Docker.Inspect(ctx, id)
@@ -384,6 +583,9 @@ func (r *Runner) answer(ctx context.Context, id string) (*Answer, error) {
 }
 
 func (r *Runner) remove(ctx context.Context, id, vol string) {
+	r.mu.Lock()
+	delete(r.ended, id)
+	r.mu.Unlock()
 	if err := r.Docker.Remove(ctx, id); err != nil {
 		log.Printf("remove run %s: %v", id, err)
 	}
@@ -403,6 +605,10 @@ func (r *Runner) mask(s string) string {
 		}
 	}
 	return s
+}
+
+func normalize(s string) string {
+	return strings.TrimRight(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
 }
 
 // tail is the end of the output: the last tailLines lines, at most tailBytes.
