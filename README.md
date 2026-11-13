@@ -14,6 +14,7 @@ own `go.mod`, and its own check script.
 | [`threads`](threads/) | what happened where: threads as append-only journals of entries — ActivityStreams kinds, typed content blocks, no roles — on their own Postgres |
 | [`artifact_store`](artifact_store/) | named files in spaces: put, get, list, delete, read by sha256; identical bytes kept once, expiry per space; names in its own Postgres, bytes in MinIO or any S3 |
 | [`task_board`](task_board/) | tasks and their flow: per-project handles, statuses with the moves allowed between them, assignees by nick, dependencies and subtasks, on their own Postgres; every move published as an event |
+| [`job_runner`](job_runner/) | an isolated machine for agents: files in, a script runs under gVisor with no network unless asked, files out; answered when it ends, looked at with `peek` while it runs |
 | [`engines`](engines/) | speech engines behind OpenAI's audio API: piper, silero, voxcpm (TTS), whisper (STT); and [`vad/silero`](engines/vad/silero/), speech detection per 32 ms window |
 | [`senses/hearing`](senses/hearing/) | takes a sound stream in as RTP, finds the utterances, has them transcribed, reports them as MRCP recognizer events |
 | [`abilities/speaking`](abilities/speaking/) | a mouth: text in through MCP, audio out as RTP through a TTS engine, MRCP synthesizer events saying what was spoken |
