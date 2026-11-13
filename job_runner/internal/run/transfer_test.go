@@ -252,3 +252,34 @@ func TestTheSweepSendsWhatARestartLeftBehind(t *testing.T) {
 	r2.Sweep(context.Background())
 	require.Equal(t, 1, s.puts, "once")
 }
+
+// An output that is a directory sends each file under it to its URL with the
+// file's path inside the directory appended; an empty or missing one is a line.
+func TestADirectoryOutputSendsEachFile(t *testing.T) {
+	f := enginetest.New("bash:5.2")
+	s := newStore(t, map[string]string{})
+	r := transferRunner(t, f, s)
+	f.Behave = func(c enginetest.Created) enginetest.Outcome {
+		if c.Labels[labelKey] == "" {
+			return enginetest.Outcome{}
+		}
+		return enginetest.Outcome{Write: map[string]string{
+			"out/T.result.bundle": "R", "out/sub/T.log": "L", "elsewhere.txt": "E"}}
+	}
+	a, err := r.Run(context.Background(), Request{Key: "k", Script: "work", Outputs: []Output{
+		{From: "out", URL: s.URL + "/v1/files/"},
+		{From: "none", URL: s.URL + "/v1/files/none/"},
+	}})
+	require.NoError(t, err)
+	require.Equal(t, []Sent{
+		{"out/T.result.bundle", "PUT 201"},
+		{"out/sub/T.log", "PUT 201"},
+		{"none", "missing"},
+	}, a.Outputs)
+	got, _ := s.get("/v1/files/T.result.bundle")
+	require.Equal(t, "R", got)
+	got, _ = s.get("/v1/files/sub/T.log")
+	require.Equal(t, "L", got)
+	_, ok := s.get("/v1/files/elsewhere.txt")
+	require.False(t, ok)
+}

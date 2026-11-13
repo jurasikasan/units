@@ -534,7 +534,10 @@ func (r *Runner) finish(ctx context.Context, id string) (*Answer, error) {
 		a.Changes = ch
 	}
 	for _, o := range t.Outputs {
-		a.Outputs = append(a.Outputs, Sent{From: o.From, Status: r.mask(r.sendOutput(tctx, id, o))})
+		for _, sent := range r.sendOutput(tctx, id, o) {
+			sent.Status = r.mask(sent.Status)
+			a.Outputs = append(a.Outputs, sent)
+		}
 	}
 	if t.Log != nil {
 		a.Log = r.mask(r.sendLog(tctx, id, *t.Log, a))

@@ -102,6 +102,13 @@ auth = {s["path"]: s["auth"] for s in seen() if s["method"] == "PUT"}
 check("the token went with the transfers, as a bearer", auth.get(f"/v1/files/shout-{TAG}.txt") == "Bearer showcase-token", json.dumps(auth))
 t, _, err = run("elsewhere", "true", inputs=[{"url": "https://example.com/x", "to": "x", "secret": "FILES_TOKEN"}])
 check("a URL outside TRANSFER_URLS is refused", err and "not under" in t, t)
+t, _, _ = run("dir", "mkdir -p out/sub; echo one > out/a.txt; echo two > out/sub/b.txt",
+              outputs=[{"from": "out", "url": FILES + f"/v1/files/dir-{TAG}/"}])
+print(t)
+check("a directory output sends each file under it", "out/a.txt -> PUT 201" in t and "out/sub/b.txt -> PUT 201" in t, t)
+with urllib.request.urlopen(FILES + f"/v1/files/dir-{TAG}/sub/b.txt") as r:
+    body = r.read().decode()
+check("with its path inside the directory", body == "two\n", body)
 
 step("4. networks: none by default, internet is public only")
 files_ip = socket.gethostbyname("files")

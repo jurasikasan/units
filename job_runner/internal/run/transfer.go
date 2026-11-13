@@ -26,8 +26,8 @@ type Input struct {
 
 // Output is a file of /work sent with PUT after the script has ended.
 type Output struct {
-	From   string `json:"from" jsonschema:"the path under /work, e.g. out/result.bundle"`
-	URL    string `json:"url" jsonschema:"sent with PUT"`
+	From   string `json:"from" jsonschema:"the path under /work: a file, e.g. out/result.bundle, or a directory, e.g. out, whose every file goes to url with its path inside the directory appended"`
+	URL    string `json:"url" jsonschema:"sent with PUT; for a directory, the prefix each file's path is appended to"`
 	Secret string `json:"secret,omitempty" jsonschema:"a secret of this server sent as Authorization: Bearer; its value never enters the run"`
 }
 
@@ -293,26 +293,56 @@ func (r *Runner) changes(ctx context.Context, id string, before []entry) (*Chang
 	return ch, nil
 }
 
-// sendOutput sends one file of a stopped run's /work; the result is a line
-// of the answer, never an error of the run.
-func (r *Runner) sendOutput(ctx context.Context, id string, o Output) string {
+// sendOutput sends one output of a stopped run's /work: a file to its URL,
+// or each file under a directory to the URL with the file's path inside the
+// directory appended. The results are lines of the answer, never an error of
+// the run.
+func (r *Runner) sendOutput(ctx context.Context, id string, o Output) []Sent {
+	one := func(status string) []Sent { return []Sent{{From: o.From, Status: status}} }
 	rc, err := r.Docker.GetArchive(ctx, id, workDir+"/"+o.From)
 	if errors.Is(err, engine.ErrNotFound) {
-		return "missing"
+		return one("missing")
 	}
 	if err != nil {
-		return "not read: " + err.Error()
+		return one("not read: " + err.Error())
 	}
 	defer func() { _ = rc.Close() }()
 	tr := tar.NewReader(rc)
 	h, err := tr.Next()
 	if err != nil {
-		return "not read: " + err.Error()
+		return one("not read: " + err.Error())
 	}
-	if h.Typeflag != tar.TypeReg {
-		return "not a file, not sent"
+	switch h.Typeflag {
+	case tar.TypeReg:
+		return one(r.put(ctx, o.URL, o.Secret, io.LimitReader(tr, h.Size), h.Size))
+	case tar.TypeDir:
+	default:
+		return one("not a file or a directory, not sent")
 	}
-	return r.put(ctx, o.URL, o.Secret, io.LimitReader(tr, h.Size), h.Size)
+	// A directory: the archive's names start with its own name.
+	var out []Sent
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return append(out, Sent{From: o.From, Status: "not read: " + err.Error()})
+		}
+		if h.Typeflag != tar.TypeReg {
+			continue
+		}
+		_, rel, ok := strings.Cut(h.Name, "/")
+		if !ok || rel == "" {
+			continue
+		}
+		out = append(out, Sent{From: o.From + "/" + rel,
+			Status: r.put(ctx, o.URL+rel, o.Secret, io.LimitReader(tr, h.Size), h.Size)})
+	}
+	if len(out) == 0 {
+		return one("empty directory, nothing sent")
+	}
+	return out
 }
 
 // sendLog sends the whole output of a stopped run, then its answer.

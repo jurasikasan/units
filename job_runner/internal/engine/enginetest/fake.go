@@ -517,6 +517,7 @@ func (f *Fake) getArchive(w http.ResponseWriter, r *http.Request, c *container) 
 	base := path.Base(want)
 	var names []string
 	out := map[string]File{}
+	_, isFile := files[rel]
 	for p, fl := range files {
 		switch {
 		case rel == "":
@@ -539,7 +540,7 @@ func (f *Fake) getArchive(w http.ResponseWriter, r *http.Request, c *container) 
 	sort.Strings(names)
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	if rel == "" || out[base].Data == "" && len(out) > 1 {
+	if !isFile {
 		_ = tw.WriteHeader(&tar.Header{Name: base + "/", Typeflag: tar.TypeDir, Mode: 0o755})
 	}
 	for _, n := range names {

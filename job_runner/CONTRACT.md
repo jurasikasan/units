@@ -1,6 +1,6 @@
 # job_runner — contract
 
-Status: draft for v0.0.0.
+Status: v0.1.0 — v0.0.0 plus a directory as an output.
 
 ## 1. What it is
 
@@ -46,7 +46,7 @@ MCP over streamable HTTP at `/`, plus `GET /health`. Three tools.
 | `image` | a name from `IMAGES`; the first if left out |
 | `network` | `none` (default), `internet`, or a name from `NETWORKS` |
 | `inputs` | `[{url, to, secret?}]`: each `url` fetched with GET into `/work/<to>` before the script starts, owned by the run's user; `secret` names a secret sent as `Authorization: Bearer`. A failed fetch fails the call, nothing runs |
-| `outputs` | `[{from, url, secret?}]`: after the script, however it ended, each file `/work/<from>` sent with PUT to `url`. A missing file or a failed PUT is a line in the answer, not an error |
+| `outputs` | `[{from, url, secret?}]`: after the script, however it ended, `/work/<from>` sent with PUT to `url`. A directory sends each file under it to `url` with the file's path inside the directory appended (`{from: "out", url: ".../v1/files/"}`: `out/a/b.txt` → `.../v1/files/a/b.txt`). A missing file or directory, or a failed PUT, is a line in the answer, not an error |
 | `log` | `{url, secret?}`: after the run, however it ended (a failure, its limit), the whole output and the answer sent with PUT to `url`. For a run that must be read after its keep is over. A failed PUT is a line in the answer |
 | `env` | `{NAME: value}`: environment of the script. Not secret |
 | `secrets` | `[NAME, …]`: secrets put in the script's environment. Prefer `secret` on a transfer: then the value never enters the run |
