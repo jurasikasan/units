@@ -98,7 +98,7 @@ def run_one(cid, mode, model, i, args):
             env["ANTHROPIC_BASE_URL"] = os.environ["LLM_BASE_URL"]
             secrets = ["LLM_KEY"]
     stamp = dt.datetime.now().strftime("%m%d%H%M%S")
-    key = f"eval-{cid}-{mode}-{model or 'none'}{'+' + args.tools if args.tools else ''}-{stamp}-{i}"
+    key = f"eval-{cid}-{mode}-{model or 'none'}{'.' + args.tools if args.tools else ''}-{stamp}-{i}"
     script = open(os.path.join(HERE, "run_case.sh")).read()
     mcp = MCP(os.environ["JOB_RUNNER_URL"], os.environ.get("JOB_RUNNER_TOKEN"))
     call = dict(key=key, script=script, image="agent", network="internet", env=env,
