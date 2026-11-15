@@ -8,6 +8,10 @@ resolving them, stores `origin` and `discussion` as links it never opens,
 publishes `board_events` and consumes nothing. What it promises is
 `CONTRACT.md`; this file is for working inside it.
 
+Using it from an agent: [AGENTS.md](AGENTS.md) connects it as an MCP server,
+remote or on this machine ([local/compose.yaml](local/compose.yaml)), and
+[SKILL.md](SKILL.md) is the skill for working a board.
+
 Doors:
 
 - HTTP on `:8099` under `/api/v1` (`projects`, `tasks`, `labels`), plus

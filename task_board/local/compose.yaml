@@ -1,0 +1,59 @@
+# task_board on one machine: the board with its own Postgres and Redis. Needs
+# nothing but Docker. No auth: it listens on 127.0.0.1 only.
+#
+#   docker compose -f compose.yaml up -d --wait
+#
+# MCP:  http://127.0.0.1:7482/mcp         (TASK_BOARD_PORT)
+# HTTP: http://127.0.0.1:7482/api/v1/...
+#
+# Built from the tagged source, so this file works on its own, without a
+# checkout of the repository. AGENTS.md beside it says how to use it.
+
+name: task_board-local
+
+volumes:
+  postgres:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: board
+      POSTGRES_PASSWORD: board
+      POSTGRES_DB: board
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "board"]
+      interval: 2s
+      retries: 30
+    restart: unless-stopped
+
+  # Where the board publishes every move (board_events); nothing here reads it.
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+    restart: unless-stopped
+
+  task_board:
+    build:
+      context: https://github.com/jurasikasan/units.git#task_board/v0.1.0:task_board
+      args:
+        VERSION: task_board/v0.1.0
+    environment:
+      DATABASE_URL: postgres://board:board@postgres:5432/board?sslmode=disable
+      REDIS_ADDR: redis:6379
+    ports: ["127.0.0.1:${TASK_BOARD_PORT:-7482}:8099"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8099/ready"]
+      interval: 2s
+      retries: 30
+    restart: unless-stopped
