@@ -40,6 +40,12 @@ rl.on("line", (l) => {
 });'
 }
 
+# Tools for the agent, installed before its clock starts.
+if [ "${TOOLS:-}" = gopls ]; then
+  GOBIN=/tmp/bin go install golang.org/x/tools/gopls@latest > /tmp/gopls.install 2>&1 \
+    || { echo "EVAL gopls install failed"; tail -5 /tmp/gopls.install; }
+fi
+
 agent_rc=-
 t0=$(date +%s)
 case "$MODE" in
@@ -62,6 +68,20 @@ ${BRIEF:?}"
         --max-turns 150 --allowedTools Read,Edit,Write,Bash,Glob,Grep --permission-mode acceptEdits \
         --output-format stream-json --verbose > /tmp/agent.jsonl 2> /tmp/agent.err || agent_rc=$?
       tail -3 /tmp/agent.err
+    elif [ "${TOOLS:-}" = gopls ]; then
+      # The same model and flags as the agent helper, plus Go's language
+      # server as MCP tools (gopls mcp): symbols, references, diagnostics.
+      printf '{"mcpServers":{"gopls":{"command":"sh","args":["-c","cd /tmp/ws/%s && exec /tmp/bin/gopls mcp"]}}}' "$WRITE" > /tmp/mcp.json
+      ANTHROPIC_API_KEY=${LLM_KEY:-placeholder} ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_MODEL \
+        ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_MODEL \
+        CLAUDE_CODE_DISABLE_1M_CONTEXT=1 CLAUDE_CODE_MAX_CONTEXT_TOKENS=90000 \
+        DISABLE_AUTOUPDATER=1 PAGER=cat GIT_PAGER=cat \
+        timeout -s INT -k 30s "${AGENT_MINUTES:-40}m" claude -p "$prompt" --bare --model "$ANTHROPIC_MODEL" \
+        --mcp-config /tmp/mcp.json --max-turns 150 \
+        --allowedTools Read,Edit,Write,Bash,Glob,Grep,mcp__gopls --permission-mode acceptEdits \
+        --output-format stream-json --verbose > /tmp/agent.jsonl 2> /tmp/agent.err || agent_rc=$?
+      tail -3 /tmp/agent.err
+      echo "EVAL gopls calls: $(grep -o '"name":"mcp__gopls__[a-z_]*"' /tmp/agent.jsonl | sort | uniq -c | tr '\n' ' ')"
     else
       AGENT_MINUTES=${AGENT_MINUTES:-40} agent "$prompt" || agent_rc=$?
     fi
@@ -117,4 +137,4 @@ fi
 check=FAIL
 ( cd "$WRITE" && bash check.sh ) > /tmp/check.log 2>&1 && check=PASS
 tail -10 /tmp/check.log
-echo "EVAL mode=$MODE model=${ANTHROPIC_MODEL:-none} agent_rc=$agent_rc agent_s=$((t1 - t0)) peeked=$peeked self=$self hidden=$hidden check=$check"
+echo "EVAL mode=$MODE model=${ANTHROPIC_MODEL:-none} tools=${TOOLS:-none} agent_rc=$agent_rc agent_s=$((t1 - t0)) peeked=$peeked self=$self hidden=$hidden check=$check"
