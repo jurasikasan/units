@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// Watch keeps the promises nobody is waiting to keep: a run past its limit is
-// killed, a run that ended with nobody following it (this process restarted)
+// Watch keeps the promises nobody is waiting to keep: a run past its limit, or
+// one whose stop was asked for, is killed, a run that ended with nobody following it (this process restarted)
 // gets its outputs sent, an answer past its keep is dropped with its run, and
 // a volume no run holds any more (a start that failed halfway) is removed.
 func (r *Runner) Watch(ctx context.Context, every time.Duration) {
@@ -40,9 +40,15 @@ func (r *Runner) Sweep(ctx context.Context) {
 		}
 		key := l.Labels[labelKey]
 		if c.State.Running {
-			if !now.Before(deadlineOf(l.Labels)) {
+			switch {
+			case !now.Before(deadlineOf(l.Labels)):
 				if err := r.Docker.Kill(ctx, l.ID); err == nil {
 					log.Printf("watch: run %s stopped by its limit with nobody waiting", key)
+				}
+			case r.stopAsked(ctx, key):
+				// Asked for, and this process went down before the kill.
+				if err := r.Docker.Kill(ctx, l.ID); err == nil {
+					log.Printf("watch: run %s stopped by its caller", key)
 				}
 			}
 			continue
@@ -63,7 +69,7 @@ func (r *Runner) Sweep(ctx context.Context) {
 			continue
 		}
 		log.Printf("watch: run %s: its answer waited %s and nobody took it; dropped", key, keep)
-		r.remove(ctx, l.ID, l.Labels[labelVolume])
+		r.remove(ctx, l.ID, key, l.Labels[labelVolume])
 	}
 
 	vols, err := r.Docker.Volumes(ctx, labelKey)

@@ -1,6 +1,6 @@
 # job_runner — contract
 
-Status: v0.1.0 — v0.0.0 plus a directory as an output.
+Status: v0.2.0 — v0.1.0 plus `stop`: a run ended by its caller before its limit.
 
 ## 1. What it is
 
@@ -35,7 +35,7 @@ rule (section 5). The box needs Docker and nothing else.
 
 ## 3. Interface
 
-MCP over streamable HTTP at `/`, plus `GET /health`. Three tools.
+MCP over streamable HTTP at `/`, plus `GET /health`. Four tools.
 
 ### `run` — answers when the run has ended
 
@@ -59,7 +59,8 @@ MCP over streamable HTTP at `/`, plus `GET /health`. Three tools.
 The answer, as text; its first line is fixed, callers may parse it:
 
 ```
-exit code 1 after 1m3.2s            (or: stopped by its limit after 30m0s)
+exit code 1 after 1m3.2s            (or: stopped by its limit after 30m0s,
+                                     or: stopped by its caller after 4m2s)
 
 Changes: +1 ~1 -1
   + out/result.bundle 1204
@@ -81,7 +82,8 @@ added, changed (size or modification time), removed; the text names the first
 20, the counts are of all. As `structuredContent`: `{exit_code,
 stopped_by_limit, duration_ms, changes: {added, changed, removed: [{path,
 size}]}, outputs: [{from, status}], log, notes, output_tail}`; `exit_code` is
-null when the run was stopped.
+null when the run was stopped, by its limit (`stopped_by_limit`) or by `stop`
+(`stopped_by_caller`).
 
 Outputs and the log are sent once the run has ended, whether anyone waits or
 not. A restart of job_runner in between may send them again: the same bytes to
@@ -92,6 +94,19 @@ the same URL.
 `{state, started_at, elapsed_ms, output_tail, answer?}`; `state` is `running`,
 `ended` (with `run`'s answer once its outputs are sent) or `unknown`. `lines` is how much of the
 output, 50 if left out, at most 2000. Never starts or waits for anything.
+
+### `stop(key)` — answers at once
+
+Ends the key's run now: it is killed as at its limit, and then everything
+after an end happens as usual. Its outputs and log are sent, and its answer
+(`stopped by its caller after …`) goes to every `run` or `peek` with the key
+until its keep is over. `{state}`:
+`stopped` (it was running, or starting with its inputs on the way in),
+`ended` (it had ended already; nothing done, its answer unchanged), `unknown`
+(no run by that key, which includes one still pulling its image). Never
+waits for the answer. A script that ends by itself just before the kill keeps
+its own exit code. The stop is kept with the run, so a restart in between
+still ends it.
 
 ### `list()` — answers at once
 
@@ -144,6 +159,7 @@ named in `IMAGES` — the deployer's choice.
 | tool error: an input could not be fetched | nothing ran | check the url |
 | tool error: the daemon is unavailable | nothing ran | retry later |
 | `stopped by its limit` | out of time | a bigger limit or a smaller script |
+| `stopped by its caller` | `stop` ended it | what was asked for |
 | exit code ≠ 0 | the script failed | the script's business |
 
 ## 7. Check
@@ -161,3 +177,6 @@ named in `IMAGES` — the deployer's choice.
 6. A secret: masked in the answer; on a transfer, absent from the run's
    environment.
 7. `limit_minutes=1` on `sleep 600` → stopped by its limit.
+8. A long run, `stop` while it runs → `stopped`; the waiting `run` answers
+   `stopped by its caller`, its output sent as far as it got; `stop` again →
+   `ended`; of a key nobody knows → `unknown`.

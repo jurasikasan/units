@@ -63,7 +63,7 @@ configs:
 services:
   dind:
     build:
-      context: https://github.com/jurasikasan/units.git#job_runner/v0.1.0:job_runner/dind
+      context: https://github.com/jurasikasan/units.git#job_runner/v0.2.0:job_runner/dind
     privileged: true
     volumes:
       - socket:/var/run/dind
@@ -89,9 +89,9 @@ services:
 
   job_runner:
     build:
-      context: https://github.com/jurasikasan/units.git#job_runner/v0.1.0:job_runner
+      context: https://github.com/jurasikasan/units.git#job_runner/v0.2.0:job_runner
       args:
-        VERSION: job_runner/v0.1.0
+        VERSION: job_runner/v0.2.0
     environment:
       # The images a run may name; the first is the default. Add the ones
       # your projects' tests need (name=reference).

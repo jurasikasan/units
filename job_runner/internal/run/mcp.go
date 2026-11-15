@@ -27,14 +27,15 @@ type Params struct {
 
 // Result is an answer as structured content.
 type Result struct {
-	ExitCode       *int     `json:"exit_code" jsonschema:"null when the run was stopped by its limit"`
-	StoppedByLimit bool     `json:"stopped_by_limit"`
-	DurationMs     int64    `json:"duration_ms"`
-	Changes        *Changes `json:"changes,omitempty" jsonschema:"what the run did to /work against its inputs"`
-	Outputs        []Sent   `json:"outputs,omitempty"`
-	Log            string   `json:"log,omitempty" jsonschema:"how sending the log went"`
-	Notes          []string `json:"notes,omitempty"`
-	OutputTail     string   `json:"output_tail"`
+	ExitCode        *int     `json:"exit_code" jsonschema:"null when the run was stopped, by its limit or by its caller"`
+	StoppedByLimit  bool     `json:"stopped_by_limit"`
+	StoppedByCaller bool     `json:"stopped_by_caller"`
+	DurationMs      int64    `json:"duration_ms"`
+	Changes         *Changes `json:"changes,omitempty" jsonschema:"what the run did to /work against its inputs"`
+	Outputs         []Sent   `json:"outputs,omitempty"`
+	Log             string   `json:"log,omitempty" jsonschema:"how sending the log went"`
+	Notes           []string `json:"notes,omitempty"`
+	OutputTail      string   `json:"output_tail"`
 }
 
 // PeekParams is peek's input.
@@ -52,12 +53,22 @@ type PeekResult struct {
 	Answer     *Result   `json:"answer,omitempty" jsonschema:"run's answer, once the run has ended and its outputs are sent"`
 }
 
+// StopParams is stop's input.
+type StopParams struct {
+	Key string `json:"key" jsonschema:"the run's key"`
+}
+
+// StopResult is stop's answer.
+type StopResult struct {
+	State string `json:"state" jsonschema:"stopped: it was running and is being ended; ended: it had already ended, nothing done; unknown: no run by that key"`
+}
+
 // ListResult is list's answer.
 type ListResult struct {
 	Runs []Listed `json:"runs"`
 }
 
-// NewMCPServer offers the runner as three tools: run, peek and list.
+// NewMCPServer offers the runner as four tools: run, peek, stop and list.
 func NewMCPServer(r *Runner, version string) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "job_runner", Version: version}, nil)
 	mcp.AddTool(s, &mcp.Tool{
@@ -103,6 +114,25 @@ func NewMCPServer(r *Runner, version string) *mcp.Server {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, out, nil
 	})
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "stop",
+		Description: "End a run now, before its limit. Its outputs and log are still sent, and its answer — " +
+			"from run or peek with the same key — says it was stopped by its caller. Answers at once; does not wait for the answer.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in StopParams) (*mcp.CallToolResult, *StopResult, error) {
+		state, err := r.Stop(ctx, in.Key)
+		if res := toolError(err); res != nil {
+			return res, nil, nil
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		text := map[string]string{
+			StopStopped: "stopped: the run is being ended; run or peek with the key for its answer",
+			StopEnded:   "ended already: nothing to stop; run or peek with the key for its answer",
+			StopUnknown: "unknown: no run by that key",
+		}[state]
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, &StopResult{State: state}, nil
+	})
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list",
 		Description: "The runs this server holds: running, and ended ones whose answers still wait. Answers at once.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, *ListResult, error) {
@@ -132,9 +162,9 @@ func toolError(err error) *mcp.CallToolResult {
 }
 
 func result(a *Answer) *Result {
-	res := &Result{StoppedByLimit: a.Stopped, DurationMs: a.Ran.Milliseconds(), Changes: a.Changes,
-		Outputs: a.Outputs, Log: a.Log, Notes: a.Notes, OutputTail: a.Output}
-	if !a.Stopped {
+	res := &Result{StoppedByLimit: a.Stopped, StoppedByCaller: a.StoppedByCaller, DurationMs: a.Ran.Milliseconds(),
+		Changes: a.Changes, Outputs: a.Outputs, Log: a.Log, Notes: a.Notes, OutputTail: a.Output}
+	if !a.Stopped && !a.StoppedByCaller {
 		code := a.ExitCode
 		res.ExitCode = &code
 	}
@@ -149,9 +179,12 @@ const reportFiles = 20
 // is fixed, callers parse it — then the changes, the outputs, the output.
 func Render(a *Answer) string {
 	var b strings.Builder
-	if a.Stopped {
+	switch {
+	case a.Stopped:
 		fmt.Fprintf(&b, "stopped by its limit after %s", a.Ran)
-	} else {
+	case a.StoppedByCaller:
+		fmt.Fprintf(&b, "stopped by its caller after %s", a.Ran)
+	default:
 		fmt.Fprintf(&b, "exit code %d after %s", a.ExitCode, a.Ran)
 	}
 	if c := a.Changes; c != nil {

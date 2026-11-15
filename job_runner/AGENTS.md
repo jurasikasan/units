@@ -7,7 +7,7 @@ it well afterwards is [SKILL.md](SKILL.md); what it promises is
 
 job_runner runs a script in a fresh, isolated machine (a container under
 gVisor, no network unless asked) and answers when it has ended. You reach it
-as an MCP server over streamable HTTP with three tools: `run`, `peek`, `list`.
+as an MCP server over streamable HTTP with four tools: `run`, `peek`, `stop`, `list`.
 You install nothing of ours into your project; you add a server to your MCP
 client.
 

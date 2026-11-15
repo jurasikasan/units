@@ -10,7 +10,7 @@ Using it from an agent: [AGENTS.md](AGENTS.md) sets it up as an MCP server,
 remote or on this machine ([local/compose.yaml](local/compose.yaml)), and
 [SKILL.md](SKILL.md) is the skill for using it.
 
-Door: MCP over streamable HTTP at `/` on `:8080` — `run`, `peek`, `list` —
+Door: MCP over streamable HTTP at `/` on `:8080` — `run`, `peek`, `stop`, `list` —
 plus `GET /health`. No HTTP API and no console: it is meant to be asked by
 programs and models, and `peek`/`list` are how they look.
 
@@ -21,8 +21,9 @@ programs and models, and `peek`/`list` are how they look.
 | a run: start, follow, kill at the limit, the answer | `internal/run/runner.go` |
 | inputs, outputs, the log, the change report | `internal/run/transfer.go` |
 | peek and list | `internal/run/peek.go` |
+| stop, and the stop kept as a container of its own | `internal/run/stop.go` |
 | the tools and the text of an answer | `internal/run/mcp.go` |
-| killing past the limit, finishing after a restart, dropping past keep | `internal/run/watch.go` |
+| killing past the limit or on a stop, finishing after a restart, dropping past keep | `internal/run/watch.go` |
 | the dozen Engine API calls, over the daemon's unix socket | `internal/engine/client.go` |
 | a fake daemon for the tests | `internal/engine/enginetest/` |
 | the daemon: Docker in Docker, gVisor, the egress rule | `dind/` |
@@ -72,4 +73,5 @@ The showcase starts the daemon, job_runner and a small file server, then
 `demo.py` calls the tools as an agent would: a run, a peek mid-run, the same
 key twice, files in and out with the token kept outside, the networks, gVisor
 and the limits, a masked secret and the log of a failed run, a run stopped by
-its limit. About two minutes, one of them waiting out a limit.
+its limit, and one stopped by its caller. About two minutes, one of them
+waiting out a limit.

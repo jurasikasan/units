@@ -95,12 +95,14 @@ type Request struct {
 type Answer struct {
 	ExitCode int
 	Stopped  bool // by its limit
-	Ran      time.Duration
-	Output   string // the tail
-	Changes  *Changes
-	Outputs  []Sent
-	Log      string   // how sending the log went; "" without one
-	Notes    []string // what could not be told: a report that failed, say
+	// StoppedByCaller: ended by stop before its limit (stop.go).
+	StoppedByCaller bool
+	Ran             time.Duration
+	Output          string // the tail
+	Changes         *Changes
+	Outputs         []Sent
+	Log             string   // how sending the log went; "" without one
+	Notes           []string // what could not be told: a report that failed, say
 }
 
 // Image is a name a run may use and the reference behind it.
@@ -344,6 +346,9 @@ func (r *Runner) start(ctx context.Context, req Request) (*engine.Container, err
 	if err != nil {
 		return nil, err
 	}
+	// A fresh run starts with no stop: one left by an earlier run of the key
+	// whose removal failed halfway would end this one at once.
+	r.dropStop(ctx, req.Key)
 	vol := containerName(req.Key) + "-" + randomHex(4)
 	if err := r.Docker.CreateVolume(ctx, vol, map[string]string{labelKey: req.Key}); err != nil {
 		return nil, fmt.Errorf("create the run's folder: %w", err)
@@ -465,9 +470,11 @@ func deadlineOf(labels map[string]string) time.Time {
 	return t
 }
 
-// waitOut waits until the container stops, killing it at its deadline.
+// waitOut waits until the container stops, killing it at its deadline, or
+// at once when a stop was asked for before it started (stop.go).
 func (r *Runner) waitOut(ctx context.Context, c *engine.Container) error {
 	deadline := deadlineOf(c.Config.Labels)
+	key := c.Config.Labels[labelKey]
 	for {
 		cur, err := r.Docker.Inspect(ctx, c.ID)
 		if err != nil {
@@ -475,6 +482,12 @@ func (r *Runner) waitOut(ctx context.Context, c *engine.Container) error {
 		}
 		if !cur.State.Running {
 			return nil
+		}
+		if r.stopAsked(ctx, key) {
+			if err := r.Docker.Kill(ctx, c.ID); err != nil && !errors.Is(err, engine.ErrConflict) {
+				return fmt.Errorf("stop the run: %w", err)
+			}
+			return r.Docker.Wait(ctx, c.ID)
 		}
 		if !r.Now().Before(deadline) {
 			if err := r.Docker.Kill(ctx, c.ID); err != nil && !errors.Is(err, engine.ErrConflict) {
@@ -574,24 +587,29 @@ func (r *Runner) answer(ctx context.Context, id string) (*Answer, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Killed, and a stop was asked for: its caller ended it. A script that
+	// ended by itself just before the kill keeps its own exit code.
+	byCaller := c.State.ExitCode == 137 && r.stopAsked(ctx, c.Config.Labels[labelKey])
 	a := &Answer{
-		ExitCode: c.State.ExitCode,
+		ExitCode:        c.State.ExitCode,
+		StoppedByCaller: byCaller,
 		// A kill at the deadline: the run finished at or past it. A script
 		// that exits by itself in the last second of its limit reads the same.
-		Stopped: c.State.ExitCode == 137 && !c.State.FinishedAt.Before(deadlineOf(c.Config.Labels).Add(-time.Second)),
+		Stopped: !byCaller && c.State.ExitCode == 137 && !c.State.FinishedAt.Before(deadlineOf(c.Config.Labels).Add(-time.Second)),
 		Ran:     c.State.FinishedAt.Sub(c.State.StartedAt).Round(time.Millisecond),
 		Output:  r.mask(tail(string(out))),
 	}
 	return a, nil
 }
 
-func (r *Runner) remove(ctx context.Context, id, vol string) {
+func (r *Runner) remove(ctx context.Context, id, key, vol string) {
 	r.mu.Lock()
 	delete(r.ended, id)
 	r.mu.Unlock()
 	if err := r.Docker.Remove(ctx, id); err != nil {
 		log.Printf("remove run %s: %v", id, err)
 	}
+	r.dropStop(ctx, key)
 	if vol != "" {
 		if err := r.Docker.RemoveVolume(ctx, vol); err != nil {
 			log.Printf("remove volume %s: %v", vol, err)

@@ -5,7 +5,7 @@ description: Run a script in a fresh, isolated machine (container under gVisor, 
 
 # job_runner
 
-Tools: `run`, `peek`, `list` on the MCP server `job_runner`. If they are not
+Tools: `run`, `peek`, `stop`, `list` on the MCP server `job_runner`. If they are not
 there, it isn't set up yet: follow [AGENTS.md](AGENTS.md) (in the units
 repository, `job_runner/AGENTS.md`).
 
@@ -46,13 +46,13 @@ stdin.
   `image` out for the default, or name one. An unknown name is answered with
   the list.
 - **Limit**: `limit_minutes`, 30 if left out, at most 120. It includes the
-  image pull and the inputs. Past it the run is killed. There is no way to
-  stop a run early, so set the limit close to what the job needs.
-- **Answer**: the first line is fixed. It is `exit code N after T`, or
-  `stopped by its limit after T`. Then come `Changes` (what changed in
-  `/work`), `Outputs` (one line per file, e.g. `out/report.txt -> PUT 201`)
-  and the last 200 lines of output (16 KB at most). Write anything longer to
-  a file and send it out.
+  image pull and the inputs. Past it the run is killed. Set it close to what
+  the job needs. `stop` with the key ends a run sooner.
+- **Answer**: the first line is fixed. It is `exit code N after T`,
+  `stopped by its limit after T`, or `stopped by its caller after T`. Then
+  come `Changes` (what changed in `/work`), `Outputs` (one line per file,
+  e.g. `out/report.txt -> PUT 201`) and the last 200 lines of output (16 KB
+  at most). Write anything longer to a file and send it out.
 
 ## Keys
 
@@ -80,6 +80,10 @@ per attempt, saying what it is (`myproj-tests-3f2a1c`, `myproj-deps-2`).
 - **To avoid holding your session**, start the run, and if your client lets
   you, do other work and `peek` now and then. Wait longer between peeks as
   the run goes on. `list` shows every run the server holds.
+- **A run you no longer need** (a wrong script, a stuck job): `stop` with
+  its key. Its outputs are still sent with what it got to, and its answer
+  says `stopped by its caller`. Don't just walk away from it, because it
+  holds a machine until its limit.
 - An answer nobody collected waits for its keep (`keep_minutes`, a few hours
   at most), then the key is free again.
 

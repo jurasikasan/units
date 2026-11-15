@@ -3,7 +3,7 @@
 
 unit: job_runner
 kind: service
-summary: An isolated machine for agents — files in, a script runs under gVisor with no network unless asked, files out — answered when it ends, looked at with peek while it runs.
+summary: An isolated machine for agents — files in, a script runs under gVisor with no network unless asked, files out — answered when it ends, looked at with peek while it runs, ended early with stop.
 contract: CONTRACT.md
 maturity: probe
 
@@ -11,7 +11,7 @@ provides:
   mcp:
     hub_name: job_runner   # the prefix mcp-hub gives its tools: job_runner.run, …
     port: 8080
-    tools: [run, peek, list]
+    tools: [run, peek, stop, list]
   health: GET :8080/health
 
 consumes:

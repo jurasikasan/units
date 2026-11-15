@@ -150,5 +150,29 @@ t, sc, _ = run("limit", "sleep 600", limit_minutes=1)
 print(t.splitlines()[0])
 check("stopped by its limit", t.startswith("stopped by its limit") and sc["exit_code"] is None, t)
 
+step("8. stop ends a run before its limit; its outputs still go")
+box = {}
+th = threading.Thread(target=lambda: box.update(a=run(
+    "long", "mkdir out; for i in $(seq 1 600); do echo tick $i; echo $i > out/progress.txt; sleep 1; done",
+    outputs=[{"from": "out", "url": FILES + f"/v1/stopped-{TAG}/"}])))
+th.start()
+time.sleep(5)
+t, sc, _ = tool("stop", {"key": f"long-{TAG}"})
+print(t)
+check("stop: stopped, at once", sc["state"] == "stopped", t)
+th.join(60)
+check("the waiting run call answers", not th.is_alive() and "a" in box, "still waiting after 60s")
+t, sc, _ = box["a"]
+print(t.splitlines()[0])
+check("stopped by its caller, no exit code", t.startswith("stopped by its caller after") and sc["exit_code"] is None
+      and sc["stopped_by_caller"] and not sc["stopped_by_limit"], t)
+with urllib.request.urlopen(FILES + f"/v1/stopped-{TAG}/progress.txt") as r:
+    body = r.read().decode().strip()
+check("its output went out, as far as it got", body.isdigit() and int(body) < 30, body)
+t, sc, _ = tool("stop", {"key": f"long-{TAG}"})
+check("stop again: ended, nothing done", sc["state"] == "ended", t)
+t, sc, _ = tool("stop", {"key": "never-was"})
+check("stop of a key nobody knows: unknown", sc["state"] == "unknown", t)
+
 print("\nFAIL: " + ", ".join(failed) if failed else "\nOK")
 sys.exit(1 if failed else 0)
