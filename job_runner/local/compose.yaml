@@ -1,0 +1,111 @@
+# job_runner on one machine, for one person and their agents: the daemon
+# with gVisor, job_runner, and a small file server to pass files in and out.
+# Needs nothing but Docker (Linux, x86_64). Nothing here asks for a token: both
+# doors listen on 127.0.0.1 only.
+#
+#   docker compose -f compose.yaml up -d --wait
+#
+# MCP:   http://127.0.0.1:7480/        (JOB_RUNNER_PORT)
+# files: http://127.0.0.1:7481/v1/...  as you see it   (FILES_PORT)
+#        http://files:8000/v1/...      as job_runner sees it: the url in a run's inputs and outputs
+#
+# Built from the tagged source, so this file works on its own, without a
+# checkout of the repository. AGENTS.md beside it says how to use it.
+
+name: job_runner-local
+
+volumes:
+  socket:
+  storage:
+  files:
+
+networks:
+  # job_runner and the file server.
+  inside: {}
+  # The daemon's way out, for image pulls and runs on network: internet.
+  egress: {}
+
+configs:
+  files_py:
+    content: |
+      # GET and PUT of files under /v1/, kept in /data. No listing, no auth:
+      # it listens on 127.0.0.1 and inside this compose only.
+      import http.server, os, shutil
+      ROOT = "/data"
+      class H(http.server.BaseHTTPRequestHandler):
+          def _path(self):
+              p = os.path.normpath(self.path.split("?")[0])
+              if not p.startswith("/v1/") or ".." in p:
+                  self.send_error(404); return None
+              return os.path.join(ROOT, p[4:])
+          def do_GET(self):
+              p = self._path()
+              if p is None: return
+              if not os.path.isfile(p):
+                  self.send_error(404); return
+              self.send_response(200)
+              self.send_header("Content-Length", str(os.path.getsize(p)))
+              self.end_headers()
+              with open(p, "rb") as f: shutil.copyfileobj(f, self.wfile)
+          def do_PUT(self):
+              p = self._path()
+              if p is None: return
+              os.makedirs(os.path.dirname(p), exist_ok=True)
+              n = int(self.headers.get("Content-Length", 0))
+              with open(p, "wb") as f:
+                  while n > 0:
+                      b = self.rfile.read(min(n, 1 << 20))
+                      if not b: break
+                      f.write(b); n -= len(b)
+              self.send_response(201); self.send_header("Content-Length", "0"); self.end_headers()
+      http.server.ThreadingHTTPServer(("", 8000), H).serve_forever()
+
+services:
+  dind:
+    build:
+      context: https://github.com/jurasikasan/units.git#job_runner/v0.1.0:job_runner/dind
+    privileged: true
+    volumes:
+      - socket:/var/run/dind
+      - storage:/var/lib/docker
+    networks: [egress]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /run/egress-ready && docker info >/dev/null"]
+      interval: 2s
+      retries: 60
+    restart: unless-stopped
+
+  files:
+    image: python:3.12-alpine
+    configs:
+      - source: files_py
+        target: /files.py
+    command: ["python", "/files.py"]
+    volumes:
+      - files:/data
+    ports: ["127.0.0.1:${FILES_PORT:-7481}:8000"]
+    networks: [inside]
+    restart: unless-stopped
+
+  job_runner:
+    build:
+      context: https://github.com/jurasikasan/units.git#job_runner/v0.1.0:job_runner
+      args:
+        VERSION: job_runner/v0.1.0
+    environment:
+      # The images a run may name; the first is the default. Add the ones
+      # your projects' tests need (name=reference).
+      IMAGES: ${JOB_RUNNER_IMAGES:-shell=bash:5.2,python=python:3.12-slim,node=node:22-slim,go=golang:1.25}
+      TRANSFER_URLS: http://files:8000/v1/
+    volumes:
+      - socket:/var/run/dind
+    ports: ["127.0.0.1:${JOB_RUNNER_PORT:-7480}:8080"]
+    depends_on:
+      dind:
+        condition: service_healthy
+    networks: [inside]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 2s
+      retries: 30
+    restart: unless-stopped

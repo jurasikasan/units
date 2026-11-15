@@ -6,6 +6,10 @@ capabilities, `no_new_privs`, limits on memory, processes and CPU, and no
 network unless the call names one. What it promises is `CONTRACT.md`; this
 file is for working inside it.
 
+Using it from an agent: [AGENTS.md](AGENTS.md) sets it up as an MCP server,
+remote or on this machine ([local/compose.yaml](local/compose.yaml)), and
+[SKILL.md](SKILL.md) is the skill for using it.
+
 Door: MCP over streamable HTTP at `/` on `:8080` — `run`, `peek`, `list` —
 plus `GET /health`. No HTTP API and no console: it is meant to be asked by
 programs and models, and `peek`/`list` are how they look.
