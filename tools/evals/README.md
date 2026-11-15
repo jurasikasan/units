@@ -15,7 +15,9 @@ are put over its work and run. Three results per run:
 Each run is one [job_runner](../../job_runner/) run (`run_case.sh`), so the
 agent never runs on the caller's machine. `eval.py check <case>` proves a case
 first, without a model: on the old code the hidden tests fail, with the
-reference change they pass.
+reference change they pass. Where the old code does not even build the hidden
+tests, `check` prints each build error with its line: every name there must be
+in the brief, or the agent is judged on a guess.
 
 ```bash
 export JOB_RUNNER_URL=… JOB_RUNNER_TOKEN=… LLM_BASE_URL=…   # the model's key is job_runner's secret LLM_KEY

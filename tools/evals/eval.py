@@ -130,12 +130,17 @@ def run_one(cid, mode, model, i, args):
     u = re.findall(r"^EVAL usage (.*)$", tail, re.M)
     if u:
         rec["usage"] = json.loads(u[-1])
+    be = re.findall(r"^EVAL builderr (.*)$", tail, re.M)
+    if be:
+        rec["builderr"] = be
     st = re.findall(r"^EVAL stat (.*)$", tail, re.M)
     if st:
         rec["stat"] = st[-1]
     os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
     with _lock, open(RESULTS, "a") as f:
         f.write(json.dumps(rec) + "\n")
+    for b in rec.get("builderr", []):  # every one must be answered by the brief
+        say(f"{key}: build error on the old code: {b}")
     say(f"{key}: {' '.join(f'{k}={rec.get(k)}' for k in ('self', 'hidden', 'check', 'peeked', 'agent_rc', 'agent_s'))}")
     return rec
 
@@ -156,19 +161,20 @@ def table():
     rows = [json.loads(l) for l in open(RESULTS)] if os.path.exists(RESULTS) else []
     agg = {}
     for r in rows:
-        if r["mode"] != "agent":
+        if r["mode"] != "agent" or r.get("void"):  # void: the case was wrong, not the run
             continue
         a = agg.setdefault((r["case"], r["model"]), {"n": 0, "hidden": 0, "self": 0, "false_green": 0, "s": 0, "turns": 0})
         a["n"] += 1
         a["hidden"] += r.get("hidden") == "PASS"
         a["self"] += r.get("self") == "PASS"
         a["false_green"] += r.get("self") == "PASS" and r.get("hidden") != "PASS"
-        a["peeked"] = a.get("peeked", 0) + (r.get("peeked") == "yes")
+        if "peeked" in r:  # runs before the detector have no answer
+            a["peeked"] = a.get("peeked", 0) + (r["peeked"] == "yes")
         a["s"] += int(r.get("agent_s") or 0)
         a["turns"] += (r.get("usage") or {}).get("turns") or 0
     print(f"{'case':<14} {'model':<10} {'n':>2} {'hidden':>6} {'own gate':>8} {'false green':>11} {'avg s':>6} {'avg turns':>9} {'peeked':>6}")
     for (c, m), a in sorted(agg.items()):
-        print(f"{c:<14} {m:<10} {a['n']:>2} {a['hidden']:>6} {a['self']:>8} {a['false_green']:>11} {a['s'] // a['n']:>6} {a['turns'] // a['n']:>9} {a['peeked']:>6}")
+        print(f"{c:<14} {m:<10} {a['n']:>2} {a['hidden']:>6} {a['self']:>8} {a['false_green']:>11} {a['s'] // a['n']:>6} {a['turns'] // a['n']:>9} {a.get('peeked', '-'):>6}")
     for r in rows:
         if r["mode"] != "agent":
             print(f"check {r['case']:<14} {r['mode']:<8} hidden={r.get('hidden')} check={r.get('check')}")

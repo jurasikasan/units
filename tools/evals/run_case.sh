@@ -85,6 +85,15 @@ hidden=FAIL
 # shellcheck disable=SC2086
 ( cd "$WRITE" && go test -count=1 $TESTS ) > /tmp/hidden.log 2>&1 && hidden=PASS
 tail -25 /tmp/hidden.log
+# On the old code the hidden tests should fail to build only on names the brief
+# gives: each such error is printed so `eval.py check` can hold it to the brief.
+if [ "$MODE" = control ]; then
+  # shellcheck disable=SC2086
+  ( cd "$WRITE" && go test -count=1 -gcflags=-e -run '^$' $(echo $TESTS | sed 's/ -run .*//') ) 2>&1 | grep -E '^[^#].*_test\.go:[0-9]+:[0-9]+: ' | sort -u | while IFS= read -r l; do
+    f=${l%%:*}; n=$(echo "$l" | cut -d: -f2)
+    echo "EVAL builderr $l || $(sed -n "${n}p" "$WRITE/$f" | sed 's/^[[:space:]]*//')"
+  done
+fi
 check=FAIL
 ( cd "$WRITE" && bash check.sh ) > /tmp/check.log 2>&1 && check=PASS
 tail -10 /tmp/check.log

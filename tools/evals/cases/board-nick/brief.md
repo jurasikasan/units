@@ -7,6 +7,6 @@ Change:
 - `data.note_by` in `task_board.task.*` events is that nick. A note the board makes itself (parking) has no `note_by` at all: the consumer that writes it into a discussion attributes it. The unit holds no subject id any more (`schedulerID` goes).
 - Swagger docs regenerated (`doc.sh`), README and CONTRACT.md where they name `actor_id` or a uuid `note_by`.
 
-Go names the change must have (tests elsewhere will use them): `ReturnRequest` has `Actor string` (json `actor`) and `Reason string`; the service's `Return(ctx, id, ReturnRequest)` keeps its shape; the event's `NoteBy` is a string (a nick, empty for the board's own lines) and is left out of `data` when empty.
+Go names the change must have (tests elsewhere will use them): `ReturnRequest` has `Actor string` (json `actor`), `Reason string` and `ActorID *string` (json `actor_id`, kept only so a body still sending it can be refused; the error says `send actor`); the service's `Return(ctx, id, ReturnRequest)` keeps its shape; the event's `NoteBy` is a string (a nick, empty for the board's own lines) and is left out of `data` when empty.
 
 Update the tests that send `actor_id`, and add ones for: a return by nick, `actor_id` refused by name, a park's event with no `note_by`.
