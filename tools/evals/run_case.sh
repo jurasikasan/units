@@ -66,6 +66,10 @@ let r = null;
 for (const l of require("fs").readFileSync("/tmp/agent.jsonl", "utf8").split("\n")) { try { const e = JSON.parse(l); if (e.type === "result") r = e; } catch {} }
 if (r) console.log("EVAL usage " + JSON.stringify({ turns: r.num_turns, s: Math.round(r.duration_ms / 1000), subtype: r.subtype, in: r.usage.input_tokens, cache_read: r.usage.cache_read_input_tokens, out: r.usage.output_tokens }));'
 
+# Did the agent go for the reference itself? Resourceful, but not the same result.
+peeked=-
+[ -s /tmp/agent.jsonl ] && peeked=no && grep -qiE '"(command|url)":"[^"]*(github\.com[/:][^"]*units|git (clone|fetch|ls-remote)|proxy\.golang\.org[^"]*units)' /tmp/agent.jsonl && peeked=yes
+
 self=-
 if [ "$MODE" = agent ]; then
   self=FAIL
@@ -84,4 +88,4 @@ tail -25 /tmp/hidden.log
 check=FAIL
 ( cd "$WRITE" && bash check.sh ) > /tmp/check.log 2>&1 && check=PASS
 tail -10 /tmp/check.log
-echo "EVAL mode=$MODE model=${ANTHROPIC_MODEL:-none} agent_rc=$agent_rc agent_s=$((t1 - t0)) self=$self hidden=$hidden check=$check"
+echo "EVAL mode=$MODE model=${ANTHROPIC_MODEL:-none} agent_rc=$agent_rc agent_s=$((t1 - t0)) peeked=$peeked self=$self hidden=$hidden check=$check"

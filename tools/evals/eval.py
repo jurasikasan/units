@@ -136,7 +136,7 @@ def run_one(cid, mode, model, i, args):
     os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
     with _lock, open(RESULTS, "a") as f:
         f.write(json.dumps(rec) + "\n")
-    say(f"{key}: {' '.join(f'{k}={rec.get(k)}' for k in ('self', 'hidden', 'check', 'agent_rc', 'agent_s'))}")
+    say(f"{key}: {' '.join(f'{k}={rec.get(k)}' for k in ('self', 'hidden', 'check', 'peeked', 'agent_rc', 'agent_s'))}")
     return rec
 
 
@@ -163,11 +163,12 @@ def table():
         a["hidden"] += r.get("hidden") == "PASS"
         a["self"] += r.get("self") == "PASS"
         a["false_green"] += r.get("self") == "PASS" and r.get("hidden") != "PASS"
+        a["peeked"] = a.get("peeked", 0) + (r.get("peeked") == "yes")
         a["s"] += int(r.get("agent_s") or 0)
         a["turns"] += (r.get("usage") or {}).get("turns") or 0
-    print(f"{'case':<14} {'model':<10} {'n':>2} {'hidden':>6} {'own gate':>8} {'false green':>11} {'avg s':>6} {'avg turns':>9}")
+    print(f"{'case':<14} {'model':<10} {'n':>2} {'hidden':>6} {'own gate':>8} {'false green':>11} {'avg s':>6} {'avg turns':>9} {'peeked':>6}")
     for (c, m), a in sorted(agg.items()):
-        print(f"{c:<14} {m:<10} {a['n']:>2} {a['hidden']:>6} {a['self']:>8} {a['false_green']:>11} {a['s'] // a['n']:>6} {a['turns'] // a['n']:>9}")
+        print(f"{c:<14} {m:<10} {a['n']:>2} {a['hidden']:>6} {a['self']:>8} {a['false_green']:>11} {a['s'] // a['n']:>6} {a['turns'] // a['n']:>9} {a['peeked']:>6}")
     for r in rows:
         if r["mode"] != "agent":
             print(f"check {r['case']:<14} {r['mode']:<8} hidden={r.get('hidden')} check={r.get('check')}")
