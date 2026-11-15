@@ -51,9 +51,20 @@ case "$MODE" in
     : > /tmp/agent.jsonl
     steps & spid=$!
     agent_rc=0
-    AGENT_MINUTES=${AGENT_MINUTES:-40} agent "Do the task below in this folder. You may write only under $WRITE/; everything else is read-only. When you are done, $WRITE/check.sh must pass. Do not commit.
+    prompt="Do the task below in this folder. You may write only under $WRITE/; everything else is read-only. When you are done, $WRITE/check.sh must pass. Do not commit.
 
-${BRIEF:?}" || agent_rc=$?
+${BRIEF:?}"
+    if [ -n "${CLAUDE_TOKEN:-}" ]; then
+      # Claude itself, on a subscription: the agent helper's --bare reads only
+      # an API key, so the same call without it, the same tools and limits.
+      CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_TOKEN DISABLE_AUTOUPDATER=1 PAGER=cat GIT_PAGER=cat \
+        timeout -s INT -k 30s "${AGENT_MINUTES:-40}m" claude -p "$prompt" --model "$ANTHROPIC_MODEL" \
+        --max-turns 150 --allowedTools Read,Edit,Write,Bash,Glob,Grep --permission-mode acceptEdits \
+        --output-format stream-json --verbose > /tmp/agent.jsonl 2> /tmp/agent.err || agent_rc=$?
+      tail -3 /tmp/agent.err
+    else
+      AGENT_MINUTES=${AGENT_MINUTES:-40} agent "$prompt" || agent_rc=$?
+    fi
     sleep 1; kill "$spid" 2>/dev/null
     ;;
 esac

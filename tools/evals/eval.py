@@ -89,9 +89,12 @@ def run_one(cid, mode, model, i, args):
     env["MODE"] = mode
     secrets = []
     if mode == "agent":
-        env.update(ANTHROPIC_BASE_URL=os.environ["LLM_BASE_URL"], ANTHROPIC_MODEL=model,
-                   AGENT_MINUTES=str(args.agent_minutes), TASK="")
-        secrets = ["LLM_KEY"]
+        env.update(ANTHROPIC_MODEL=model, AGENT_MINUTES=str(args.agent_minutes), TASK="")
+        if model.startswith("claude"):  # Claude itself, on job_runner's secret CLAUDE_TOKEN
+            secrets = ["CLAUDE_TOKEN"]
+        else:  # a LiteLLM group behind the stage key
+            env["ANTHROPIC_BASE_URL"] = os.environ["LLM_BASE_URL"]
+            secrets = ["LLM_KEY"]
     stamp = dt.datetime.now().strftime("%m%d%H%M%S")
     key = f"eval-{cid}-{mode}-{model or 'none'}-{stamp}-{i}"
     script = open(os.path.join(HERE, "run_case.sh")).read()
