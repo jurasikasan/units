@@ -73,9 +73,18 @@ git add -A
 echo "EVAL diff:"; git diff --cached --stat | tail -15
 echo "EVAL stat $(git diff --cached --shortstat)"
 [ -s /tmp/agent.jsonl ] && node -e '
+// A session may end more than once (a model that schedules a wakeup gets one
+// more short turn): every result event counts.
 let r = null;
-for (const l of require("fs").readFileSync("/tmp/agent.jsonl", "utf8").split("\n")) { try { const e = JSON.parse(l); if (e.type === "result") r = e; } catch {} }
-if (r) console.log("EVAL usage " + JSON.stringify({ turns: r.num_turns, s: Math.round(r.duration_ms / 1000), subtype: r.subtype, in: r.usage.input_tokens, cache_read: r.usage.cache_read_input_tokens, out: r.usage.output_tokens }));'
+for (const l of require("fs").readFileSync("/tmp/agent.jsonl", "utf8").split("\n")) {
+  let e; try { e = JSON.parse(l); } catch { continue; }
+  if (e.type !== "result") continue;
+  const u = e.usage || {};
+  r = r || { turns: 0, s: 0, in: 0, cache_read: 0, out: 0, results: 0 };
+  r.turns += e.num_turns || 0; r.s += Math.round((e.duration_ms || 0) / 1000); r.subtype = e.subtype; r.results++;
+  r.in += u.input_tokens || 0; r.cache_read += u.cache_read_input_tokens || 0; r.out += u.output_tokens || 0;
+}
+if (r) console.log("EVAL usage " + JSON.stringify(r));'
 
 # Did the agent go for the reference itself? Resourceful, but not the same result.
 peeked=-
