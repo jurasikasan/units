@@ -1,8 +1,7 @@
 # units
 
 Self-sufficient services and libraries, each useful on its own and assembled
-into applications elsewhere (mostly bot, `../bot`). See [README.md](README.md)
-for the list.
+into applications. See [README.md](README.md) for the list.
 
 ## Work comes from the board
 
