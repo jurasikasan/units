@@ -46,6 +46,14 @@ if [ "${TOOLS:-}" = gopls ]; then
     || { echo "EVAL gopls install failed"; tail -5 /tmp/gopls.install; }
 fi
 
+# A foreign harness instead of Claude Code: mini-swe-agent (MIT), bash only,
+# the model through the gateway's OpenAI door.
+if [ "${HARNESS:-}" = mini ]; then
+  { curl -LsSf https://github.com/astral-sh/uv/releases/download/0.9.5/uv-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C /tmp \
+    && UV_TOOL_DIR=/tmp/uvtools UV_TOOL_BIN_DIR=/tmp/bin /tmp/uv-x86_64-unknown-linux-gnu/uv tool install -q mini-swe-agent==2.4.6; } \
+    > /tmp/mini.install 2>&1 || { echo "EVAL mini install failed"; tail -5 /tmp/mini.install; }
+fi
+
 # One headless Claude Code call: claude_call MODEL MINUTES TURNS TOOLS OUT PROMPT.
 # A claude-* model runs on the subscription token, any other on a LiteLLM
 # group with the agent helper's settings.
@@ -95,7 +103,43 @@ case "$MODE" in
     prompt="Do the task below in this folder. You may write only under $WRITE/; everything else is read-only. When you are done, $WRITE/check.sh must pass. Do not commit.
 
 ${BRIEF:?}"
-    if [ -n "${CLAUDE_TOKEN:-}" ]; then
+    if [ "${HARNESS:-}" = mini ]; then
+      # Its trajectory, after the fact, becomes STEP lines and agent.jsonl in
+      # the shape the usage and peek checks below read.
+      OPENAI_API_KEY=${LLM_KEY:-placeholder} OPENAI_BASE_URL="$ANTHROPIC_BASE_URL/v1" OPENAI_API_BASE="$ANTHROPIC_BASE_URL/v1" \
+        MSWEA_CONFIGURED=true MSWEA_COST_TRACKING=ignore_errors PAGER=cat GIT_PAGER=cat \
+        timeout -s INT -k 30s "${AGENT_MINUTES:-40}m" /tmp/bin/mini -y --exit-immediately -m "openai/$ANTHROPIC_MODEL" \
+        -c mini.yaml -c agent.mode=yolo -c agent.step_limit=150 -c agent.cost_limit=0 \
+        -c environment.cwd=/tmp/ws -c environment.timeout=600 -o /tmp/traj.json -t "$prompt" \
+        < /dev/null > /tmp/mini.log 2>&1 || agent_rc=$?
+      tail -5 /tmp/mini.log
+      python3 - <<'PY'
+import json
+try:
+    t = json.load(open("/tmp/traj.json"))
+except Exception as e:
+    print(f"EVAL mini no trajectory: {e}"); raise SystemExit
+n, u = 0, {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0}
+with open("/tmp/agent.jsonl", "w") as out:
+    for m in t.get("messages", []):
+        if m.get("role") != "assistant":
+            continue
+        ru = ((m.get("extra") or {}).get("response") or {}).get("usage") or {}
+        u["input_tokens"] += ru.get("prompt_tokens") or 0
+        u["output_tokens"] += ru.get("completion_tokens") or 0
+        u["cache_read_input_tokens"] += (ru.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
+        for c in m.get("tool_calls") or []:
+            try:
+                cmd = json.loads(c["function"]["arguments"]).get("command", "")
+            except Exception:
+                cmd = str(c)
+            n += 1
+            print(f"STEP {n} bash {' '.join(str(cmd).split())[:120]}")
+            out.write(json.dumps({"command": cmd}, separators=(",", ":")) + "\n")
+    turns = sum(1 for m in t.get("messages", []) if m.get("role") == "assistant")
+    out.write(json.dumps({"type": "result", "num_turns": turns, "subtype": (t.get("info") or {}).get("exit_status"), "usage": u}) + "\n")
+PY
+    elif [ "${ANTHROPIC_MODEL#claude}" != "$ANTHROPIC_MODEL" ]; then
       # Claude itself, on a subscription: the agent helper's --bare reads only
       # an API key, so the same call without it, the same tools and limits.
       env -u ANTHROPIC_BASE_URL CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_TOKEN" DISABLE_AUTOUPDATER=1 PAGER=cat GIT_PAGER=cat \
@@ -172,4 +216,4 @@ fi
 check=FAIL
 ( cd "$WRITE" && bash check.sh ) > /tmp/check.log 2>&1 && check=PASS
 tail -10 /tmp/check.log
-echo "EVAL mode=$MODE model=${ANTHROPIC_MODEL:-none} tools=${TOOLS:-none} planner=${PLANNER:-none} plan_s=$plan_s agent_rc=$agent_rc agent_s=$((t1 - t0)) peeked=$peeked self=$self hidden=$hidden check=$check"
+echo "EVAL mode=$MODE model=${ANTHROPIC_MODEL:-none} harness=${HARNESS:-claude-code} tools=${TOOLS:-none} planner=${PLANNER:-none} plan_s=$plan_s agent_rc=$agent_rc agent_s=$((t1 - t0)) peeked=$peeked self=$self hidden=$hidden check=$check"

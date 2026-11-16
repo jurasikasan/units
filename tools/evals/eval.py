@@ -92,6 +92,10 @@ def run_one(cid, mode, model, i, args):
         env.update(ANTHROPIC_MODEL=model, AGENT_MINUTES=str(args.agent_minutes), TASK="")
         if args.tools:
             env["TOOLS"] = args.tools
+        if args.harness:
+            if model.startswith("claude"):
+                sys.exit("--harness runs a LiteLLM group, not claude-*")
+            env["HARNESS"] = args.harness
         if args.planner:
             env["PLANNER"] = args.planner
             env["PLAN_TEMPLATE"] = open(os.path.join(HERE, "plan_template.md")).read()
@@ -103,7 +107,8 @@ def run_one(cid, mode, model, i, args):
                 secrets.append("LLM_KEY")
         secrets = sorted(set(secrets))
     stamp = dt.datetime.now().strftime("%m%d%H%M%S")
-    key = (f"eval-{cid}-{mode}-{model or 'none'}{'.' + args.tools if args.tools else ''}"
+    key = (f"eval-{cid}-{mode}-{model or 'none'}{'.' + args.harness if args.harness else ''}"
+           f"{'.' + args.tools if args.tools else ''}"
            f"{'.plan_' + args.planner if args.planner else ''}-{stamp}-{i}")
     script = open(os.path.join(HERE, "run_case.sh")).read()
     mcp = MCP(os.environ["JOB_RUNNER_URL"], os.environ.get("JOB_RUNNER_TOKEN"))
@@ -182,7 +187,8 @@ def table():
     for r in rows:
         if r["mode"] != "agent" or r.get("void"):  # void: the case was wrong, not the run
             continue
-        m = r["model"] + ("+" + r["tools"] if r.get("tools", "none") != "none" else "")
+        m = r["model"] + ("@" + r["harness"] if r.get("harness", "claude-code") != "claude-code" else "")
+        m += ("+" + r["tools"] if r.get("tools", "none") != "none" else "")
         m += " plan:" + r["planner"] if r.get("planner", "none") != "none" else ""
         a = agg.setdefault((r["case"], m), {"n": 0, "hidden": 0, "self": 0, "false_green": 0, "s": 0, "turns": 0})
         a["n"] += 1
@@ -211,6 +217,7 @@ def main():
     ap.add_argument("--agent-minutes", type=int, default=40)
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--tools", help="extra tools for the agent: gopls")
+    ap.add_argument("--harness", choices=["mini"], help="a foreign agent instead of Claude Code: mini (mini-swe-agent)")
     ap.add_argument("--planner", help="a model that rewrites the brief into plan_template.md first")
     args = ap.parse_args()
     if args.cmd == "table":

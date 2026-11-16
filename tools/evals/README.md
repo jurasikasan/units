@@ -28,6 +28,11 @@ python3 eval.py table
 
 Results go to `_ignored/evals/results.jsonl` at the repository root.
 
+`--harness mini` runs the same brief in mini-swe-agent (MIT, bash only)
+instead of Claude Code, the model through the gateway's OpenAI door; its
+trajectory is turned into the same STEP lines and usage after it ends, so
+`peek` shows nothing while it works.
+
 Not covered: the agent has the internet (for its model and Go modules), so it
 could fetch the public reference itself; a brief that names Go symbols tells
 the agent part of the design.
