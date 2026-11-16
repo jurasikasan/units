@@ -129,6 +129,11 @@ def run_one(cid, mode, model, i, args):
            "model": model, "key": key, "exit": a.get("exit_code"),
            "stopped_by_limit": a.get("stopped_by_limit"), "duration_ms": a.get("duration_ms")}
     tail = a.get("output_tail", "")
+    # job_runner keeps an answer for hours, not for good: the tail is kept here.
+    runs = os.path.join(os.path.dirname(RESULTS), "runs")
+    os.makedirs(runs, exist_ok=True)
+    with open(os.path.join(runs, key + ".out"), "w") as f:
+        f.write(tail)
     m = re.findall(r"^EVAL mode=.*$", tail, re.M)
     if m:
         rec.update(dict(kv.split("=", 1) for kv in m[-1].split()[1:]))
