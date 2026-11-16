@@ -92,13 +92,19 @@ def run_one(cid, mode, model, i, args):
         env.update(ANTHROPIC_MODEL=model, AGENT_MINUTES=str(args.agent_minutes), TASK="")
         if args.tools:
             env["TOOLS"] = args.tools
-        if model.startswith("claude"):  # Claude itself, on job_runner's secret CLAUDE_TOKEN
-            secrets = ["CLAUDE_TOKEN"]
-        else:  # a LiteLLM group behind the stage key
-            env["ANTHROPIC_BASE_URL"] = os.environ["LLM_BASE_URL"]
-            secrets = ["LLM_KEY"]
+        if args.planner:
+            env["PLANNER"] = args.planner
+            env["PLAN_TEMPLATE"] = open(os.path.join(HERE, "plan_template.md")).read()
+        for m in filter(None, (model, args.planner)):
+            if m.startswith("claude"):  # Claude itself, on job_runner's secret CLAUDE_TOKEN
+                secrets.append("CLAUDE_TOKEN")
+            else:  # a LiteLLM group behind the stage key
+                env["ANTHROPIC_BASE_URL"] = os.environ["LLM_BASE_URL"]
+                secrets.append("LLM_KEY")
+        secrets = sorted(set(secrets))
     stamp = dt.datetime.now().strftime("%m%d%H%M%S")
-    key = f"eval-{cid}-{mode}-{model or 'none'}{'.' + args.tools if args.tools else ''}-{stamp}-{i}"
+    key = (f"eval-{cid}-{mode}-{model or 'none'}{'.' + args.tools if args.tools else ''}"
+           f"{'.plan_' + args.planner if args.planner else ''}-{stamp}-{i}")
     script = open(os.path.join(HERE, "run_case.sh")).read()
     mcp = MCP(os.environ["JOB_RUNNER_URL"], os.environ.get("JOB_RUNNER_TOKEN"))
     call = dict(key=key, script=script, image="agent", network="internet", env=env,
@@ -177,6 +183,7 @@ def table():
         if r["mode"] != "agent" or r.get("void"):  # void: the case was wrong, not the run
             continue
         m = r["model"] + ("+" + r["tools"] if r.get("tools", "none") != "none" else "")
+        m += " plan:" + r["planner"] if r.get("planner", "none") != "none" else ""
         a = agg.setdefault((r["case"], m), {"n": 0, "hidden": 0, "self": 0, "false_green": 0, "s": 0, "turns": 0})
         a["n"] += 1
         a["hidden"] += r.get("hidden") == "PASS"
@@ -186,9 +193,9 @@ def table():
             a["peeked"] = a.get("peeked", 0) + (r["peeked"] == "yes")
         a["s"] += int(r.get("agent_s") or 0)
         a["turns"] += (r.get("usage") or {}).get("turns") or 0
-    print(f"{'case':<14} {'model':<22} {'n':>2} {'hidden':>6} {'own gate':>8} {'false green':>11} {'avg s':>6} {'avg turns':>9} {'peeked':>6}")
+    print(f"{'case':<14} {'model':<34} {'n':>2} {'hidden':>6} {'own gate':>8} {'false green':>11} {'avg s':>6} {'avg turns':>9} {'peeked':>6}")
     for (c, m), a in sorted(agg.items()):
-        print(f"{c:<14} {m:<22} {a['n']:>2} {a['hidden']:>6} {a['self']:>8} {a['false_green']:>11} {a['s'] // a['n']:>6} {a['turns'] // a['n']:>9} {a.get('peeked', '-'):>6}")
+        print(f"{c:<14} {m:<34} {a['n']:>2} {a['hidden']:>6} {a['self']:>8} {a['false_green']:>11} {a['s'] // a['n']:>6} {a['turns'] // a['n']:>9} {a.get('peeked', '-'):>6}")
     for r in rows:
         if r["mode"] != "agent":
             print(f"check {r['case']:<14} {r['mode']:<8} hidden={r.get('hidden')} check={r.get('check')}")
@@ -204,6 +211,7 @@ def main():
     ap.add_argument("--agent-minutes", type=int, default=40)
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--tools", help="extra tools for the agent: gopls")
+    ap.add_argument("--planner", help="a model that rewrites the brief into plan_template.md first")
     args = ap.parse_args()
     if args.cmd == "table":
         return table()

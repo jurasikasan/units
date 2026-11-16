@@ -46,6 +46,41 @@ if [ "${TOOLS:-}" = gopls ]; then
     || { echo "EVAL gopls install failed"; tail -5 /tmp/gopls.install; }
 fi
 
+# One headless Claude Code call: claude_call MODEL MINUTES TURNS TOOLS OUT PROMPT.
+# A claude-* model runs on the subscription token, any other on a LiteLLM
+# group with the agent helper's settings.
+claude_call() {
+  local model=$1 minutes=$2 turns=$3 tools=$4 out=$5 prompt=$6
+  if [ "${model#claude}" != "$model" ]; then
+    env -u ANTHROPIC_BASE_URL CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_TOKEN:-}" DISABLE_AUTOUPDATER=1 PAGER=cat GIT_PAGER=cat \
+      timeout -s INT -k 30s "${minutes}m" claude -p "$prompt" --model "$model" --max-turns "$turns" \
+      --allowedTools "$tools" --permission-mode acceptEdits --output-format stream-json --verbose > "$out" 2> "$out.err"
+  else
+    ANTHROPIC_API_KEY=${LLM_KEY:-placeholder} ANTHROPIC_DEFAULT_SONNET_MODEL=$model \
+      ANTHROPIC_DEFAULT_HAIKU_MODEL=$model ANTHROPIC_DEFAULT_OPUS_MODEL=$model \
+      CLAUDE_CODE_DISABLE_1M_CONTEXT=1 CLAUDE_CODE_MAX_CONTEXT_TOKENS=90000 \
+      DISABLE_AUTOUPDATER=1 PAGER=cat GIT_PAGER=cat \
+      timeout -s INT -k 30s "${minutes}m" claude -p "$prompt" --bare --model "$model" --max-turns "$turns" \
+      --allowedTools "$tools" --permission-mode acceptEdits --output-format stream-json --verbose > "$out" 2> "$out.err"
+  fi
+}
+
+# A planner model rewrites the brief into PLAN_TEMPLATE before the agent
+# starts; the agent then gets the plan instead of the brief. Its clock and
+# turns are its own.
+plan_s=0
+if [ "$MODE" = agent ] && [ -n "${PLANNER:-}" ]; then
+  p0=$(date +%s)
+  claude_call "$PLANNER" 15 60 Read,Glob,Grep,Bash /tmp/plan.jsonl "${PLAN_TEMPLATE:?}${BRIEF:?}" || echo "EVAL planner rc=$?"
+  plan_s=$(( $(date +%s) - p0 ))
+  node -e '
+let r = ""; for (const l of require("fs").readFileSync("/tmp/plan.jsonl", "utf8").split("\n")) { try { const e = JSON.parse(l); if (e.type === "result") r = e.result || ""; } catch {} }
+require("fs").writeFileSync("/tmp/plan.md", r);' 
+  git checkout -q -- . && git clean -qfd  # a planner writes nothing
+  echo "EVAL plan begin"; cat /tmp/plan.md; echo; echo "EVAL plan end"
+  [ -s /tmp/plan.md ] && BRIEF=$(cat /tmp/plan.md)
+fi
+
 agent_rc=-
 t0=$(date +%s)
 case "$MODE" in
@@ -63,7 +98,7 @@ ${BRIEF:?}"
     if [ -n "${CLAUDE_TOKEN:-}" ]; then
       # Claude itself, on a subscription: the agent helper's --bare reads only
       # an API key, so the same call without it, the same tools and limits.
-      CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_TOKEN DISABLE_AUTOUPDATER=1 PAGER=cat GIT_PAGER=cat \
+      env -u ANTHROPIC_BASE_URL CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_TOKEN" DISABLE_AUTOUPDATER=1 PAGER=cat GIT_PAGER=cat \
         timeout -s INT -k 30s "${AGENT_MINUTES:-40}m" claude -p "$prompt" --model "$ANTHROPIC_MODEL" \
         --max-turns 150 --allowedTools Read,Edit,Write,Bash,Glob,Grep --permission-mode acceptEdits \
         --output-format stream-json --verbose > /tmp/agent.jsonl 2> /tmp/agent.err || agent_rc=$?
@@ -137,4 +172,4 @@ fi
 check=FAIL
 ( cd "$WRITE" && bash check.sh ) > /tmp/check.log 2>&1 && check=PASS
 tail -10 /tmp/check.log
-echo "EVAL mode=$MODE model=${ANTHROPIC_MODEL:-none} tools=${TOOLS:-none} agent_rc=$agent_rc agent_s=$((t1 - t0)) peeked=$peeked self=$self hidden=$hidden check=$check"
+echo "EVAL mode=$MODE model=${ANTHROPIC_MODEL:-none} tools=${TOOLS:-none} planner=${PLANNER:-none} plan_s=$plan_s agent_rc=$agent_rc agent_s=$((t1 - t0)) peeked=$peeked self=$self hidden=$hidden check=$check"
