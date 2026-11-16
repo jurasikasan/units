@@ -33,6 +33,16 @@ instead of Claude Code, the model through the gateway's OpenAI door; its
 trajectory is turned into the same STEP lines and usage after it ends, so
 `peek` shows nothing while it works.
 
+`--tests-by M` has model M write the acceptance tests from the brief alone
+before the agent starts (the TDFlow shape: tests by another author, before the
+code). They are committed and frozen: the agent is told to make them pass and
+not to touch them, and they are put back as written before its own gate. The
+hidden tests are judged without them. `frozen_base` / `frozen_oracle` say
+whether they fail on the old code and pass on the reference change: a frozen
+test the reference fails asked the agent for the wrong thing.
+
+The own gate (`self`) fails on an empty change, as bot's `ws gate` does.
+
 Not covered: the agent has the internet (for its model and Go modules), so it
 could fetch the public reference itself; a brief that names Go symbols tells
 the agent part of the design.

@@ -99,7 +99,9 @@ def run_one(cid, mode, model, i, args):
         if args.planner:
             env["PLANNER"] = args.planner
             env["PLAN_TEMPLATE"] = open(os.path.join(HERE, "plan_template.md")).read()
-        for m in filter(None, (model, args.planner)):
+        if args.tests_by:
+            env["TESTS_BY"] = args.tests_by
+        for m in filter(None, (model, args.planner, args.tests_by)):
             if m.startswith("claude"):  # Claude itself, on job_runner's secret CLAUDE_TOKEN
                 secrets.append("CLAUDE_TOKEN")
             else:  # a LiteLLM group behind the stage key
@@ -109,7 +111,8 @@ def run_one(cid, mode, model, i, args):
     stamp = dt.datetime.now().strftime("%m%d%H%M%S")
     key = (f"eval-{cid}-{mode}-{model or 'none'}{'.' + args.harness if args.harness else ''}"
            f"{'.' + args.tools if args.tools else ''}"
-           f"{'.plan_' + args.planner if args.planner else ''}-{stamp}-{i}")
+           f"{'.plan_' + args.planner if args.planner else ''}"
+           f"{'.tests_' + args.tests_by if args.tests_by else ''}-{stamp}-{i}")
     script = open(os.path.join(HERE, "run_case.sh")).read()
     mcp = MCP(os.environ["JOB_RUNNER_URL"], os.environ.get("JOB_RUNNER_TOKEN"))
     call = dict(key=key, script=script, image="agent", network="internet", env=env,
@@ -190,6 +193,7 @@ def table():
         m = r["model"] + ("@" + r["harness"] if r.get("harness", "claude-code") != "claude-code" else "")
         m += ("+" + r["tools"] if r.get("tools", "none") != "none" else "")
         m += " plan:" + r["planner"] if r.get("planner", "none") != "none" else ""
+        m += " tests:" + r["tests_by"] if r.get("tests_by", "none") != "none" else ""
         a = agg.setdefault((r["case"], m), {"n": 0, "hidden": 0, "self": 0, "false_green": 0, "s": 0, "turns": 0})
         a["n"] += 1
         a["hidden"] += r.get("hidden") == "PASS"
@@ -218,6 +222,7 @@ def main():
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--tools", help="extra tools for the agent: gopls")
     ap.add_argument("--harness", choices=["mini"], help="a foreign agent instead of Claude Code: mini (mini-swe-agent)")
+    ap.add_argument("--tests-by", help="a model that writes the acceptance tests from the brief first; they are frozen")
     ap.add_argument("--planner", help="a model that rewrites the brief into plan_template.md first")
     args = ap.parse_args()
     if args.cmd == "table":

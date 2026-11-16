@@ -89,6 +89,22 @@ require("fs").writeFileSync("/tmp/plan.md", r);'
   [ -s /tmp/plan.md ] && BRIEF=$(cat /tmp/plan.md)
 fi
 
+# Frozen tests: a model writes the acceptance tests from the brief alone
+# before the agent starts; they stay as written whatever the agent does.
+frozen=""; tests_s=0; frozen_base=-; frozen_oracle=-; frozen_touched=-
+if [ "$MODE" = agent ] && [ -n "${TESTS_BY:-}" ]; then
+  f0=$(date +%s)
+  claude_call "$TESTS_BY" 20 80 Read,Glob,Grep,Bash,Write,Edit /tmp/tests.jsonl "You write the acceptance tests for a change before anyone makes the change. Work in this folder and write only *_test.go files under $WRITE/; change no other file. The tests must use exactly the names, fields and types the task gives, cover every behaviour it states (each edge case a test of its own), and update the existing tests the task says change. They are meant to fail now, on the old code: a build failure on a name the task gives counts. Do not make them pass. Do not commit. The task:
+
+${BRIEF:?}" || echo "EVAL tests_by rc=$?"
+  tests_s=$(( $(date +%s) - f0 ))
+  git ls-files -m -o --exclude-standard | grep -vE "^$WRITE/.*_test\.go$" | while IFS= read -r f; do
+    git checkout -q -- "$f" 2>/dev/null || rm -f "$f"; done
+  frozen=$(git ls-files -m -o --exclude-standard | tr '\n' ' ')
+  git add -A && git -c user.email=e@e -c user.name=eval commit -qm frozen && git tag frozen
+  echo "EVAL frozen begin"; git show --stat --format= HEAD; echo "EVAL frozen end"
+fi
+
 agent_rc=-
 t0=$(date +%s)
 case "$MODE" in
@@ -103,6 +119,9 @@ case "$MODE" in
     prompt="Do the task below in this folder. You may write only under $WRITE/; everything else is read-only. When you are done, $WRITE/check.sh must pass. Do not commit.
 
 ${BRIEF:?}"
+    [ -n "$frozen" ] && prompt="$prompt
+
+These test files were written for this task before you started, and they are part of what must pass: $frozen. Do not change them."
     if [ "${HARNESS:-}" = mini ]; then
       # Its trajectory, after the fact, becomes STEP lines and agent.jsonl in
       # the shape the usage and peek checks below read.
@@ -168,6 +187,12 @@ PY
     ;;
 esac
 t1=$(date +%s)
+if [ -n "$frozen" ]; then
+  # shellcheck disable=SC2086
+  { git diff --quiet frozen -- $frozen && frozen_touched=no; } || frozen_touched=yes
+  # shellcheck disable=SC2086
+  git checkout -q frozen -- $frozen
+fi
 git add -A
 echo "EVAL diff:"; git diff --cached --stat | tail -15
 echo "EVAL stat $(git diff --cached --shortstat)"
@@ -192,11 +217,20 @@ peeked=-
 self=-
 if [ "$MODE" = agent ]; then
   self=FAIL
-  ( cd "$WRITE" && bash check.sh ) > /tmp/self.log 2>&1 && self=PASS
+  # As the stage gate (bot's ws gate): no change is no pass.
+  if git diff --cached --quiet; then echo "EVAL self: nothing changed"
+  else ( cd "$WRITE" && bash check.sh ) > /tmp/self.log 2>&1 && self=PASS; fi
   tail -8 /tmp/self.log
 fi
 
-# The hidden tests: the reference commit's test files, over whatever is here now.
+# The hidden tests: the reference commit's test files, over whatever is here now
+# but the frozen tests, which go back to base: a wrong frozen test is the test
+# author's fault, and it is reported as frozen_oracle, not as the agent's.
+if [ -n "$frozen" ]; then
+  for f in $frozen; do
+    if git cat-file -e "frozen^:$f" 2>/dev/null; then git checkout -q "frozen^" -- "$f"; else rm -f "$f"; fi
+  done
+fi
 [ -d /tmp/ref ] || clone /tmp/ref
 for f in $HIDDEN; do mkdir -p "$(dirname "$f")"; git -C /tmp/ref show "$REF:$f" > "$f"; done
 
@@ -216,4 +250,17 @@ fi
 check=FAIL
 ( cd "$WRITE" && bash check.sh ) > /tmp/check.log 2>&1 && check=PASS
 tail -10 /tmp/check.log
-echo "EVAL mode=$MODE model=${ANTHROPIC_MODEL:-none} harness=${HARNESS:-claude-code} tools=${TOOLS:-none} planner=${PLANNER:-none} plan_s=$plan_s agent_rc=$agent_rc agent_s=$((t1 - t0)) peeked=$peeked self=$self hidden=$hidden check=$check"
+# The frozen tests themselves: they should fail on the old code and pass on
+# the reference change; one that fails there asked the agent for the wrong thing.
+if [ -n "$frozen" ]; then
+  git worktree add -q --detach /tmp/oracle frozen
+  frozen_base=FAIL
+  # shellcheck disable=SC2086
+  ( cd "/tmp/oracle/$WRITE" && go test -count=1 $TESTS ) > /tmp/frozen_base.log 2>&1 && frozen_base=PASS
+  git -C /tmp/ref diff "$BASE" "$REF" -- "$WRITE" | git -C /tmp/oracle apply --exclude='*_test.go'
+  frozen_oracle=FAIL
+  # shellcheck disable=SC2086
+  ( cd "/tmp/oracle/$WRITE" && go test -count=1 $TESTS ) > /tmp/frozen_oracle.log 2>&1 && frozen_oracle=PASS
+  echo "EVAL frozen on the reference:"; grep -E -- '--- FAIL|_test\.go:[0-9]+:|^(ok|FAIL)\s' /tmp/frozen_oracle.log | head -20
+fi
+echo "EVAL mode=$MODE model=${ANTHROPIC_MODEL:-none} harness=${HARNESS:-claude-code} tools=${TOOLS:-none} planner=${PLANNER:-none} plan_s=$plan_s tests_by=${TESTS_BY:-none} tests_s=$tests_s frozen_base=$frozen_base frozen_oracle=$frozen_oracle frozen_touched=$frozen_touched agent_rc=$agent_rc agent_s=$((t1 - t0)) peeked=$peeked self=$self hidden=$hidden check=$check"
