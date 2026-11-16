@@ -1,8 +1,8 @@
 # units
 
 Self-sufficient services and libraries, each useful on its own and assembled
-into applications elsewhere (mostly bot, `../bot`). See [README.md](README.md)
-for the list.
+into applications: here in [`apps/`](apps/README.md), and elsewhere (bot,
+`../bot`). See [README.md](README.md) for the list.
 
 ## Work comes from the board
 
@@ -23,6 +23,8 @@ becomes a task with acceptance criteria.
   `demo.sh`) that shows them working on their own; `engines/showcase` covers
   the engines together.
 - Events: CloudEvents on a Redis stream, per [contracts/events.md](contracts/events.md).
+- `apps/` holds applications built from units. An app consumes units; no unit
+  imports or names an app. Rules and the first app: [apps/README.md](apps/README.md).
 
 ## Done means
 

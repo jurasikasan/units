@@ -24,6 +24,11 @@ own `go.mod`, and its own check script.
 More units arrive one at a time, each checked and given a showcase before it
 lands here.
 
+## Apps
+
+[`apps/`](apps/) holds applications assembled from units — the first, an agent
+over units, is being planned there. Apps depend on units, never the other way.
+
 ## Contracts and manifests
 
 - [`contracts/events.md`](contracts/events.md): how a unit publishes events, as
