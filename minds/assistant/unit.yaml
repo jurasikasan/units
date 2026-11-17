@@ -1,0 +1,35 @@
+# Manifest — what a reader outside minds/assistant reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: minds/assistant
+kind: mind              # decides what is said; organs and stores decide nothing
+summary: A chat assistant. An AG-UI run in, a model's answer streamed out as AG-UI events; keeps nothing.
+contract: CONTRACT.md
+maturity: probe
+
+provides:
+  rest:
+    port: 8088
+    routes:
+      - "POST /run"     # AG-UI: RunAgentInput in, an event stream (SSE) out
+  health: GET :8088/health
+
+consumes:
+  units:
+    - unit: litellm     # or any OpenAI-shaped chat endpoint
+      via: http
+      env: LLM_URL
+      calls: ["POST /v1/chat/completions"]
+  gate: X-Principal-Id  # who is asking; the gate, or any door, sets it
+
+wire: []
+
+config:
+  required:
+    LLM_URL: an OpenAI-shaped endpoint without /v1, e.g. http://litellm:4000
+    LLM_MODEL: the model name to ask
+  optional:
+    SYSTEM_PROMPT: first in every prompt
+    PORT: "8088"
+  secrets:
+    LLM_API_KEY: sent as a Bearer token, when the endpoint asks for one

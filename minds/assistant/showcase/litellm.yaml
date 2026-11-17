@@ -1,0 +1,9 @@
+# One model that needs no key: LiteLLM answers it itself, the same words each
+# time. A real model: replace litellm_params, e.g.
+#   model: gemini/gemini-2.5-flash
+#   api_key: os.environ/GEMINI_API_KEY
+model_list:
+  - model_name: assistant
+    litellm_params:
+      model: openai/mock
+      mock_response: "Hello! I am a mock model behind LiteLLM; this answer is the same every time."

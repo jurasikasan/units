@@ -1,0 +1,40 @@
+name: assistant-showcase
+
+services:
+  # The mind, asked directly: no gate here, so the demo says who it is in
+  # X-Principal-Id itself.
+  assistant:
+    build: ..
+    image: units-minds-assistant:local
+    environment:
+      LLM_URL: http://litellm:4000
+      LLM_MODEL: assistant
+      LLM_API_KEY: sk-assistant-showcase
+      SYSTEM_PROMPT: Answer briefly.
+    ports:
+      - 127.0.0.1:${ASSISTANT_PORT:-8088}:8088
+    depends_on:
+      litellm:
+        condition: service_healthy
+
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.108.0
+    command: ["--config", "/config.yaml", "--port", "4000"]
+    environment:
+      LITELLM_MASTER_KEY: sk-assistant-showcase   # a showcase key, nothing behind it
+    volumes:
+      - ./litellm.yaml:/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')"]
+      interval: 2s
+      retries: 90
+
+  demo:
+    image: curlimages/curl:8.11.1
+    profiles: [demo]
+    depends_on:
+      assistant:
+        condition: service_healthy
+    volumes:
+      - ./demo.sh:/demo.sh:ro
+    entrypoint: ["sh", "/demo.sh"]
