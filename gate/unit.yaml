@@ -1,0 +1,39 @@
+# Manifest — what a reader outside gate reads instead of its code.
+# Meaning lives in README.md; this is what a validator and an assembler read.
+
+unit: gate
+kind: gateway
+summary: The door in front of applications. Authelia keeps accounts and sessions, nginx asks it before serving; the application behind gets X-Principal-Id and nothing else.
+contract: README.md
+maturity: probe
+
+provides:
+  http:
+    port: 9091
+    path: /auth            # the login page and Authelia's API, behind the site's nginx
+    headers: [X-Principal-Id]
+  nginx:                   # snippets a site includes; they reach the unit as gate:9091
+    - nginx/authz.conf
+    - nginx/portal.conf
+    - nginx/page.conf
+    - nginx/api.conf
+  health: GET :9091/auth/api/health
+
+consumes:
+  infra: [redis, smtp]     # sessions; mail with one-time codes and reset links
+
+state:                     # back up and restore both together
+  /data: users.yml (accounts), db.sqlite3 (passkeys, second factors)
+  /secrets: session, storage and reset keys, made on the first start
+
+config:
+  required:
+    GATE_DOMAIN: the session cookie's domain, e.g. gate.localhost
+    GATE_URL: the site's public https base, port included, e.g. https://gate.localhost:8443
+    GATE_REDIS_HOST: Redis for sessions, port 6379
+    GATE_SMTP_ADDRESS: where mail goes, e.g. submission://smtp.example.com:587; STARTTLS is required
+    GATE_SMTP_SENDER: "the From of every mail, e.g. gate <gate@example.com>"
+  optional:
+    GATE_SMTP_USERNAME: the relay's login, when it asks for one
+  secrets:
+    GATE_SMTP_PASSWORD: the relay's password

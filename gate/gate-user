@@ -1,0 +1,21 @@
+#!/bin/sh
+# gate-user add <name> <email> [display name] — the password comes on stdin.
+set -eu
+file=/data/users.yml
+usage() { echo "usage: gate-user add <name> <email> [display name] < password" >&2; exit 2; }
+[ "${1:-}" = add ] && [ $# -ge 3 ] || usage
+name=$2 email=$3 display=${4:-$2}
+
+case "$name" in ''|*[!a-z0-9._-]*) echo "gate-user: a name is lowercase letters, digits, '.', '_', '-'" >&2; exit 2 ;; esac
+case "$email" in *@*.*) ;; *) echo "gate-user: $email is no email address" >&2; exit 2 ;; esac
+case "$email$display" in *[\'\"\\]*) echo "gate-user: no quotes or backslashes in an email or display name" >&2; exit 2 ;; esac
+if [ -f "$file" ] && grep -q "^  $name:\$" "$file"; then echo "gate-user: $name exists" >&2; exit 1; fi
+
+IFS= read -r password || true
+[ -n "$password" ] || { echo "gate-user: no password on stdin" >&2; exit 2; }
+hash=$(authelia crypto hash generate argon2 --password "$password" | sed -n 's/^Digest: //p')
+[ -n "$hash" ] || { echo "gate-user: hashing failed" >&2; exit 1; }
+
+[ -f "$file" ] || echo "users:" > "$file"
+printf "  %s:\n    displayname: '%s'\n    email: '%s'\n    password: '%s'\n" "$name" "$display" "$email" "$hash" >> "$file"
+echo "gate-user: $name added"

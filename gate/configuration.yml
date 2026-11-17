@@ -1,0 +1,42 @@
+# Rendered by Authelia's template filter from the environment at start.
+server:
+  address: tcp://:9091/auth
+
+log:
+  level: info
+
+theme: auto
+
+authentication_backend:
+  file:
+    path: /data/users.yml
+    watch: true
+
+access_control:
+  default_policy: deny
+  rules:
+    - domain: '{{ mustEnv "GATE_DOMAIN" }}'
+      policy: one_factor
+
+session:
+  cookies:
+    - domain: '{{ mustEnv "GATE_DOMAIN" }}'
+      authelia_url: '{{ mustEnv "GATE_URL" }}/auth'
+      default_redirection_url: '{{ mustEnv "GATE_URL" }}/'
+  redis:
+    host: '{{ mustEnv "GATE_REDIS_HOST" }}'
+    port: 6379
+
+webauthn:
+  enable_passkey_login: true
+
+storage:
+  local:
+    path: /data/db.sqlite3
+
+notifier:
+  smtp:
+    address: '{{ mustEnv "GATE_SMTP_ADDRESS" }}'
+    sender: '{{ mustEnv "GATE_SMTP_SENDER" }}'
+    username: '{{ env "GATE_SMTP_USERNAME" }}'
+    password: '{{ env "GATE_SMTP_PASSWORD" }}'

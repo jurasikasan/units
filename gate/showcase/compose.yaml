@@ -1,0 +1,117 @@
+name: gate-showcase
+
+x-gate: &gate
+  build: ..
+  image: units-gate:local
+  environment: &gate-env
+    GATE_DOMAIN: gate.localhost
+    GATE_URL: https://gate.localhost:${GATE_PORT:-8443}
+    GATE_REDIS_HOST: redis
+    GATE_SMTP_ADDRESS: smtp://mailpit:1025
+    GATE_SMTP_SENDER: gate <gate@example.com>
+    # Mailpit's certificate is self-signed; a real relay's is checked.
+    AUTHELIA_NOTIFIER_SMTP_TLS_SKIP_VERIFY: "true"
+  volumes:
+    - data:/data
+    - secrets:/secrets
+
+services:
+  gate:
+    <<: *gate
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "/app/healthcheck.sh"]
+      interval: 1s
+      retries: 60
+
+  # The accounts, made once: alice / alice-showcase and bob / bob-showcase, showcase passwords.
+  seed:
+    <<: *gate
+    entrypoint:
+      - sh
+      - -c
+      - |
+        [ -s /data/users.yml ] && exit 0
+        echo alice-showcase | gate-user add alice alice@example.com Alice
+        echo bob-showcase | gate-user add bob bob@example.com Bob
+    restart: "no"
+
+  # A self-signed certificate, made once; Authelia refuses a login URL that is not https.
+  certs:
+    <<: *gate
+    entrypoint: ["sh", "-c", "[ -s /certs/public.crt ] || authelia crypto certificate rsa generate --common-name gate.localhost --sans gate.localhost --directory /certs"]
+    volumes:
+      - certs:/certs
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      retries: 30
+
+  # Catches every mail; nothing leaves. Its inbox: http://localhost:${MAILPIT_PORT:-8025}
+  mailpit:
+    image: axllent/mailpit:v1.29
+    environment:
+      MP_SMTP_TLS_CERT: sans:mailpit
+      MP_SMTP_TLS_KEY: sans:mailpit
+    ports:
+      - 127.0.0.1:${MAILPIT_PORT:-8025}:8025
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 1s
+      retries: 30
+
+  hello:
+    image: nginx:1.30-alpine
+    volumes:
+      - ./hello/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./hello:/usr/share/nginx/html:ro
+
+  nginx:
+    image: nginx:1.30-alpine
+    depends_on:
+      gate:
+        condition: service_healthy
+      certs:
+        condition: service_completed_successfully
+      hello:
+        condition: service_started
+    ports:
+      - 127.0.0.1:${GATE_PORT:-8443}:443
+    volumes:
+      - ./site.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../nginx:/etc/nginx/gate:ro
+      - certs:/certs:ro
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 1s
+      retries: 30
+
+  demo:
+    image: curlimages/curl:8.11.1
+    profiles: [demo]
+    user: "0"   # the cookie jar is a volume, owned by root
+    depends_on:
+      nginx:
+        condition: service_healthy
+    environment:
+      GATE_PORT: ${GATE_PORT:-8443}
+    volumes:
+      - ./demo.sh:/demo.sh:ro
+      - jar:/jar
+    entrypoint: ["sh", "/demo.sh"]
+
+volumes:
+  data:
+  secrets:
+  certs:
+  jar:
