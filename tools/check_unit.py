@@ -5,7 +5,8 @@ A manifest nobody checks drifts; this is what makes unit.yaml something a
 reader outside the unit may trust. Per unit:
 
 - unit: the field equals the unit's path in this repository;
-- env: the variables the code reads (Go, Python) equal config's required +
+- env: the variables the code reads (Go, Python, a Go-templated .yml
+  configuration) equal config's required +
   optional + secrets (REDIS_* come with `infra: [redis]`, through
   units/shared/redis);
 - events: the type strings in the code under the unit's prefixes equal
@@ -55,6 +56,8 @@ def sources(unit):
             go.append(path)
         elif name.endswith(".py") and not name.startswith("test_"):
             py.append(path)
+        elif name.endswith(".yml"):
+            go.append(path)  # a configuration rendered from the environment by a Go template
     text = []
     for path in go + py:
         with open(path, encoding="utf-8") as f:
@@ -71,6 +74,8 @@ def code_env(src):
     # Go: os.Getenv("X"), and helpers env("X", …), envInt, envOr, mustEnv, …
     names = set(re.findall(r'(?:Getenv|LookupEnv)\("([A-Z0-9_]+)"\)', src))
     names |= set(re.findall(r'\b\w*[eE]nv\w*\("([A-Z0-9_]+)"', src))
+    # Go templates: {{ env "X" }}, {{ mustEnv "X" }}
+    names |= set(re.findall(r'\b(?:mustEnv|env)\s+"([A-Z0-9_]+)"', src))
     # Python: os.environ["X"], os.environ.get("X"), os.getenv("X"), env.get("X")
     names |= set(re.findall(r'\b\w*[eE]nv\w*(?:\.get)?\(\s*["\']([A-Z0-9_]+)["\']', src))
     names |= set(re.findall(r'environ\[\s*["\']([A-Z0-9_]+)["\']', src))
@@ -92,7 +97,9 @@ def check(unit, provider):
     for part in ("required", "optional", "secrets"):
         declared |= set((cfg.get(part) or {}).keys())
     read = code_env(src)
-    if "redis" in ((m.get("consumes") or {}).get("infra") or []):
+    # Our Go code reaches Redis through units/shared/redis; a server we only
+    # configure (Authelia in gate) reaches it on its own.
+    if "redis" in ((m.get("consumes") or {}).get("infra") or []) and re.search(r"^package \w+", src, re.M):
         if '"github.com/jurasikasan/units/shared/redis"' not in src:
             errs.append("infra lists redis, but the code does not use units/shared/redis")
         declared |= SHARED_REDIS_ENV
