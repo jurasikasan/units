@@ -77,7 +77,7 @@ The site's nginx includes the snippets in `nginx/` (mounted at, say,
 ```nginx
 server {
     listen 443 ssl;
-    resolver 127.0.0.11 valid=10s;               # the site's DNS; Docker's here
+    resolver 127.0.0.11 valid=1s;               # the site's DNS; Docker's here
     include /etc/nginx/gate/authz.conf;          # once per server
 
     location /auth { include /etc/nginx/gate/portal.conf; }
@@ -90,7 +90,9 @@ The snippets name gate through a variable, so nginx looks it up as requests
 come rather than once at start, and gate recreated on another address is
 found there without restarting nginx. That needs a `resolver` in the site,
 which knows its own DNS; without one, nginx cannot reach gate and every
-protected request fails. The
+protected request fails. `valid=` is how long an answer is kept: for that
+long after gate moves, requests still go to its old address, so keep it
+short (a second costs one lookup a second). The
 application is best named the same way, for the same reason. A `proxy_pass`
 with a variable passes the request's path as it is, so a prefix to strip
 takes a `rewrite … break` (stacks/lab's `/api/` does).
