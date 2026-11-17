@@ -17,6 +17,7 @@ own `go.mod`, and its own check script.
 | [`task_board`](task_board/) | tasks and their flow: per-project handles, statuses with the moves allowed between them, assignees by nick, dependencies and subtasks, on their own Postgres; every move published as an event. An agent connects from [AGENTS.md](task_board/AGENTS.md) |
 | [`job_runner`](job_runner/) | an isolated machine for agents: files in, a script runs under gVisor with no network unless asked, files out; answered when it ends, looked at with `peek` while it runs. An agent sets it up from [AGENTS.md](job_runner/AGENTS.md) |
 | [`minds/assistant`](minds/assistant/) | a chat assistant: an AG-UI run in, a model's answer streamed out as AG-UI events, through any OpenAI-shaped endpoint such as LiteLLM; keeps nothing |
+| [`faces/web_chat`](faces/web_chat/) | a chat page built from assistant-ui, speaking AG-UI to whatever answers at `/api/run`; static files, no server |
 | [`engines`](engines/) | speech engines behind OpenAI's audio API: piper, silero, voxcpm (TTS), whisper (STT); and [`vad/silero`](engines/vad/silero/), speech detection per 32 ms window |
 | [`senses/hearing`](senses/hearing/) | takes a sound stream in as RTP, finds the utterances, has them transcribed, reports them as MRCP recognizer events |
 | [`abilities/speaking`](abilities/speaking/) | a mouth: text in through MCP, audio out as RTP through a TTS engine, MRCP synthesizer events saying what was spoken |

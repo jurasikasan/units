@@ -21,6 +21,10 @@ becomes a task with acceptance criteria.
   freshness, manifest). Services have a `showcase/` (`compose.yaml` +
   `demo.sh`) that shows them working on their own; `engines/showcase` covers
   the engines together.
+- Generated code from a standard's own source stays as it comes, with our
+  changes as patches on top: `faces/web_chat/src/upstream` (see faces/web_chat/README.md).
+  Never edit it by hand, and do not read it to learn the unit — only when
+  the work is about that edge.
 - Events: CloudEvents on a Redis stream, per [contracts/events.md](contracts/events.md).
 - `stacks/<name>/` assembles units into something that runs: `compose.yaml`,
   `.env.example` (a local run works from it as is; a deployment changes only

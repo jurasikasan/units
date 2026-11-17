@@ -1,0 +1,35 @@
+The attach button only where the runtime takes attachments (an attachment
+adapter is given); without one it shows and does nothing. UNIT-25.
+
+--- a/src/upstream/components/assistant-ui/elements/thread.aui.tsx
++++ b/src/upstream/components/assistant-ui/elements/thread.aui.tsx
+@@ -510,6 +510,12 @@
+   );
+ };
+ 
++const AddAttachmentWhenTaken: FC = () => (
++  <AuiIf condition={(s) => s.thread.capabilities.attachments}>
++    <ComposerAddAttachment />
++  </AuiIf>
++);
++
+ const ComposerAction: FC = () => {
+   const { ComposerExtra } = useContext(ThreadComponentsContext);
+   // The stop control only cancels the send while no run it could stop is going.
+@@ -521,13 +527,14 @@
+ 
+   return (
+     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
++      {/* Ours: the attach button only where the runtime takes attachments. */}
+       {ComposerExtra ? (
+         <div className="aui-composer-action-start flex items-center gap-1.5">
+-          <ComposerAddAttachment />
++          <AddAttachmentWhenTaken />
+           <ComposerExtra />
+         </div>
+       ) : (
+-        <ComposerAddAttachment />
++        <AddAttachmentWhenTaken />
+       )}
+       <div className="flex items-center gap-1.5">
+         <AuiIf condition={(s) => s.thread.capabilities.dictation}>

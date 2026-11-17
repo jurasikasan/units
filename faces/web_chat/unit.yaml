@@ -1,0 +1,19 @@
+# Manifest — what a reader outside faces/web_chat reads instead of its code.
+# A face shows; it decides nothing and keeps nothing.
+
+unit: faces/web_chat
+kind: face
+summary: A chat page that speaks AG-UI to whatever answers at /api/run; static files, no server, the conversation kept in the page.
+contract: README.md
+maturity: probe
+
+provides:
+  http:
+    port: 80            # nginx serving the built files; any static host will do
+
+consumes:
+  agui: POST /api/run   # any AG-UI agent, on the same origin
+
+wire: []
+
+config: {}
