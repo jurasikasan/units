@@ -4,6 +4,9 @@ server {
     ssl_certificate     /certs/fullchain.pem;
     ssl_certificate_key /certs/privkey.pem;
 
+    # Docker's DNS, asked as requests come: a recreated service is found at
+    # its new address. Services are named through variables for that.
+    resolver 127.0.0.11 valid=10s;
     include /etc/nginx/gate/authz.conf;
 
     location /auth {
@@ -12,11 +15,14 @@ server {
     # The mind; /api/run reaches it as /run.
     location /api/ {
         include /etc/nginx/gate/api.conf;
-        proxy_pass http://mind:8088/;
+        set $mind mind:8088;
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass http://$mind;
         proxy_read_timeout 300s;
     }
     location / {
         include /etc/nginx/gate/page.conf;
-        proxy_pass http://face;
+        set $face face;
+        proxy_pass http://$face;
     }
 }

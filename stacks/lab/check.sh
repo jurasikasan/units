@@ -2,7 +2,9 @@
 # The lab from .env.example, on free ports, the whole round: up; in a real
 # browser a person logs in, says something and asks what they said first,
 # and the answer carries it back (the fake model, through mind and LiteLLM);
-# the chat is closed to nobody, a person gets mail, a second account is added, a backup is taken,
+# the chat is closed to nobody, a person gets mail; gate, mind and face are
+# recreated on new addresses and the site still reaches them without touching
+# nginx; a second account is added, a backup is taken,
 # everything is deleted, the backup restored, and the second account logs in.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -43,6 +45,8 @@ run "build"          docker compose --profile e2e build -q
 run "up"             docker compose up -d --wait
 run "e2e: a conversation goes through whole"  docker compose run --rm e2e "$first_user" "$first_password"
 run "first account: chat, mail"  docker compose run --rm demo "$first_user" "$first_password" mail
+run "gate, mind, face on new addresses"  ../../tools/move_address.sh gate mind face
+run "nginx finds them there"  docker compose run --rm demo "$first_user" "$first_password"
 run "add carol"      add_carol
 run "backup"         backup
 run "wipe"           wipe

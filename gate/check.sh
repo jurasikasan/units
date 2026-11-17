@@ -1,6 +1,7 @@
 #!/bin/bash
 # gate holds no code of ours: the checks are that Authelia accepts the
-# configuration, that the manifest holds, and that the showcase's demo passes.
+# configuration, that the manifest holds, that the showcase's demo passes, and
+# that a session outlives gate restarted and gate recreated on a new address.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -36,6 +37,8 @@ run "demo"   compose run --rm demo
 run "restart" compose restart gate
 run "up again" compose up -d --wait
 run "session survives" compose run --rm demo session
+run "gate on a new address" env COMPOSE_FILE=showcase/compose.yaml ../tools/move_address.sh gate
+run "nginx finds it there" compose run --rm demo session
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

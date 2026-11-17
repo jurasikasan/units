@@ -77,13 +77,23 @@ The site's nginx includes the snippets in `nginx/` (mounted at, say,
 ```nginx
 server {
     listen 443 ssl;
+    resolver 127.0.0.11 valid=10s;               # the site's DNS; Docker's here
     include /etc/nginx/gate/authz.conf;          # once per server
 
     location /auth { include /etc/nginx/gate/portal.conf; }
-    location /api/ { include /etc/nginx/gate/api.conf;  proxy_pass http://app; }
-    location /     { include /etc/nginx/gate/page.conf; proxy_pass http://app; }
+    location /api/ { include /etc/nginx/gate/api.conf;  set $app app; proxy_pass http://$app; }
+    location /     { include /etc/nginx/gate/page.conf; set $app app; proxy_pass http://$app; }
 }
 ```
+
+The snippets name gate through a variable, so nginx looks it up as requests
+come rather than once at start, and gate recreated on another address is
+found there without restarting nginx. That needs a `resolver` in the site,
+which knows its own DNS; without one, nginx cannot reach gate and every
+protected request fails. The
+application is best named the same way, for the same reason. A `proxy_pass`
+with a variable passes the request's path as it is, so a prefix to strip
+takes a `rewrite … break` (stacks/lab's `/api/` does).
 
 A location that includes `page.conf` or `api.conf` takes its
 `proxy_set_header` lines from there; nginx does not merge them with the
