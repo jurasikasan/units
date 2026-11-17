@@ -1,0 +1,33 @@
+{
+  "name": "tool_result-stream",
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/chat/completions",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": {
+          "expression": "$.stream",
+          "equalTo": "true"
+        }
+      },
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].role",
+          "equalTo": "tool"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache"
+    },
+    "body": "data: {\"id\": \"fake-wm\", \"object\": \"chat.completion.chunk\", \"created\": 0, \"model\": \"fake-1\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\"}, \"finish_reason\": null}]}\n\ndata: {\"id\":\"fake-wm\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"fake-1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The tool said: \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"fake-wm\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"fake-1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":{{toJson (jsonPath request.body '$.messages[-1].content')}} },\"finish_reason\":null}]}\n\ndata: {\"id\": \"fake-wm\", \"object\": \"chat.completion.chunk\", \"created\": 0, \"model\": \"fake-1\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: [DONE]\n\n",
+    "transformers": [
+      "response-template"
+    ]
+  }
+}

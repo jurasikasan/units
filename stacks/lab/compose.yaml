@@ -133,9 +133,22 @@ services:
       LLM_MODEL: ${LAB_LLM_MODEL:-fake}
       LLM_API_KEY: ${LAB_LLM_KEY}
       SYSTEM_PROMPT: ${LAB_SYSTEM_PROMPT:-}
+      MCP_SERVERS: ${LAB_MCP_SERVERS:-everything=http://everything:3001/mcp}
     depends_on:
       litellm:
         condition: service_healthy
+      everything:
+        condition: service_healthy
+
+  # Tools for the model: MCP's own reference server (everything/Dockerfile).
+  everything:
+    build: ./everything
+    image: units-lab-everything:local
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/mcp',{method:'POST'}).then(()=>process.exit(0),()=>process.exit(1))"]
+      interval: 1s
+      retries: 30
 
   # The door to models: which there are is litellm/models.yaml, or the file
   # LAB_LLM_CONFIG names. Providers' keys come from .env.

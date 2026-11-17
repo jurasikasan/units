@@ -3,7 +3,7 @@
 
 unit: minds/assistant
 kind: mind              # decides what is said; organs and stores decide nothing
-summary: A chat assistant. An AG-UI run in, a model's answer streamed out as AG-UI events; keeps nothing.
+summary: A chat assistant. An AG-UI run in, a model's answer streamed out as AG-UI events, tools of MCP servers called on the way; keeps nothing.
 contract: CONTRACT.md
 maturity: probe
 
@@ -20,6 +20,10 @@ consumes:
       via: http
       env: LLM_URL
       calls: ["POST /v1/chat/completions"]
+    - unit: any MCP server   # MCP 2026-07-28, Streamable HTTP; whichever MCP_SERVERS names
+      via: mcp
+      env: MCP_SERVERS
+      tools: []              # whatever each lists; none is assumed
   gate: X-Principal-Id  # who is asking; the gate, or any door, sets it
 
 wire: []
@@ -30,6 +34,8 @@ config:
     LLM_MODEL: the model name to ask
   optional:
     SYSTEM_PROMPT: first in every prompt
+    MCP_SERVERS: "MCP servers whose tools the model may call, name=url,name=url (Streamable HTTP endpoints)"
+    MAX_TOOL_STEPS: "how many times a run asks the model while it keeps calling tools; 8"
     PORT: "8088"
   secrets:
     LLM_API_KEY: sent as a Bearer token, when the endpoint asks for one

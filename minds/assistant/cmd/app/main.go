@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/jurasikasan/units/minds/assistant/internal/assistant"
 )
@@ -30,6 +31,20 @@ func mustEnv(name string) string {
 
 func main() {
 	a := assistant.New(mustEnv("LLM_URL"), mustEnv("LLM_MODEL"), env("LLM_API_KEY", ""), env("SYSTEM_PROMPT", ""))
+	servers, err := assistant.ParseServers(env("MCP_SERVERS", ""))
+	if err != nil {
+		slog.Error("MCP_SERVERS", "err", err)
+		os.Exit(1)
+	}
+	steps, err := strconv.Atoi(env("MAX_TOOL_STEPS", "0"))
+	if err != nil {
+		slog.Error("MAX_TOOL_STEPS is not a number", "err", err)
+		os.Exit(1)
+	}
+	if len(servers) > 0 {
+		a.UseTools(servers, steps)
+		slog.Info("tools from MCP servers", "servers", servers)
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /run", a)

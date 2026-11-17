@@ -15,5 +15,8 @@ user's:
 | `#plain_text_response` | `plain_text_response pass` |
 | `#fail_429`, `#fail_500` | that status with an OpenAI error body |
 | `#hang` | no byte for 2 s, then a normal answer |
+| `#tool_sum` | a call of `everything__get-sum` with `{"a": 2, "b": 3}`, in fragments, its id holding odd characters as Gemini's do (stream only) |
+
+When the last message is a tool's result, the answer is `The tool said: ` and that result (stream only).
 
 Each tag has a `-stream` mapping (`"stream": true`) and a `-nostream` one.

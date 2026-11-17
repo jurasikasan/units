@@ -6,13 +6,15 @@ local run and a deployment are the same files; only `.env` differs.
 
 The application is a chat: [`faces/web_chat`](../../faces/web_chat/) at `/`,
 [`minds/assistant`](../../minds/assistant/) at `/api/`, and LiteLLM in front
-of the models. The lab is no unit but a consumer of units: its own check is
-its showcase.
+of the models; the model's tools come from MCP servers, for now MCP's own
+reference server, `everything`. The lab is no unit but a consumer of units:
+its own check is its showcase.
 
 ```
 browser → nginx + gate ─ /      → face (static files)
-                       └ /api/  → mind ─→ LiteLLM ─┬→ fake_llm (answers from files)
-                                                   └→ real providers
+                       └ /api/  → mind ─┬→ LiteLLM ─┬→ fake_llm (answers from files)
+                                        │           └→ real providers
+                                        └→ MCP: everything (a sum, an image, …)
 ```
 
 ## Models
@@ -69,6 +71,7 @@ E2E_TIMEOUT_MS=180000 docker compose run --rm e2e alice alice-lab
 | `LAB_LLM_CONFIG` | another model list than `./litellm/models.yaml` |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_KEY`, `ZAI_API_KEY`, `GEMINI_API_KEY` | the providers' keys |
 | `LAB_SYSTEM_PROMPT` | first in every prompt the mind sends |
+| `LAB_MCP_SERVERS` | the MCP servers whose tools the model may call, `name=url,…`; `everything=http://everything:3001/mcp` when unset |
 
 ## Accounts
 
