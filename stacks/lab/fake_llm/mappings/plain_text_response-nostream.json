@@ -1,0 +1,49 @@
+{
+  "name": "plain_text_response-nostream",
+  "priority": 2,
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/chat/completions",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].role",
+          "equalTo": "user"
+        }
+      },
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].content",
+          "matches": "(?s)(.*\\s)?#plain_text_response(\\s.*)?"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "id": "fake-wm",
+      "object": "chat.completion",
+      "created": 0,
+      "model": "fake-1",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "plain_text_response pass"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 2,
+        "total_tokens": 0
+      }
+    }
+  }
+}

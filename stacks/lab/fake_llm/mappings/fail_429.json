@@ -1,0 +1,34 @@
+{
+  "name": "fail_429",
+  "priority": 2,
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/chat/completions",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].role",
+          "equalTo": "user"
+        }
+      },
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].content",
+          "matches": "(?s)(.*\\s)?#fail_429(\\s.*)?"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 429,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "error": {
+        "message": "rate limit exceeded (fake_llm test case)",
+        "type": "rate_limit_exceeded"
+      }
+    }
+  }
+}

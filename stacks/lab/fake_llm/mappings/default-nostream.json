@@ -1,0 +1,36 @@
+{
+  "name": "default-nostream",
+  "priority": 10,
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/chat/completions",
+    "bodyPatterns": []
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "id": "fake-wm",
+      "object": "chat.completion",
+      "created": 0,
+      "model": "fake-1",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Hello! I am a fake LLM, and this is my default reply, served from /data/response.txt.\n\nTo change my answer, edit this file (or point RESPONSE_FILE at another one).\nI support streaming: words appear in groups of 1-3, with a 400 ms delay\nbetween groups.\n\nThis is handy for exercising the UI, the WebSocket relay, and the whole\npipeline without spending on a real API."
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 64,
+        "total_tokens": 0
+      }
+    }
+  }
+}

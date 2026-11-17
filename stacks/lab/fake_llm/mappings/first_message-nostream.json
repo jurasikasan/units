@@ -1,0 +1,32 @@
+{
+  "name": "first_message-nostream",
+  "priority": 2,
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/chat/completions",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].role",
+          "equalTo": "user"
+        }
+      },
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].content",
+          "matches": "(?s)(.*\\s)?#first_message(\\s.*)?"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": "{\"id\":\"fake-wm\",\"object\":\"chat.completion\",\"created\":0,\"model\":\"fake-1\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":{{#each (jsonPath request.body '$.messages[?(@.role == \"user\")].content') as |c|}}{{#if @first}}{{toJson c}}{{/if}}{{/each}} },\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":0,\"total_tokens\":0}}",
+    "transformers": [
+      "response-template"
+    ]
+  }
+}

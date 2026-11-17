@@ -1,0 +1,34 @@
+{
+  "name": "fail_500",
+  "priority": 2,
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/chat/completions",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].role",
+          "equalTo": "user"
+        }
+      },
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].content",
+          "matches": "(?s)(.*\\s)?#fail_500(\\s.*)?"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 500,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "error": {
+        "message": "internal error (fake_llm test case)",
+        "type": "internal_error"
+      }
+    }
+  }
+}

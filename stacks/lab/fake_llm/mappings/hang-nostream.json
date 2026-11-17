@@ -1,0 +1,50 @@
+{
+  "name": "hang-nostream",
+  "priority": 2,
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/chat/completions",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].role",
+          "equalTo": "user"
+        }
+      },
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].content",
+          "matches": "(?s)(.*\\s)?#hang(\\s.*)?"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "id": "fake-wm",
+      "object": "chat.completion",
+      "created": 0,
+      "model": "fake-1",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "I arrived late, but I arrived"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 6,
+        "total_tokens": 0
+      }
+    },
+    "fixedDelayMilliseconds": 2000
+  }
+}

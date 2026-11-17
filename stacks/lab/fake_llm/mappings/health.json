@@ -1,0 +1,11 @@
+{
+  "name": "health",
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "urlPath": "/health"
+  },
+  "response": {
+    "status": 200
+  }
+}

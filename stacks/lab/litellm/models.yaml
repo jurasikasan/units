@@ -1,0 +1,51 @@
+# The lab's models; the mind asks for one by name (LAB_LLM_MODEL).
+#
+# fake answers from files (fake_llm/), the same each time and with no key:
+# what check.sh and e2e run on. The others are real providers, each reading
+# its key from .env; a group whose key is empty fails when asked, nothing
+# else. Retries and fallbacks are LiteLLM's, not the mind's.
+model_list:
+  - model_name: fake
+    litellm_params:
+      model: openai/fake-1
+      api_base: http://fake_llm:8089/v1
+      api_key: fake
+      timeout: 30
+
+  # A light chat model: Cloudflare's glm-4.7-flash through its OpenAI door,
+  # then z.ai's own, which takes one request at a time and says "busy"
+  # rather than "spent", so it never rests.
+  - model_name: chat
+    litellm_params:
+      model: openai/@cf/zai-org/glm-4.7-flash
+      api_base: os.environ/CLOUDFLARE_OPENAI_URL
+      api_key: os.environ/CLOUDFLARE_API_KEY
+      order: 1
+      timeout: 120
+    model_info: {id: chat-cf}
+  - model_name: chat
+    litellm_params:
+      model: openai/glm-4.7-flash
+      api_base: https://api.z.ai/api/paas/v4
+      api_key: os.environ/ZAI_API_KEY
+      order: 2
+      max_parallel_requests: 1
+      cooldown_time: 0
+      timeout: 120
+    model_info: {id: chat-zai}
+
+  - model_name: lite
+    litellm_params:
+      model: gemini/gemini-3.1-flash-lite
+      api_key: os.environ/GEMINI_API_KEY
+      timeout: 120
+
+router_settings:
+  num_retries: 1
+  timeout: 300
+
+litellm_settings:
+  drop_params: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

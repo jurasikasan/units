@@ -1,0 +1,13 @@
+# The lab's model when nothing else is named: LiteLLM answers it itself, the
+# same words each time, so the chat is alive without a key. A deployment
+# points LAB_LLM_CONFIG at its own file, e.g.
+#   model_list:
+#     - model_name: assistant
+#       litellm_params:
+#         model: gemini/gemini-2.5-flash
+#         api_key: os.environ/LAB_LLM_PROVIDER_KEY
+model_list:
+  - model_name: assistant
+    litellm_params:
+      model: openai/mock
+      mock_response: "Hello from the lab! I am a mock model behind LiteLLM; name a real one in LAB_LLM_CONFIG."

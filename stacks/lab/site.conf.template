@@ -9,12 +9,14 @@ server {
     location /auth {
         include /etc/nginx/gate/portal.conf;
     }
+    # The mind; /api/run reaches it as /run.
     location /api/ {
         include /etc/nginx/gate/api.conf;
-        proxy_pass http://app;
+        proxy_pass http://mind:8088/;
+        proxy_read_timeout 300s;
     }
     location / {
         include /etc/nginx/gate/page.conf;
-        proxy_pass http://app;
+        proxy_pass http://face;
     }
 }

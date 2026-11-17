@@ -1,6 +1,8 @@
 #!/bin/bash
-# The lab from .env.example, on free ports, the whole round: up, a person
-# logs in and gets mail, a second account is added, a backup is taken,
+# The lab from .env.example, on free ports, the whole round: up; in a real
+# browser a person logs in, says something and asks what they said first,
+# and the answer carries it back (the fake model, through mind and LiteLLM);
+# the chat is closed to nobody, a person gets mail, a second account is added, a backup is taken,
 # everything is deleted, the backup restored, and the second account logs in.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -37,9 +39,10 @@ backup() { ./backup.sh "$work/backups" > "$work/archive"; }
 wipe() { docker compose --profile '*' down -v; }
 restore() { ./restore.sh "$(cat "$work/archive")"; }
 
-run "build"          docker compose build -q
+run "build"          docker compose --profile e2e build -q
 run "up"             docker compose up -d --wait
-run "first account"  docker compose run --rm demo "$first_user" "$first_password" mail
+run "e2e: a conversation goes through whole"  docker compose run --rm e2e "$first_user" "$first_password"
+run "first account: chat, mail"  docker compose run --rm demo "$first_user" "$first_password" mail
 run "add carol"      add_carol
 run "backup"         backup
 run "wipe"           wipe
