@@ -22,6 +22,9 @@ becomes a task with acceptance criteria.
   `demo.sh`) that shows them working on their own; `engines/showcase` covers
   the engines together.
 - Events: CloudEvents on a Redis stream, per [contracts/events.md](contracts/events.md).
+- `stacks/<name>/` assembles units into something that runs: `compose.yaml`,
+  `.env.example` (a local run works from it as is; a deployment changes only
+  `.env`), a `check.sh`. No unit depends on a stack.
 
 ## Done means
 

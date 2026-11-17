@@ -25,6 +25,12 @@ own `go.mod`, and its own check script.
 More units arrive one at a time, each checked and given a showcase before it
 lands here.
 
+## Stacks
+
+[`stacks/`](stacks/) assembles units into something that runs as a whole, the
+same files locally and deployed: [`stacks/lab`](stacks/lab/) is a site behind
+`gate`.
+
 ## Contracts and manifests
 
 - [`contracts/events.md`](contracts/events.md): how a unit publishes events, as

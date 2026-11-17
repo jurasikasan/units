@@ -1,0 +1,55 @@
+#!/bin/bash
+# The lab from .env.example, on free ports, the whole round: up, a person
+# logs in and gets mail, a second account is added, a backup is taken,
+# everything is deleted, the backup restored, and the second account logs in.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+PASS=0
+FAIL=0
+ERRORS=""
+
+run() {
+  local label="$1"; shift
+  if output=$("$@" 2>&1); then
+    echo "  ✓ $label"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ $label"
+    ERRORS="$ERRORS\n--- $label ---\n$output"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
+work=$(mktemp -d)
+port=$(free_port)
+sed -e "s|^LAB_URL=.*|LAB_URL=https://lab.localhost:$port|" \
+    -e "s|^LAB_PORT=.*|LAB_PORT=$port|" \
+    -e "s|^LAB_MAILPIT_PORT=.*|LAB_MAILPIT_PORT=$(free_port)|" .env.example > "$work/env"
+export COMPOSE_ENV_FILES="$work/env" COMPOSE_PROJECT_NAME="lab-check-$$"
+first_user=$(sed -n 's/^LAB_FIRST_USER=//p' .env.example)
+first_password=$(sed -n 's/^LAB_FIRST_PASSWORD=//p' .env.example)
+trap 'docker compose --profile "*" down -v --remove-orphans >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+
+add_carol() { echo carol-lab | docker compose run --rm --no-deps -T gate gate-user add carol carol@example.com Carol; }
+backup() { ./backup.sh "$work/backups" > "$work/archive"; }
+wipe() { docker compose --profile '*' down -v; }
+restore() { ./restore.sh "$(cat "$work/archive")"; }
+
+run "build"          docker compose build -q
+run "up"             docker compose up -d --wait
+run "first account"  docker compose run --rm demo "$first_user" "$first_password" mail
+run "add carol"      add_carol
+run "backup"         backup
+run "wipe"           wipe
+run "restore"        restore
+run "carol is back"  docker compose run --rm demo carol carol-lab
+
+echo ""
+if [ "$FAIL" -gt 0 ]; then
+  printf "%b\n" "$ERRORS"
+  echo "FAIL ($PASS passed, $FAIL failed)"
+  exit 1
+fi
+echo "OK ($PASS checks)"

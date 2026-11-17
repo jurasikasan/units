@@ -1,0 +1,3 @@
+principal=<!--# echo var="http_x_principal_id" default="" -->
+cookie=<!--# echo var="http_cookie" default="" -->
+authorization=<!--# echo var="http_authorization" default="" -->
