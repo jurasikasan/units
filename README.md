@@ -37,6 +37,9 @@ same files locally and deployed: [`stacks/lab`](stacks/lab/) is a site behind
 
 - [`contracts/events.md`](contracts/events.md): how a unit publishes events, as
   CloudEvents on a Redis stream.
+- [`contracts/edges.md`](contracts/edges.md): where units meet people, models,
+  tools and voice — every kind of input and output, what each edge's standard
+  and library carries, what units have, and the gaps named.
 - A unit that is a service carries a `unit.yaml`: what it provides (tools,
   events, HTTP calls), what it consumes, its config. `tools/check_unit.py` holds
   each manifest to its unit's code and to the manifests of the units it
