@@ -1,5 +1,6 @@
 // minds/assistant: a chat assistant. AG-UI in, a model's answer streamed out;
-// OpenAI's audio API handed on to the same endpoint.
+// OpenAI's audio API handed on to the same endpoint, and its Realtime API
+// relayed there.
 package main
 
 import (
@@ -60,6 +61,10 @@ func main() {
 	assistant.NewAudio(mustEnv("LLM_URL"), env("LLM_API_KEY", ""), stt, tts, env("TTS_VOICE", "")).Routes(mux)
 	if stt != "" || tts != "" {
 		slog.Info("OpenAI's audio API handed on", "stt", stt, "tts", tts)
+	}
+	if rt := env("REALTIME_MODEL", ""); rt != "" {
+		assistant.NewRealtime(mustEnv("LLM_URL"), env("LLM_API_KEY", ""), rt).Routes(mux)
+		slog.Info("OpenAI's Realtime API relayed", "model", rt)
 	}
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

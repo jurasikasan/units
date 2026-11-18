@@ -18,7 +18,9 @@ model's and the tools' calls under way; a model that fails or goes silent
 ends the run with an error that says which, in the endpoint's own words.
 OpenAI's audio API (a sound to text, words to a sound) is served too and
 handed on to the same endpoint, with the mind's model: the client never
-holds the endpoint's key, and every call is logged. Every edge goes through its
+holds the endpoint's key, and every call is logged. OpenAI's Realtime API
+(a call: sound both ways, live, over a WebSocket) is relayed the same way,
+each event logged and passed on unchanged. Every edge goes through its
 standard's own SDK: AG-UI's Go SDK in, OpenAI's Go SDK to the model, the MCP
 Go SDK to tools.
 
@@ -53,6 +55,7 @@ shows that a request with nobody named is refused. A real model: change
 | `STT_MODEL` | the model asked to transcribe; `POST /v1/audio/transcriptions` is served only when set |
 | `TTS_MODEL` | the model asked to speak; `POST /v1/audio/speech` is served only when set |
 | `TTS_VOICE` | the voice when a speech request names none |
+| `REALTIME_MODEL` | the model a call is relayed to; `GET /v1/realtime` (WebSocket) is served only when set |
 | `PORT` | `8088` |
 
 `./check.sh`: build, vet, gofmt, the tests (against a fake OpenAI endpoint

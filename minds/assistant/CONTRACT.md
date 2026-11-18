@@ -14,7 +14,7 @@ either that the code no longer fits shows up as a build or test failure here.
 
 ## Who is asking
 
-`POST /run` and the audio calls read `X-Principal-Id`, set by the door in
+`POST /run`, the audio calls and a call read `X-Principal-Id`, set by the door in
 front (`gate`). No header: 401, before anything else is read.
 
 ## A run
@@ -211,6 +211,30 @@ its own types and drop what it does not know.
 
 What sound a model takes and gives (formats, voices, languages) is the
 model's; the mind neither checks nor converts it.
+
+## A call
+
+OpenAI's Realtime API, served at `GET /v1/realtime` when `REALTIME_MODEL`
+is set: a WebSocket, relayed to the endpoint's `/v1/realtime` (`LLM_URL`
+as `ws://`/`wss://`) with `LLM_API_KEY` and `?model=REALTIME_MODEL`; the
+model the client names is not read. The same door as the audio calls:
+
+- Each message goes on as it came, both ways: text or binary, its bytes
+  untouched, at most 16 MB. The mind adds nothing to the session and takes
+  nothing out (no tools, no instructions, no thread of its own yet).
+- A close from either side reaches the other with its code and reason; a
+  side that goes away without one leaves the other `1001`.
+- An endpoint that does not answer the handshake: one event in the schema's
+  shape, `{"type":"error","error":{"type":"server_error","code":
+  "model_unreachable",…}}`, then close `1013`.
+- The log: the call opened (who, the model), each event with its direction
+  (`in` from the client, `out` from the model), milliseconds since the
+  call opened, its `type` and size, never its content (sound stays out of
+  the log); the call closed, by whom, with what, how long, and how many
+  events of each type went each way.
+
+What a realtime model sends and leaves out is the endpoint's;
+[contracts/edges.md](../../contracts/edges.md) has what one did.
 
 ## Toward voice
 

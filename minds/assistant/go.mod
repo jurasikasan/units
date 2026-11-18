@@ -4,12 +4,12 @@ go 1.27.3
 
 require (
 	github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20261116191043-79530a25f347
+	github.com/coder/websocket v1.8.15
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/openai/openai-go/v3 v3.100.0
 )
 
 require (
-	github.com/coder/websocket v1.8.15 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
