@@ -42,9 +42,23 @@ accepted and not read.
   </attachment>`, the shape assistant-ui gives text files itself; any other
   `document` (a PDF) as a `file` part, its data as a `data:` URL and its
   name from the part's `filename` or `metadata.filename`. The older `binary`
-  part goes by its media type. Audio, video and a document by URL are
-  passed over for now. LiteLLM carries the parts to the model; whether the
-  model takes them is the model's (UNIT-33).
+  part goes by its media type. `audio` in WAV or MP3 goes as `input_audio`,
+  its data as it came. LiteLLM carries the parts to the model.
+- **What cannot go is said, before a model is asked.** The whole
+  conversation goes with every run, so every user message counts, not only
+  the last. A part no chat completions part holds (video, a document or a
+  sound by URL, audio in another format) ends the run with `RUN_ERROR`,
+  `code: content_not_carried`, its message naming each such part and why.
+  A picture, a PDF or a sound the model does not take ends it with
+  `RUN_ERROR`, `code: content_not_accepted`, e.g. `The model chat does not
+  take pictures (dot.png).`. What the model takes is asked of LiteLLM, only
+  when such a part is there: `GET /v1/model/info` (LiteLLM's extension),
+  each deployment of the model name's `supports_vision`,
+  `supports_pdf_input`, `supports_audio_input`; a name with several
+  deployments takes what all of them do. When nothing says (no such
+  endpoint, a model LiteLLM does not know, a flag not set) the part is sent
+  and the model has the last word. No part is turned into another one
+  (a picture described in words) here.
 - `threadId` and `runId` are echoed; missing ones are made up.
 
 The answer is an event stream (`text/event-stream`, one `data:` line per
@@ -132,9 +146,9 @@ model generated. Neither is built yet; nothing here is shaped against them.
 ## Not yet
 
 - No storage: a thread is only as long as the client remembers it.
-- No audio or video read into the prompt, nor images from tools' results;
-  a model that takes no pictures answers a picture with its provider's
-  error (UNIT-33).
+- No video read into the prompt, nor images from tools' results.
+- A part a model cannot take is refused, never turned into one it can
+  (UNIT-43).
 - The words of a model's reasoning are not given back to it, not even to
   the same model in a tool loop.
 - `thinking_blocks` streamed in pieces are joined into whole blocks

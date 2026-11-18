@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
@@ -29,6 +30,7 @@ import (
 // Assistant answers runs with one model.
 type Assistant struct {
 	client   openai.Client
+	info     time.Duration // how long a run waits to learn what the model takes
 	model    string
 	system   string
 	sse      *sse.SSEWriter
@@ -65,7 +67,7 @@ func New(base, model, key, system string) *Assistant {
 	if key != "" {
 		opts = append(opts, option.WithAPIKey(key))
 	}
-	return &Assistant{client: openai.NewClient(opts...), model: model, system: system, sse: sse.NewSSEWriter(), maxSteps: DefaultMaxSteps}
+	return &Assistant{client: openai.NewClient(opts...), model: model, system: system, sse: sse.NewSSEWriter(), maxSteps: DefaultMaxSteps, info: 5 * time.Second}
 }
 
 // ErrBadInput is a run this mind cannot answer as asked.
@@ -98,7 +100,7 @@ func (a *Assistant) Prompt(in types.RunAgentInput) (Conversation, error) {
 	if n == 0 || in.Messages[n-1].Role != types.RoleUser {
 		return nil, ErrBadInput
 	}
-	if _, ok := userMessage(in.Messages[n-1]); !ok {
+	if _, _, ok := userMessage(in.Messages[n-1]); !ok {
 		return nil, ErrBadInput
 	}
 	var p Conversation
@@ -152,8 +154,8 @@ func (a *Assistant) Prompt(in types.RunAgentInput) (Conversation, error) {
 				p = append(p, entry{msg: openai.ToolMessage(t, m.ToolCallID)})
 			}
 		case m.Role == types.RoleUser:
-			if u, ok := userMessage(m); ok {
-				p = append(p, entry{msg: u})
+			if u, md, ok := userMessage(m); ok {
+				p = append(p, entry{msg: u, media: md})
 			}
 		case t == "":
 		case m.Role == types.RoleSystem, m.Role == types.RoleDeveloper:
@@ -170,8 +172,9 @@ func (a *Assistant) Prompt(in types.RunAgentInput) (Conversation, error) {
 type Conversation []entry
 
 type entry struct {
-	msg  openai.ChatCompletionMessageParamUnion // a message of anyone but the model
-	said *said                                  // or a turn of the model
+	msg   openai.ChatCompletionMessageParamUnion // a message of anyone but the model
+	media []media                                // the parts of it not every model takes
+	said  *said                                  // or a turn of the model
 }
 
 // said is a turn of the model: its words, its calls, and the opaque part of
@@ -257,7 +260,9 @@ func answered(text string, calls []call, thought *opaque) openai.ChatCompletionM
 // goes back to it, and it is asked again, until it answers in words or the
 // steps run out. Each time it is asked as the model that answered last: the
 // opaque part of reasoning another model made is left out, so a fallback to
-// another model carries on without it. An error from emit (the listener is
+// another model carries on without it. A part the model cannot take, or
+// that nothing carries, ends the run with RUN_ERROR before it is asked
+// (check.go). An error from emit (the listener is
 // gone) or a cancelled ctx ends the run and whatever call is under way. A
 // failing model ends the run with RUN_ERROR.
 func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversation, emit func(events.Event) error) error {
@@ -271,6 +276,9 @@ func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversat
 	if len(a.servers) > 0 {
 		k = openKit(ctx, a.mcp, a.servers)
 		defer k.close()
+	}
+	if refusal := a.check(ctx, in.RunID, p); refusal != nil {
+		return emit(refusal)
 	}
 	model := p.lastModel()
 	for step := 0; step < a.maxSteps; step++ {

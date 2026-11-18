@@ -24,8 +24,13 @@ browser → nginx + gate ─ /      → face (static files)
 | model | |
 |---|---|
 | `fake` | [`fake_llm`](fake_llm/): answers from files, the same each time, no key; what the checks run on |
-| `chat` | Cloudflare's glm-4.7-flash, then z.ai's; a reasoning model, so 10–15 s of thinking before the first word |
+| `fake-text` | the same, declared to take words only: a picture to it is refused by the mind |
+| `chat` | Cloudflare's glm-4.7-flash, then z.ai's; a reasoning model, so 10–15 s of thinking before the first word; words only |
 | `lite` | Gemini 3.1 flash-lite |
+
+What a model takes (pictures, PDFs, sounds) LiteLLM says from its map of
+models, or from `model_info` in `models.yaml` where the map does not know
+the model (`chat`); the mind refuses what it does not take.
 
 A real model needs its provider's key in `.env`; one without a key fails
 when asked, and nothing else does.
@@ -49,7 +54,9 @@ adds two numbers; the model's reasoning is shown apart from its answer, and
 the thought signatures a model left go back to it with the tool call and,
 a run later, from the page; a file over the page's limit is refused there
 and nothing is sent, then a picture and a text file go with a question and
-the answer carries what only the file holds; the chat
+the answer carries what only the file holds; on the mind recreated to ask
+`fake-text`, a picture is refused and the page says the model takes none
+(`E2E_ONLY=refused`); the chat
 refuses someone not logged in; a person gets mail, a second account is added, a backup is taken,
 everything is deleted with its volumes, the backup is restored, and the
 second account logs in again.

@@ -28,6 +28,7 @@ type event struct {
 	Role      string `json:"role"`
 	Delta     string `json:"delta"`
 	Message   string `json:"message"`
+	Code      string `json:"code"`
 }
 
 // fakeModel is an OpenAI-shaped chat endpoint that streams pieces, and
@@ -39,9 +40,19 @@ type fakeModel struct {
 	left   chan struct{} // closed when a hanging call saw its caller leave
 	asked  []msg
 	raw    []json.RawMessage // the same messages as they came: content may be parts
+	info   string            // the answer to GET /v1/model/info, LiteLLM's; none: 404
 }
 
 func (f *fakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/v1/model/info" {
+		if f.info == "" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, f.info)
+		return
+	}
 	var body struct {
 		Messages []json.RawMessage `json:"messages"`
 	}
@@ -209,7 +220,7 @@ func TestTextIsTakenFromParts(t *testing.T) {
 		{"role":"user","content":"first"},
 		{"role":"assistant","content":"answer"},
 		{"role":"tool","content":"x","toolCallId":"c"},
-		{"role":"user","content":[{"type":"text","text":"look"},{"type":"binary","mimeType":"audio/wav","data":"AAAA"},{"type":"text","text":"here"}]}]}`
+		{"role":"user","content":[{"type":"text","text":"look"},{"type":"text","text":""},{"type":"text","text":"here"}]}]}`
 	resp := post(t, context.Background(), serve(t, f).URL, "alice", body)
 	defer func() { _ = resp.Body.Close() }()
 	if got := kinds(read(t, resp.Body)); !strings.HasSuffix(got, "RUN_FINISHED") {

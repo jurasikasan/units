@@ -8,7 +8,10 @@ calls tools, the mind calls them on MCP servers (MCP 2026-07-28) and gives
 it what they said, until it answers in words. What the model thinks is
 shown as AG-UI reasoning; what only the model can read again (a signature)
 rides with it to the client and goes back to that same model, never to
-another. Every edge goes through its
+another. A picture, a PDF or a sound goes with a
+message as the part it is; one the model does not take (LiteLLM's
+`/v1/model/info` says) or that nothing carries ends the run with an error
+the person reads, before any provider is asked. Every edge goes through its
 standard's own SDK: AG-UI's Go SDK in, OpenAI's Go SDK to the model, the MCP
 Go SDK to tools.
 

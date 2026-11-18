@@ -50,14 +50,15 @@ func TestAttachmentsGoAsContentParts(t *testing.T) {
 		`{"image_url":{"url":"data:image/png;base64,iVBORw0K"},"type":"image_url"},` +
 		`{"image_url":{"url":"https://example.com/a.jpg"},"type":"image_url"},` +
 		`{"file":{"file_data":"data:application/pdf;base64,JVBERi0x","filename":"a.pdf"},"type":"file"},` +
-		`{"text":"<attachment name=\"n&#34;ote.txt\">\nthe key is 42 <b>\n</attachment>","type":"text"}]`
+		`{"text":"<attachment name=\"n&#34;ote.txt\">\nthe key is 42 <b>\n</attachment>","type":"text"},` +
+		`{"input_audio":{"data":"AAAA","format":"wav"},"type":"input_audio"}]`
 	if string(b) != want {
 		t.Errorf("parts\n got %s\nwant %s", b, want)
 	}
 }
 
 func TestWordsOnlyStayAString(t *testing.T) {
-	body := `{"messages":[{"role":"user","content":[{"type":"text","text":"a"},{"type":"text","text":"b"},{"type":"audio","source":{"type":"data","value":"AAAA","mimeType":"audio/wav"}}]}]}`
+	body := `{"messages":[{"role":"user","content":[{"type":"text","text":"a"},{"type":"text","text":"b"}]}]}`
 	if got := string(lastContent(t, body)); got != `"a\nb"` {
 		t.Errorf("content %s", got)
 	}

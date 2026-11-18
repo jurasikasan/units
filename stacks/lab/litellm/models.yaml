@@ -12,9 +12,23 @@ model_list:
       api_key: fake
       timeout: 30
 
+  # The same fake, declared to take words only: what a model that cannot
+  # take a picture is, for the mind to say so (check.sh's second round).
+  # Its own model name: LiteLLM keeps model_info by the provider's model,
+  # so under fake-1 it would say the same of fake.
+  - model_name: fake-text
+    litellm_params:
+      model: openai/fake-text-1
+      api_base: http://fake_llm:8089/v1
+      api_key: fake
+      timeout: 30
+    model_info: {supports_vision: false, supports_pdf_input: false, supports_audio_input: false}
+
   # A light chat model: Cloudflare's glm-4.7-flash through its OpenAI door,
   # then z.ai's own, which takes one request at a time and says "busy"
-  # rather than "spent", so it never rests.
+  # rather than "spent", so it never rests. Words only: both answer a
+  # picture or a file with a 400, and LiteLLM's map of models does not know
+  # them, so model_info says it (the mind reads it from /model/info).
   - model_name: chat
     litellm_params:
       model: openai/@cf/zai-org/glm-4.7-flash
@@ -22,7 +36,7 @@ model_list:
       api_key: os.environ/CLOUDFLARE_API_KEY
       order: 1
       timeout: 120
-    model_info: {id: chat-cf}
+    model_info: {id: chat-cf, supports_vision: false, supports_pdf_input: false, supports_audio_input: false}
   - model_name: chat
     litellm_params:
       model: openai/glm-4.7-flash
@@ -32,7 +46,7 @@ model_list:
       max_parallel_requests: 1
       cooldown_time: 0
       timeout: 120
-    model_info: {id: chat-zai}
+    model_info: {id: chat-zai, supports_vision: false, supports_pdf_input: false, supports_audio_input: false}
 
   # Gemini shows its reasoning only at reasoning_effort high; lower, it is
   # counted in tokens and never shown.

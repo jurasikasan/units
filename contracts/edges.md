@@ -33,8 +33,9 @@ voice ──OpenAI Realtime (or Gemini Live)──▶ ?         └──units' 
 | text, streamed | ✓ | ✓ | ✓ | ✓ result content | ✓ | mind ✓; threads `text` |
 | images in | ✓ user parts | ✓ | ✓ | ✓ result content | ✓ | threads `image`; face and mind: carried (UNIT-25) |
 | images out | – (a capability flag only) | ext (LiteLLM `message.images`) | ✓ hosted tool | ✓ result content | – | – |
-| documents in | ✓ user parts | ✓ | ✓ | ✓ resources | – | artifact_store keeps bytes; threads has no block |
-| audio as a part | ✓ in only | ✓ in and out | in ✓, out *(unverified)* | ✓ result content | — | engines ✓ (OpenAI audio API); threads `audio` |
+| documents in | ✓ user parts | ✓ | ✓ | ✓ resources | – | artifact_store keeps bytes; threads has no block; face and mind: a PDF, text files (UNIT-25) |
+| audio as a part | ✓ in only | ✓ in and out | in ✓, out *(unverified)* | ✓ result content | — | engines ✓ (OpenAI audio API); threads `audio`; mind: in, WAV and MP3 |
+| what a model takes | – | ext (LiteLLM `/v1/model/info`, `supports_vision` …) | – | – | – | mind: a part the model does not take, or nothing carries, ends the run with `RUN_ERROR` (UNIT-33) |
 | live voice | – | – | – | – | ✓ | hearing, speaking, web_audio_call, sip_phone: RTP and MRCP-shaped tools, not this schema |
 | tool calls | ✓ | ✓ | ✓, + hosted and remote MCP | ✓ | ✓, + MCP | MCP servers on go-sdk v1.1.0 (web_audio_call v1.8.0); threads `tool_call`/`tool_result`; mind: none |
 | reasoning shown | ✓ | ext (`reasoning_content`) | ✓ summary | – | config only | mind ✓ as AG-UI reasoning; threads has no block |

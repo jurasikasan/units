@@ -2,6 +2,7 @@
 # The lab from .env.example, on free ports, the whole round: up; in a real
 # browser a person logs in, says something and asks what they said first,
 # and the answer carries it back (the fake model, through mind and LiteLLM);
+# on a model declared to take words only, a picture is refused in words;
 # the chat is closed to nobody, a person gets mail; gate, mind and face are
 # recreated on new addresses and the site still reaches them without touching
 # nginx; a second account is added, a backup is taken,
@@ -44,6 +45,10 @@ restore() { ./restore.sh "$(cat "$work/archive")"; }
 run "build"          docker compose --profile e2e build -q
 run "up"             docker compose up -d --wait
 run "e2e: a conversation goes through whole"  docker compose run --rm e2e "$first_user" "$first_password"
+run "mind on a text-only model"  env LAB_LLM_MODEL=fake-text docker compose up -d --wait mind
+# The same LAB_LLM_MODEL, or compose puts the mind back on fake on the way.
+run "e2e: a picture to it is refused, said"  env LAB_LLM_MODEL=fake-text E2E_ONLY=refused docker compose run --rm e2e "$first_user" "$first_password"
+run "mind back on fake"  docker compose up -d --wait mind
 run "first account: chat, mail"  docker compose run --rm demo "$first_user" "$first_password" mail
 run "gate, mind, face on new addresses"  ../../tools/move_address.sh gate mind face
 run "nginx finds them there"  docker compose run --rm demo "$first_user" "$first_password"

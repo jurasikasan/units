@@ -195,6 +195,7 @@ services:
       LAB_URL: ${LAB_URL}
       LAB_LLM_MODEL: ${LAB_LLM_MODEL:-fake}
       E2E_TIMEOUT_MS: ${E2E_TIMEOUT_MS:-60000}
+      E2E_ONLY: ${E2E_ONLY:-}
     depends_on:
       nginx:
         condition: service_healthy

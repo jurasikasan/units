@@ -17,6 +17,10 @@
 // Then attachments: a file over the face's limit is refused on the page and
 // never sent; a picture and a text file go with a question (#attached), and
 // the answer has to carry what only the file holds.
+//
+// E2E_ONLY=refused is another round, on a mind asking a model that takes no
+// pictures (fake-text): a picture sent ends the run with the mind's error,
+// and the page shows it.
 import { chromium } from 'playwright'
 
 const [user, password] = process.argv.slice(2)
@@ -38,6 +42,7 @@ const dot = {
 const huge = { name: 'huge.txt', mimeType: 'text/plain', buffer: Buffer.alloc(11 * 1024 * 1024, 'a') }
 const fake = (process.env.LAB_LLM_MODEL ?? 'fake') === 'fake'
 const timeout = Number(process.env.E2E_TIMEOUT_MS ?? 60000)
+const only = process.env.E2E_ONLY ?? ''
 
 const browser = await chromium.launch()
 const page = await browser.newPage({ ignoreHTTPSErrors: true })
@@ -86,15 +91,19 @@ async function reasoned() {
   return { n, text: (await content.innerText()).trim() }
 }
 
-try {
-  await page.goto(url + '/')
-  step('no session: the login page', new URL(page.url()).pathname)
-  await page.locator('#username-textfield').fill(user)
-  await page.locator('#password-textfield').fill(password)
-  await page.locator('#sign-in-button').click()
-  await page.getByRole('textbox', { name: 'Message input' }).waitFor()
-  step(`${user} logs in, the chat`, await page.title())
+// refusedRound: a picture to a model that takes none; the page says so.
+async function refusedRound() {
+  await attach(dot)
+  const said = await say('What is in the picture?')
+  step('a picture to a text-only model', JSON.stringify(said.slice(0, 80)))
+  if (!said.includes('does not take pictures (dot.png)')) {
+    step('FAIL', 'the page does not say the model takes no pictures')
+    failed = true
+  }
+}
 
+// fullRound: the conversation, tools, reasoning, attachments.
+async function fullRound() {
   const a1 = await say(first)
   step('an answer', JSON.stringify(a1.slice(0, 40)))
   const a2 = await say(question)
@@ -164,6 +173,19 @@ try {
     step('FAIL', `the answer does not carry what the file holds, ${secret}`)
     failed = true
   }
+}
+
+try {
+  await page.goto(url + '/')
+  step('no session: the login page', new URL(page.url()).pathname)
+  await page.locator('#username-textfield').fill(user)
+  await page.locator('#password-textfield').fill(password)
+  await page.locator('#sign-in-button').click()
+  await page.getByRole('textbox', { name: 'Message input' }).waitFor()
+  step(`${user} logs in, the chat`, await page.title())
+
+  if (only === 'refused') await refusedRound()
+  else await fullRound()
 } catch (e) {
   console.log(`  FAIL ${e.message.split('\n')[0]}`)
   await page.screenshot({ path: '/tmp/e2e-fail.png' }).catch(() => {})
