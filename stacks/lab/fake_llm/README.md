@@ -23,4 +23,8 @@ user's:
 
 When the last message is a tool's result, the answer is `The tool said: ` and that result (stream only).
 
+OpenAI's audio API, for `fake-stt` and `fake-tts`: any sound sent to
+`/v1/audio/transcriptions` is heard as `What the fake ear heard.`, and any
+words sent to `/v1/audio/speech` are a quarter-second beep, a WAV.
+
 Each tag has a `-stream` mapping (`"stream": true`) and a `-nostream` one.

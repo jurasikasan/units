@@ -134,6 +134,9 @@ services:
       LLM_API_KEY: ${LAB_LLM_KEY}
       SYSTEM_PROMPT: ${LAB_SYSTEM_PROMPT:-}
       MCP_SERVERS: ${LAB_MCP_SERVERS:-}
+      STT_MODEL: ${LAB_STT_MODEL:-}
+      TTS_MODEL: ${LAB_TTS_MODEL:-}
+      TTS_VOICE: ${LAB_TTS_VOICE:-}
     depends_on:
       litellm:
         condition: service_healthy
@@ -165,6 +168,7 @@ services:
       CLOUDFLARE_API_KEY: ${CLOUDFLARE_API_KEY:-}
       ZAI_API_KEY: ${ZAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
     volumes:
       - ${LAB_LLM_CONFIG:-./litellm/models.yaml}:/config.yaml:ro
     depends_on:
@@ -197,6 +201,8 @@ services:
     environment:
       LAB_URL: ${LAB_URL}
       LAB_LLM_MODEL: ${LAB_LLM_MODEL:-fake}
+      LAB_STT_MODEL: ${LAB_STT_MODEL:-}
+      E2E_VOICE_FILE: ${E2E_VOICE_FILE:-}
       E2E_TIMEOUT_MS: ${E2E_TIMEOUT_MS:-60000}
       E2E_ONLY: ${E2E_ONLY:-}
     depends_on:

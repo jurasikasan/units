@@ -1,0 +1,16 @@
+{
+  "name": "transcription",
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/audio/transcriptions"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "text": "What the fake ear heard."
+    }
+  }
+}

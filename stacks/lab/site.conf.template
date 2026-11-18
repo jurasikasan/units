@@ -14,6 +14,18 @@ server {
     }
     # The mind; /api/run reaches it as /run. A run carries the whole
     # conversation, attachments inline: the mind takes up to 16 MB.
+    # Sound, turn by turn: a recording up to OpenAI's 25 MB goes on as it
+    # comes, and speech comes back as it is made.
+    location /api/v1/audio/ {
+        include /etc/nginx/gate/api.conf;
+        client_max_body_size 25m;
+        proxy_request_buffering off;
+        proxy_buffering off;
+        set $mind mind:8088;
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass http://$mind;
+        proxy_read_timeout 120s;
+    }
     location /api/ {
         include /etc/nginx/gate/api.conf;
         client_max_body_size 16m;

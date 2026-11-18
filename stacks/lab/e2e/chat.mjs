@@ -23,10 +23,17 @@
 // error, which the page shows. Fake model only: a real one does not fail on
 // cue. That the mind saw the stop as a cancel is check.sh's, from its log.
 //
+// Sound, turn by turn: the mic records what the browser's fake mic plays
+// (a tone, or E2E_VOICE_FILE, a WAV) and the transcript lands in the
+// composer ("What the fake ear heard." on fake-stt); an answer is read
+// aloud: the speech endpoint answers with a sound, the page plays it to
+// the end. E2E_ONLY=voice runs this alone.
+//
 // E2E_ONLY=refused is another round, on a mind asking a model that takes no
 // pictures (fake-text): a picture sent ends the run with the mind's error,
 // and the page shows it.
 import { chromium } from 'playwright'
+import { writeFileSync } from 'node:fs'
 
 const [user, password] = process.argv.slice(2)
 const url = process.env.LAB_URL
@@ -46,11 +53,28 @@ const dot = {
 }
 const huge = { name: 'huge.txt', mimeType: 'text/plain', buffer: Buffer.alloc(11 * 1024 * 1024, 'a') }
 const fake = (process.env.LAB_LLM_MODEL ?? 'fake') === 'fake'
+const fakeEar = (process.env.LAB_STT_MODEL || 'fake-stt') === 'fake-stt'
 const timeout = Number(process.env.E2E_TIMEOUT_MS ?? 60000)
 const only = process.env.E2E_ONLY ?? ''
 
-const browser = await chromium.launch()
-const page = await browser.newPage({ ignoreHTTPSErrors: true })
+// tone is a WAV of a second of 440 Hz, for the fake mic when no file is given.
+function tone(path) {
+  const rate = 16000, n = rate, data = Buffer.alloc(44 + n * 2)
+  data.write('RIFF', 0); data.writeUInt32LE(36 + n * 2, 4); data.write('WAVEfmt ', 8)
+  data.writeUInt32LE(16, 16); data.writeUInt16LE(1, 20); data.writeUInt16LE(1, 22)
+  data.writeUInt32LE(rate, 24); data.writeUInt32LE(rate * 2, 28); data.writeUInt16LE(2, 32)
+  data.writeUInt16LE(16, 34); data.write('data', 36); data.writeUInt32LE(n * 2, 40)
+  for (let i = 0; i < n; i++) data.writeInt16LE(Math.round(8000 * Math.sin(2 * Math.PI * 440 * i / rate)), 44 + i * 2)
+  writeFileSync(path, data)
+  return path
+}
+const voiceFile = process.env.E2E_VOICE_FILE || tone('/tmp/tone.wav')
+
+const browser = await chromium.launch({
+  args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${voiceFile}`, '--autoplay-policy=no-user-gesture-required'],
+})
+const context = await browser.newContext({ ignoreHTTPSErrors: true, permissions: ['microphone'] })
+const page = await context.newPage()
 page.setDefaultTimeout(timeout)
 let failed = false
 const step = (label, value) => console.log(`  ${label.padEnd(36)} ${value}`)
@@ -118,6 +142,46 @@ async function stoppedAndFailed() {
       failed = true
     }
   }
+}
+
+// voiceRound: the mic into the composer, then an answer read aloud.
+async function voiceRound() {
+  const box = page.getByRole('textbox', { name: 'Message input' })
+  await box.fill('')
+  await page.getByRole('button', { name: 'Start voice input' }).click()
+  await page.getByRole('button', { name: 'Stop voice input' }).waitFor()
+  await page.waitForTimeout(2000)
+  const heard = page.waitForResponse((r) => r.url().endsWith('/api/v1/audio/transcriptions'))
+  heard.catch(() => {}) // awaited below; a click that fails first is the error said
+  await page.getByRole('button', { name: 'Stop voice input' }).click()
+  const resp = await heard
+  await page.getByRole('button', { name: 'Start voice input' }).waitFor()
+  const text = await box.inputValue()
+  step('dictated, in the composer', `${resp.status()} ${JSON.stringify(text.slice(0, 60))}`)
+  if (resp.status() !== 200 || !text || (fakeEar && text !== 'What the fake ear heard.')) {
+    step('FAIL', 'the transcript did not land in the composer')
+    failed = true
+  }
+
+  const said = await say(text || 'Say something.')
+  step('its answer', JSON.stringify(said.slice(0, 40)))
+  const answer = page.locator('[data-role="assistant"]').last()
+  await answer.hover()
+  const spoken = page.waitForResponse((r) => r.url().endsWith('/api/v1/audio/speech'))
+  spoken.catch(() => {})
+  await answer.getByRole('button', { name: 'Read aloud' }).click()
+  const sound = await spoken
+  const bytes = (await sound.body()).length
+  step('read aloud', `${sound.status()} ${sound.headers()['content-type']}, ${bytes} bytes`)
+  if (sound.status() !== 200 || !sound.headers()['content-type']?.startsWith('audio/') || bytes < 100) {
+    step('FAIL', 'no sound came back')
+    failed = true
+    return
+  }
+  // Playing, then played to the end: the stop button comes and goes.
+  await answer.getByRole('button', { name: 'Stop reading' }).waitFor()
+  await answer.getByRole('button', { name: 'Read aloud' }).waitFor()
+  step('played to the end', 'yes')
 }
 
 // refusedRound: a picture to a model that takes none; the page says so.
@@ -216,7 +280,11 @@ try {
   step(`${user} logs in, the chat`, await page.title())
 
   if (only === 'refused') await refusedRound()
-  else await fullRound()
+  else if (only === 'voice') await voiceRound()
+  else {
+    await fullRound()
+    await voiceRound()
+  }
 } catch (e) {
   console.log(`  FAIL ${e.message.split('\n')[0]}`)
   await page.screenshot({ path: '/tmp/e2e-fail.png' }).catch(() => {})

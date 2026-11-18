@@ -28,6 +28,13 @@ browser → nginx + gate ─ /      → face (static files)
 | `fake-text` | the same, declared to take words only: a picture to it is refused by the mind |
 | `chat` | Cloudflare's glm-4.7-flash, then z.ai's; a reasoning model, so 10–15 s of thinking before the first word; words only |
 | `lite` | Gemini 3.1 flash-lite |
+| `fake-stt`, `fake-tts` | [`fake_llm`](fake_llm/) behind OpenAI's audio API: any sound is heard as `What the fake ear heard.`, any words are a quarter-second beep |
+| `stt` | Groq's whisper-large-v3-turbo: what the browser records, any language |
+| `tts` | Gemini 3.8 flash-lite TTS: WAV only, Gemini's voices (OpenAI's names map to some); to try, not to run on |
+
+The mind serves OpenAI's audio API at `/api/v1/audio/…` and hands it on with
+`LAB_STT_MODEL` and `LAB_TTS_MODEL`: the page's mic puts what was said into
+the composer, and an answer can be read aloud.
 
 What a model takes (pictures, PDFs, sounds) LiteLLM says from its map of
 models, or from `model_info` in `models.yaml` where the map does not know
@@ -55,7 +62,9 @@ adds two numbers; the model's reasoning is shown apart from its answer, and
 the thought signatures a model left go back to it with the tool call and,
 a run later, from the page; a file over the page's limit is refused there
 and nothing is sent, then a picture and a text file go with a question and
-the answer carries what only the file holds; on the mind recreated to ask
+the answer carries what only the file holds; the mic (the browser's fake
+one) puts what the fake ear heard into the composer and an answer is read
+aloud to the end; on the mind recreated to ask
 `fake-text`, a picture is refused and the page says the model takes none
 (`E2E_ONLY=refused`); the chat
 refuses someone not logged in; a person gets mail, a second account is added, a backup is taken,
@@ -67,6 +76,13 @@ one included (the answer is then the model's, so give it time):
 
 ```bash
 E2E_TIMEOUT_MS=180000 docker compose run --rm e2e alice alice-lab
+```
+
+Sound alone, on the real `stt` and `tts`, with a recording of speech for
+the fake mic to play (a WAV):
+
+```bash
+docker compose run --rm -v "$PWD/speech.wav:/voice.wav:ro" -e E2E_VOICE_FILE=/voice.wav -e E2E_ONLY=voice e2e alice alice-lab
 ```
 
 ## .env
@@ -82,7 +98,9 @@ E2E_TIMEOUT_MS=180000 docker compose run --rm e2e alice alice-lab
 | `LAB_LLM_KEY` | LiteLLM's master key; the mind sends it |
 | `LAB_LLM_MODEL` | the model the mind asks for: `fake`, `chat`, `lite` |
 | `LAB_LLM_CONFIG` | another model list than `./litellm/models.yaml` |
-| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_KEY`, `ZAI_API_KEY`, `GEMINI_API_KEY` | the providers' keys |
+| `LAB_STT_MODEL`, `LAB_TTS_MODEL` | the models the mind asks to transcribe and to speak: `fake-stt`/`stt`, `fake-tts`/`tts`; empty, the page has no mic or read-aloud |
+| `LAB_TTS_VOICE` | the voice when the page names none; OpenAI's speech wants one |
+| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_KEY`, `ZAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` | the providers' keys |
 | `LAB_SYSTEM_PROMPT` | first in every prompt the mind sends |
 | `LAB_MCP_SERVERS` | the MCP servers whose tools the model may call, `name=url,…`; none when empty. `everything=http://everything:3001/mcp` with `everything` in `COMPOSE_PROFILES` gives the model MCP's reference server, as `check.sh` does |
 

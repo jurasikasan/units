@@ -22,6 +22,7 @@ voice ──OpenAI Realtime (or Gemini Live)──▶ ?         └──units' 
 | people | AG-UI 1.0 (HTTP POST in, SSE out) | `@ag-ui/client` 1.0.4, `@assistant-ui/react-ag-ui` 0.1.10 (face); AG-UI Go SDK, untagged (mind) |
 | models | OpenAI Chat Completions or Responses, through LiteLLM | `openai-go/v3` v3.100.0; LiteLLM v1.108.0 |
 | tools | MCP 2026-07-28 | `modelcontextprotocol/go-sdk` — v1.8.0 speaks it (`Stateless: true` over HTTP); v1.1.0 speaks 2025-06-18 |
+| sound, turn by turn | OpenAI's audio API (`/v1/audio/transcriptions`, `/v1/audio/speech`), through LiteLLM | assistant-ui's `DictationAdapter`, `SpeechSynthesisAdapter` (face, our implementations); the mind hands the calls on as they are |
 | voice | OpenAI Realtime (WebRTC, WebSocket, SIP); Gemini Live a different shape; OpenAI Live (`/v1/live/sessions`) a newer third | assistant-ui's `OpenAIRealtimeVoiceAdapter`, `GeminiLiveVoiceAdapter` (face) |
 
 ## The map
@@ -36,6 +37,7 @@ voice ──OpenAI Realtime (or Gemini Live)──▶ ?         └──units' 
 | documents in | ✓ user parts | ✓ | ✓ | ✓ resources | – | artifact_store keeps bytes; threads has no block; face and mind: a PDF, text files (UNIT-25) |
 | audio as a part | ✓ in only | ✓ in and out | in ✓, out *(unverified)* | ✓ result content | — | engines ✓ (OpenAI audio API); threads `audio`; mind: in, WAV and MP3 |
 | what a model takes | – | ext (LiteLLM `/v1/model/info`, `supports_vision` …) | – | – | – | mind: a part the model does not take, or nothing carries, ends the run with `RUN_ERROR` (UNIT-33) |
+| speech to text, text to speech | – | – (the audio API beside it) | – | – | ✓ (transcripts, voice out) | engines ✓; mind: the audio API handed on to LiteLLM, its model, logged (UNIT-45); face: mic into the composer, read-aloud |
 | live voice | – | – | – | – | ✓ | hearing, speaking, web_audio_call, sip_phone: RTP and MRCP-shaped tools, not this schema |
 | tool calls | ✓ | ✓ | ✓, + hosted and remote MCP | ✓ | ✓, + MCP | MCP servers on go-sdk v1.1.0 (web_audio_call v1.8.0); threads `tool_call`/`tool_result`; mind: none |
 | reasoning shown | ✓ | ext (`reasoning_content`) | ✓ summary | – | config only | mind ✓ as AG-UI reasoning; threads has no block |
@@ -66,6 +68,19 @@ providers that need bytes. Images out exist only in Responses (the hosted
 `image_generation` tool, which LiteLLM drops for providers it bridges) and as
 LiteLLM's `message.images` extension. threads keeps `image` and `audio` as a
 url plus sha256; a document has no block yet.
+
+**Sound, turn by turn.** Not in AG-UI either: AG-UI's voice issue (#77)
+closed in January 2026 with no events, and a voice is only a part a
+person sends. The standard is OpenAI's audio API beside the chat:
+`POST /v1/audio/transcriptions` (a multipart form, `{text}` back) and `POST
+/v1/audio/speech` (JSON, a sound back), which LiteLLM serves for many
+providers and our engines speak. assistant-ui's composer takes a
+`DictationAdapter` (a session: start, words while speaking or once, stop)
+and its messages a `SpeechSynthesisAdapter` (`speak(text)`, an utterance
+that starts, runs and ends); its own are the browser's Web Speech, which
+sends the sound to the browser's maker, so the face has its own on the
+audio API, and the mind is the door to it (UNIT-45): the face never holds
+LiteLLM's key and names no model.
 
 **Live voice.** Not in AG-UI. assistant-ui runs voice as a separate session
 straight to a realtime provider (`RealtimeVoiceAdapter`: connect, mute,
@@ -137,6 +152,7 @@ exists only as a child thread.
 | gap | where it belongs | what it is |
 |---|---|---|
 | mind ignores audio and video parts | adapter (mind) | images and documents carried (UNIT-25); audio when a model here takes it |
+| sound is not streamed, either way | the standard's, partly | the audio API answers a transcription once, for the whole recording, and the face plays speech when it has all come; OpenAI's `stream` for both is not tried here (UNIT-40 is the live way) |
 | AG-UI has no agent-made images or sound | the standard's | an image the agent makes reaches the face as a tool result or activity, until AG-UI carries it |
 | Chat Completions or Responses toward models | adapter (mind) | Chat Completions now, with LiteLLM's extensions as an explicit layer; Responses when LiteLLM carries it for our providers (see Probed) |
 | mind calls no tools | adapter (mind) | an MCP client on go-sdk v1.8 |
@@ -222,6 +238,31 @@ reasoning, a tool loop, an image, a PDF and `name`, on both APIs.
   400. The mind has to know what a model takes before sending it.
 - **Cost** comes in `usage.cost` on both APIs, streamed, as LiteLLM's
   extension.
+
+Sound, turn by turn (UNIT-45), on 2026-11-18, the lab's LiteLLM v1.108.0
+and the keys we hold, the mind in between:
+
+- **Groq's whisper-large-v3-turbo** (`groq/`) transcribes through LiteLLM:
+  WAV and the WebM/Opus a browser records, Russian and English, in about
+  half a second; `verbose_json` comes with segments and the language.
+- **Gemini's TTS** (`gemini/gemini-3.8-flash-lite-tts`, `-2.5-flash-preview-tts`)
+  speaks through LiteLLM's `/v1/audio/speech`: WAV only, 24 kHz 16-bit mono;
+  `mp3`, `opus` or `pcm` asked for are refused (400) by LiteLLM; OpenAI's
+  voice names (`alloy`) are mapped to Gemini's, an unknown voice is
+  Gemini's 400. Not streamed: a long answer came whole after 9.5 s, 1.3 MB.
+- **`voice` is required** on the way to an OpenAI-shaped speech endpoint
+  (the fake through `openai/`): without one LiteLLM answers 400; the mind's
+  `TTS_VOICE` fills it.
+- **LiteLLM sends no `x-litellm-model-name`** on the audio calls: which
+  deployment answered is not seen by the mind.
+- **Not usable from here, and why**: Groq's speech (`canopylabs/orpheus-v1-english`,
+  English and Arabic only) wants its terms accepted by the org's admin in
+  Groq's console; Cloudflare's OpenAI door has no audio routes ("No route
+  for that URI"), its whisper, Deepgram nova-3/flux and aura/melotts are only
+  on its own `/ai/run` API, which LiteLLM does not carry for sound; NVIDIA's
+  OpenAI catalog has no speech model (Riva is gRPC); z.ai's `glm-asr-2512`
+  answered "insufficient balance"; Gemini as a transcriber through LiteLLM
+  ran into the free tier's daily limit before it answered.
 
 ## Not verified
 

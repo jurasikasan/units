@@ -57,6 +57,41 @@ model_list:
       reasoning_effort: high
       timeout: 120
 
+  # Sound, turn by turn: OpenAI's audio API, which the mind hands on
+  # (STT_MODEL, TTS_MODEL). The fakes answer from fake_llm: a fixed text for
+  # any sound, a quarter-second beep (WAV) for any words.
+  - model_name: fake-stt
+    litellm_params:
+      model: openai/fake-whisper
+      api_base: http://fake_llm:8089/v1
+      api_key: fake
+    model_info: {mode: audio_transcription}
+  - model_name: fake-tts
+    litellm_params:
+      model: openai/fake-tts
+      api_base: http://fake_llm:8089/v1
+      api_key: fake
+    model_info: {mode: audio_speech}
+
+  # Groq's whisper: any language, the formats a browser records (WebM/Opus)
+  # included.
+  - model_name: stt
+    litellm_params:
+      model: groq/whisper-large-v3-turbo
+      api_key: os.environ/GROQ_API_KEY
+      timeout: 60
+    model_info: {mode: audio_transcription}
+
+  # Gemini's speech: WAV only (24 kHz, 16-bit mono; mp3 or opus asked for
+  # is refused), its own voices (Kore, Puck, …; OpenAI's names map to some),
+  # many languages. To try: Gemini is not what the lab runs on.
+  - model_name: tts
+    litellm_params:
+      model: gemini/gemini-3.8-flash-lite-tts
+      api_key: os.environ/GEMINI_API_KEY
+      timeout: 60
+    model_info: {mode: audio_speech}
+
 router_settings:
   num_retries: 1
   timeout: 300
