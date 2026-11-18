@@ -64,6 +64,7 @@ import {
   PlayIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
+  Volume2Icon,
 } from "lucide-react";
 import {
   createContext,
@@ -710,6 +711,15 @@ const AssistantActionBar: FC = () => {
       <AuiIf condition={(s) => s.thread.capabilities.feedback}>
         <ActionBarPrimitive.FeedbackPositive render={<TooltipIconButton tooltip="Helpful" className="data-[submitted=true]:bg-accent data-[submitted=true]:text-accent-foreground" />}><ThumbsUpIcon /></ActionBarPrimitive.FeedbackPositive>
         <ActionBarPrimitive.FeedbackNegative render={<TooltipIconButton tooltip="Not helpful" className="data-[submitted=true]:bg-accent data-[submitted=true]:text-accent-foreground" />}><ThumbsDownIcon /></ActionBarPrimitive.FeedbackNegative>
+      </AuiIf>
+      {/* Ours: read aloud where the runtime speaks (a speech adapter is given). */}
+      <AuiIf condition={(s) => s.thread.capabilities.speech}>
+        <AuiIf condition={(s) => s.message.speech == null}>
+          <ActionBarPrimitive.Speak render={<TooltipIconButton tooltip="Read aloud" />}><Volume2Icon /></ActionBarPrimitive.Speak>
+        </AuiIf>
+        <AuiIf condition={(s) => s.message.speech != null}>
+          <ActionBarPrimitive.StopSpeaking render={<TooltipIconButton tooltip="Stop reading" />}><SquareIcon className="animate-pulse fill-current" /></ActionBarPrimitive.StopSpeaking>
+        </AuiIf>
       </AuiIf>
       <ActionBarPrimitive.Reload render={<TooltipIconButton tooltip="Refresh" />}><RefreshCwIcon /></ActionBarPrimitive.Reload>
       <ActionBarMorePrimitive.Root>

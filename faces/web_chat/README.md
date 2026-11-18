@@ -36,6 +36,8 @@ is about the UI's edge, not to learn the face.
 | | |
 |---|---|
 | `POST /api/run` | an AG-UI agent: `RunAgentInput` in, events out as SSE; text messages are what it shows now |
+| `POST /api/v1/audio/transcriptions` | OpenAI's: a recording in, `{text}` out. The mic shows only when this is answered |
+| `POST /api/v1/audio/speech` | OpenAI's: `{input}` in, a sound out. Read-aloud shows only when this is answered |
 
 A `401` from `/api/run` reloads the page: whatever door stands in front gets
 to ask the person to log in. The face knows no door of its own.
@@ -49,6 +51,20 @@ sends them as `image` and `document` parts, or text, with the message, and,
 since the whole conversation goes with each run, with every run after. A
 file over 10 MB is refused when attached: the attachment shows an error,
 its reason when pointed at, and nothing is sent while it is there.
+
+## Sound, turn by turn
+
+The mic in the composer records until it is pressed again, then the
+recording is transcribed whole and its text lands in the composer, to read
+and send; a button on an answer reads it aloud (`src/voice.ts`). Both go to
+OpenAI's audio API on the same origin, which picks the model and the
+voice; the face sends no `model`. assistant-ui's own adapters for this are
+the browser's Web Speech, which sends the sound wherever the browser's maker
+chose, so they are not used. Each button shows only where the page is
+answered (a `HEAD` that is not 404). Nothing is heard or played while it is
+still coming: a transcription answers once, for the whole recording, and a
+spoken answer plays when it has all come. A failed one is said in the
+browser's console only. A call (sound both ways, live) is not this: UNIT-40.
 
 ## Showcase
 
