@@ -12,9 +12,10 @@ a claim marked *(unverified)* was read in docs or code but never run.
 
 ```
 people ──AG-UI 1.0──▶ faces/web_chat ──AG-UI──▶ minds/assistant ──OpenAI API──▶ LiteLLM ──▶ models
-                                                     │
-                                                     ├──MCP 2026-07-28──▶ units' tools
-voice ──OpenAI Realtime (or Gemini Live)──▶ ?         └──units' own HTTP / CloudEvents──▶ threads, subjects, …
+                          │                          │
+                          │                          ├──MCP 2026-07-28──▶ units' tools
+                          │                          └──units' own HTTP / CloudEvents──▶ threads, subjects, …
+                          └──a call: OpenAI Realtime, WebSocket──▶ minds/assistant ──as is──▶ LiteLLM /v1/realtime ──▶ a realtime model
 ```
 
 | edge | standard | library here |
@@ -23,7 +24,7 @@ voice ──OpenAI Realtime (or Gemini Live)──▶ ?         └──units' 
 | models | OpenAI Chat Completions or Responses, through LiteLLM | `openai-go/v3` v3.100.0; LiteLLM v1.108.0 |
 | tools | MCP 2026-07-28 | `modelcontextprotocol/go-sdk` — v1.8.0 speaks it (`Stateless: true` over HTTP); v1.1.0 speaks 2025-06-18 |
 | sound, turn by turn | OpenAI's audio API (`/v1/audio/transcriptions`, `/v1/audio/speech`), through LiteLLM | assistant-ui's `DictationAdapter`, `SpeechSynthesisAdapter` (face, our implementations); the mind hands the calls on as they are |
-| voice | OpenAI Realtime (WebRTC, WebSocket, SIP); Gemini Live a different shape; OpenAI Live (`/v1/live/sessions`) a newer third | assistant-ui's `OpenAIRealtimeVoiceAdapter`, `GeminiLiveVoiceAdapter` (face) |
+| voice | OpenAI Realtime (WebRTC, WebSocket, SIP); Gemini Live a different shape; OpenAI Live (`/v1/live/sessions`) a newer third | assistant-ui's `RealtimeVoiceAdapter`, our own over a WebSocket (face; its `OpenAIRealtimeVoiceAdapter` and `GeminiLiveVoiceAdapter` go to a provider with a key in the page); the mind relays the session as is to LiteLLM's `/v1/realtime` |
 
 ## The map
 
@@ -38,7 +39,7 @@ voice ──OpenAI Realtime (or Gemini Live)──▶ ?         └──units' 
 | audio as a part | ✓ in only | ✓ in and out | in ✓, out *(unverified)* | ✓ result content | — | engines ✓ (OpenAI audio API); threads `audio`; mind: in, WAV and MP3 |
 | what a model takes | – | ext (LiteLLM `/v1/model/info`, `supports_vision` …) | – | – | – | mind: a part the model does not take, or nothing carries, ends the run with `RUN_ERROR` (UNIT-33) |
 | speech to text, text to speech | – | – (the audio API beside it) | – | – | ✓ (transcripts, voice out) | engines ✓; mind: the audio API handed on to LiteLLM, its model, logged (UNIT-45); face: mic into the composer, read-aloud |
-| live voice | – | – | – | – | ✓ | hearing, speaking, web_audio_call, sip_phone: RTP and MRCP-shaped tools, not this schema |
+| live voice | – | – | – | – | ✓ | face: a call in the schema (mic, voice out, mute, hang up, transcripts in the thread, truncate); mind: relays it to LiteLLM, each event logged (UNIT-40); hearing, speaking, web_audio_call, sip_phone: RTP and MRCP-shaped tools, not this schema (UNIT-41, UNIT-47) |
 | tool calls | ✓ | ✓ | ✓, + hosted and remote MCP | ✓ | ✓, + MCP | MCP servers on go-sdk v1.1.0 (web_audio_call v1.8.0); threads `tool_call`/`tool_result`; mind: none |
 | reasoning shown | ✓ | ext (`reasoning_content`) | ✓ summary | – | config only | mind ✓ as AG-UI reasoning; threads has no block |
 | reasoning returned to the model | ✓ `encryptedValue` | ext (`thinking_blocks`, `provider_specific_fields`) | ✓ `encrypted_content` | – | – | mind ✓, to the model that made it only |
@@ -158,7 +159,8 @@ exists only as a child thread.
 | mind calls no tools | adapter (mind) | an MCP client on go-sdk v1.8 |
 | units' MCP on 2025-06-18 | unit | each unit to go-sdk v1.8, stateless, before the mind calls it |
 | job_runner's own long-running verbs | unit, later | Tasks extension once go-sdk has it |
-| live voice is not the Realtime schema | our own view, partly | below |
+| live voice is not the Realtime schema | our own view, partly | below; our own realtime from hearing and speaking is UNIT-47 |
+| a real model's flow lacks half the schema | the provider's and LiteLLM's | no `speech_started`, an interruption as an early `response.done`, `truncate` dropped (Probed, a call); the face takes both signs, ours should send the whole set |
 | threads: no document or reasoning block, no branch per entry | unit | when the mind first writes to threads |
 | usage not shown | face | small; assistant-ui does not read it |
 | who speaks, in many-party threads | our own view | what the model reads is built by the mind from threads and subjects, not passed through |
@@ -264,11 +266,72 @@ and the keys we hold, the mind in between:
   answered "insufficient balance"; Gemini as a transcriber through LiteLLM
   ran into the free tier's daily limit before it answered.
 
+A call (UNIT-40), on 2026-11-18: LiteLLM v1.108.0's `/v1/realtime`
+(WebSocket, OpenAI Realtime GA schema) bridging to Gemini Live with our
+Gemini key, from a script speaking the schema; four utterances (a
+question, a weather question with a `get_weather` tool, a long story, "stop"
+while it was told). Gemini is for tests only, so the lab runs on a fake
+(`stacks/lab/fake_realtime`) that replays this flow; the events as recorded
+are in the fake's script and README.
+
+- **What comes, per answer** (gemini-3.1-flash-live-preview):
+  `conversation.item.input_audio_transcription.completed` (the whole
+  utterance, once, after it ended), `response.created`,
+  `response.output_item.added`, `conversation.item.added`,
+  `response.content_part.added`, then `response.output_audio.delta` (PCM16
+  24 kHz) and `response.output_audio_transcript.delta` interleaved,
+  `response.output_audio.done`, `response.content_part.done`,
+  `response.output_item.done`, and `response.done` with usage about 2 s
+  later (Gemini's `turnComplete`). A tool: `response.function_call_arguments.delta`
+  and `.done`, then `response.done` with the `function_call` item; after a
+  `function_call_output` item and `response.create` the model answered from
+  it. Transcripts both ways came through.
+- **What does not**, of what the schema has: `input_audio_buffer.speech_started`,
+  `speech_stopped`, `committed` (Gemini sends `voiceActivity`, LiteLLM
+  drops it); `response.output_audio_transcript.done` (the `transcript` in
+  the done events is empty); `conversation.item.truncated`. An
+  **interruption** came as a `response.done` with status `completed`, no
+  usage, before the answer's `output_audio.done`, then a second
+  `response.done` for a response never created. **`conversation.item.truncate`
+  is dropped without a word**: Gemini has no truncate, and keeps what it
+  generated, not what was heard.
+- **LiteLLM sets the session up itself unless told not to**: by default it
+  sends its own setup on connect and drops the client's `session.update`
+  (no tools, no instructions: the model said it could not look up the
+  weather). `LITELLM_GEMINI_LIVE_DEFER_SETUP=true` makes the first
+  `session.update` the setup; later ones are dropped (Gemini takes one).
+  Input is always declared `audio/pcm;rate=24000`, whatever the session says.
+- **Models**: gemini-3.1-flash-live-preview clean; gemini-3.8-live once
+  closed the session (upstream 1011) at an interruption and once stalled
+  30 s; gemini-2.5-flash-native-audio sent its thoughts as
+  `response.output_text.delta` and the user's words as dozens of
+  `…transcription.completed`, a fragment each. Gemini's voice detection
+  ignored espeak-ng's synthetic speech entirely (3.1, 2.5); a natural TTS
+  voice worked.
+- **LiteLLM hands OpenAI's events on unchanged** for an `openai/` model with
+  any `api_base` (`ws://<api_base>/v1/realtime?model=…`): that is how the
+  fake sits behind it, and how our own realtime can (UNIT-47). No key we hold
+  gives another realtime session: z.ai's `glm-realtime` is "model does not
+  exist", and LiteLLM has no realtime bridge for Groq, Cloudflare or NVIDIA.
+- **What the face does with it**: an interruption is taken from
+  `speech_started` while an answer plays or from an answer done before its
+  sound; either stops the sound and sends `truncate` with what was heard.
+  An answer whose sound had all come before the person spoke over it is
+  not seen as interrupted on Gemini's flow: nothing in it says so.
+- **Where our units would carry the rest**: hearing's
+  `speechrecog.start-of-input` and `recognition-complete` are
+  `speech_started` and the user's transcript; speaking's
+  `speechsynth.speak-complete` with `spoken` and `completion_cause:
+  barge-in` is what `truncate` and a cancelled `response.done` say;
+  web_audio_call is the line (WebRTC and Opus where this is a WebSocket
+  and PCM16). The mapping event by event is UNIT-41.
+
 ## Not verified
 
 - Anthropic-shaped reasoning (signatures, `redacted_thinking`) live, and
   OpenAI's own models: the lab has no such key.
 - Which MCP revision OpenAI's realtime `mcp` tool speaks to a server.
-- Whether LiteLLM's `/v1/realtime` takes a custom `api_base` (a local
-  llama.cpp); a free realtime provider.
+- A free realtime provider; a local llama.cpp behind `/v1/realtime`.
+- A call in Safari and Firefox (Chromium only, fake mic), and a person's own
+  voice and echo in a real room.
 - OpenAI Live's interruption semantics, and whether it replaces Realtime.
