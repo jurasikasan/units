@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/jurasikasan/units/minds/assistant/internal/assistant"
 )
@@ -41,6 +42,12 @@ func main() {
 		slog.Error("MAX_TOOL_STEPS is not a number", "err", err)
 		os.Exit(1)
 	}
+	idle, err := time.ParseDuration(env("LLM_IDLE_TIMEOUT", "0s"))
+	if err != nil {
+		slog.Error("LLM_IDLE_TIMEOUT is not a duration (e.g. 90s, 5m)", "err", err)
+		os.Exit(1)
+	}
+	a.SetIdle(idle)
 	if len(servers) > 0 {
 		a.UseTools(servers, steps)
 		slog.Info("tools from MCP servers", "servers", servers)

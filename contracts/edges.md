@@ -42,12 +42,12 @@ voice ──OpenAI Realtime (or Gemini Live)──▶ ?         └──units' 
 | reasoning returned to the model | ✓ `encryptedValue` | ext (`thinking_blocks`, `provider_specific_fields`) | ✓ `encrypted_content` | – | – | mind ✓, to the model that made it only |
 | asking a person mid-run | ✓ interrupts, `resume` | – | approvals for MCP | ✓ MRTR, elicitation | approvals for MCP | – |
 | long-running work | – | – | ✓ background, cancel | Tasks extension | – | job_runner's own run/peek/stop/list |
-| cancel | ✓ outcome `cancelled` | drop the stream | ✓ | close the stream | ✓ `response.cancel`, `truncate` | mind: the stream's context ✓ |
+| cancel | ✓ the client drops the request (no cancel event; `RUN_FINISHED` outcome is only success or interrupt) | drop the stream | ✓ | drop the request (2026-07-28); the server hands it on if it will | ✓ `response.cancel`, `truncate` | mind: the model's and the tools' calls dropped with the run, logged as a cancel (UNIT-36) |
 | usage, cost | ✓ `RUN_FINISHED.usage` (tokens only) | ✓ + ext `cost` | ✓ + ext `cost` | – | ✓ | mind: tokens of every call, the context's weight, in `usage` and event metadata (UNIT-35); no cost |
 | who speaks | `name` on a message | `name` (LiteLLM drops it for Anthropic) | – | – | – | subjects ✓; threads `sender` ✓ |
 | history | sent whole by the client | sent whole | stored or sent whole | stateless; handles as arguments | one session, ≤ 60 min | threads, append-only, no branch per entry; mind keeps nothing |
 | subagents | ✓ `SUBAGENT_*` | – | – | – (sampling deprecated) | – | – |
-| errors | ✓ `RUN_ERROR` | in-band `error` | ✓ `response.failed` | `isError`, JSON-RPC | ✓ `error` | mind ✓ |
+| errors | ✓ `RUN_ERROR` | HTTP status + `error`, in-band `error` mid-stream | ✓ `response.failed` | `isError`, JSON-RPC | ✓ `error` | mind: `RUN_ERROR` in the endpoint's words, `code` the kind (`model_rate_limited` …), a silent model dropped after `LLM_IDLE_TIMEOUT` (UNIT-36) |
 
 ## Row by row
 

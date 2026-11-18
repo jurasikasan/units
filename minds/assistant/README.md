@@ -13,7 +13,10 @@ message as the part it is; one the model does not take (LiteLLM's
 `/v1/model/info` says) or that nothing carries ends the run with an error
 the person reads, before any provider is asked. What every call weighed in
 tokens (the context as the model read it) is kept, logged and sent with
-the run's end in AG-UI's own `usage`. Every edge goes through its
+the run's end in AG-UI's own `usage`. A run the client drops stops the
+model's and the tools' calls under way; a model that fails or goes silent
+ends the run with an error that says which, in the endpoint's own words.
+Every edge goes through its
 standard's own SDK: AG-UI's Go SDK in, OpenAI's Go SDK to the model, the MCP
 Go SDK to tools.
 
@@ -44,6 +47,7 @@ shows that a request with nobody named is refused. A real model: change
 | `SYSTEM_PROMPT` | first in every prompt |
 | `MCP_SERVERS` | MCP servers whose tools the model may call: `name=url,name=url`, Streamable HTTP endpoints; none by default |
 | `MAX_TOOL_STEPS` | how many times a run asks the model while it keeps calling tools; `8` |
+| `LLM_IDLE_TIMEOUT` | how long a model call may go without a byte before the run ends with `model_timed_out`; a Go duration, `5m` |
 | `PORT` | `8088` |
 
 `./check.sh`: build, vet, gofmt, the tests (against a fake OpenAI endpoint

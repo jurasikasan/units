@@ -37,6 +37,16 @@ type Assistant struct {
 	mcp      *mcp.Client
 	servers  []Server
 	maxSteps int
+	idle     time.Duration // how long a model call may go without a byte
+}
+
+// SetIdle is how long a model call may go without a byte before the run
+// ends with RUN_ERROR (DefaultIdle when 0 or less).
+func (a *Assistant) SetIdle(d time.Duration) {
+	if d <= 0 {
+		d = DefaultIdle
+	}
+	a.idle = d
 }
 
 // DefaultMaxSteps is how many times a run asks the model when it keeps
@@ -67,7 +77,7 @@ func New(base, model, key, system string) *Assistant {
 	if key != "" {
 		opts = append(opts, option.WithAPIKey(key))
 	}
-	return &Assistant{client: openai.NewClient(opts...), model: model, system: system, sse: sse.NewSSEWriter(), maxSteps: DefaultMaxSteps, info: 5 * time.Second}
+	return &Assistant{client: openai.NewClient(opts...), model: model, system: system, sse: sse.NewSSEWriter(), maxSteps: DefaultMaxSteps, info: 5 * time.Second, idle: DefaultIdle}
 }
 
 // ErrBadInput is a run this mind cannot answer as asked.
@@ -264,8 +274,9 @@ func answered(text string, calls []call, thought *opaque) openai.ChatCompletionM
 // another model carries on without it. A part the model cannot take, or
 // that nothing carries, ends the run with RUN_ERROR before it is asked
 // (check.go). An error from emit (the listener is
-// gone) or a cancelled ctx ends the run and whatever call is under way. A
-// failing model ends the run with RUN_ERROR.
+// gone) or a cancelled ctx ends the run and whatever model or tool call is
+// under way: that is how AG-UI cancels a run, the client drops it. A model
+// call that fails, or goes silent, ends the run with RUN_ERROR (failure.go).
 func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversation, emit func(events.Event) error) error {
 	if err := emit(events.NewRunStartedEvent(in.ThreadID, in.RunID)); err != nil {
 		return err
@@ -327,8 +338,14 @@ func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, msgs []ope
 	if k != nil && len(k.tools) > 0 {
 		params.Tools = k.tools
 	}
+	// The call has its own context: cut when the run's is, or when the
+	// model has said nothing for a.idle.
+	callCtx, cut := context.WithCancelCause(ctx)
+	defer cut(nil)
+	quiet := time.AfterFunc(a.idle, func() { cut(errSilent) })
+	defer quiet.Stop()
 	var resp *http.Response
-	stream := a.client.Chat.Completions.NewStreaming(ctx, params, option.WithResponseInto(&resp))
+	stream := a.client.Chat.Completions.NewStreaming(callCtx, params, option.WithResponseInto(&resp))
 	defer func() { _ = stream.Close() }()
 
 	msgID := events.GenerateMessageID()
@@ -352,6 +369,7 @@ func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, msgs []ope
 	usageSeen := false
 	byIndex := map[int64]int{} // a call's index in the stream → its place in calls
 	for stream.Next() {
+		quiet.Reset(a.idle)
 		chunk := stream.Current()
 		if chunkModel == "" {
 			chunkModel = chunk.Model
@@ -418,7 +436,9 @@ func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, msgs []ope
 		return nil, ctx.Err()
 	}
 	if err := stream.Err(); err != nil {
-		return nil, emit(events.NewRunErrorEvent(err.Error(), events.WithRunID(in.RunID), events.WithErrorUsage(*used)))
+		code, message := failure(callCtx, err, resp != nil, a.idle)
+		slog.Warn("model call failed", "run", in.RunID, "model", a.model, "code", code, "err", message)
+		return nil, emit(events.NewRunErrorEvent(message, events.WithErrorCode(code), events.WithRunID(in.RunID), events.WithErrorUsage(*used)))
 	}
 	if err := stopThinking(); err != nil {
 		return nil, err
@@ -528,6 +548,10 @@ func (a *Assistant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	emit := func(ev events.Event) error { return a.sse.WriteEvent(r.Context(), w, ev) }
 	if err := a.Run(r.Context(), in, p, emit); err != nil {
+		if r.Context().Err() != nil {
+			slog.Info("run cancelled: the client went away", "principal", principal, "thread", in.ThreadID, "run", in.RunID)
+			return
+		}
 		slog.Info("run ended early", "principal", principal, "thread", in.ThreadID, "run", in.RunID, "err", err)
 	}
 }

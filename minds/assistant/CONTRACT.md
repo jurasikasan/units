@@ -120,10 +120,34 @@ When the model calls tools, in the same stream:
 A call's id goes back to the model byte for byte: through LiteLLM, Gemini
 keeps its thought signature inside it.
 
-A model that fails ends the stream with `RUN_ERROR` and its message instead,
-after whatever text had arrived. The call is not retried: retries and
-fallbacks belong to the endpoint (LiteLLM's router). A client that goes away ends the run and the
-call to the model with it; nothing more is sent.
+## Stopped, failed, silent
+
+A client stops a run the way AG-UI has it: it drops the request (AG-UI has
+no cancel message, and `RUN_FINISHED` no "cancelled" outcome). The run ends
+there, and with it the call under way: the model's request is dropped,
+which is how Chat Completions is cancelled (LiteLLM drops the provider's in
+turn), and so is a tool's (under MCP 2026-07-28 dropping the request is the
+cancel; a server that hands it on to the tool stops it). Nothing more is
+sent; the log says `run cancelled`.
+
+A model call that fails ends the run with `RUN_ERROR` after whatever had
+arrived, an open text message left as it was. `message` is the endpoint's
+own words, `usage` what the calls before it weighed, and `code` which kind:
+
+| code | when |
+|---|---|
+| `model_rate_limited` | the endpoint answered 429: asked too often, out of quota |
+| `model_refused` | another 4xx: the request will not be taken as it is (a bad key, a part the provider refuses) |
+| `model_failed` | 5xx, or the answer broke off midway (an error in the stream, the connection cut) |
+| `model_timed_out` | 408 or 504, or nothing came for `LLM_IDLE_TIMEOUT` (5 minutes by default) |
+| `model_unreachable` | no answer at all: connection refused, no such host |
+
+e.g. `The model's endpoint answered 429: litellm.RateLimitError: …`. The
+call is not retried: retries and fallbacks belong to the endpoint
+(LiteLLM's router), so an error that reaches the mind has been tried again
+there already. The idle limit is between bytes, not on the whole answer: a
+model that keeps talking slowly is not silent. It is the mind's own floor
+under the endpoint's timeouts, which should say so first.
 
 ## Reasoning
 

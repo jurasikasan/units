@@ -36,6 +36,7 @@ config:
     SYSTEM_PROMPT: first in every prompt
     MCP_SERVERS: "MCP servers whose tools the model may call, name=url,name=url (Streamable HTTP endpoints)"
     MAX_TOOL_STEPS: "how many times a run asks the model while it keeps calling tools; 8"
+    LLM_IDLE_TIMEOUT: "how long a model call may go without a byte before the run ends with RUN_ERROR (model_timed_out); a Go duration, 5m"
     PORT: "8088"
   secrets:
     LLM_API_KEY: sent as a Bearer token, when the endpoint asks for one

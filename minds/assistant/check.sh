@@ -35,8 +35,9 @@ if command -v golangci-lint &>/dev/null; then
   run "lint" golangci-lint run ./...
 fi
 
-# Against a fake OpenAI endpoint: the order of events, a model that fails,
-# a client that leaves mid-answer, who may ask, what is read of a message.
+# Against a fake OpenAI endpoint: the order of events, a model that fails
+# (each kind) or goes silent, a client that leaves mid-answer or mid-tool,
+# who may ask, what is read of a message.
 run "tests" go test -race -count=1 ./...
 run "unit"  python3 ../../tools/check_unit.py .
 
