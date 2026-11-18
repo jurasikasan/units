@@ -92,6 +92,24 @@ model_list:
       timeout: 60
     model_info: {mode: audio_speech}
 
+  # A call, sound both ways, live: OpenAI's Realtime API at /v1/realtime,
+  # which the mind relays (REALTIME_MODEL). Both answer from a script
+  # (fake_realtime/): fake-realtime in the flow Gemini Live sent through
+  # LiteLLM, fake-realtime-full in the schema's whole set. LiteLLM hands
+  # OpenAI's events on as they are.
+  - model_name: fake-realtime
+    litellm_params:
+      model: openai/fake-realtime
+      api_base: http://fake_realtime:8090
+      api_key: fake
+    model_info: {mode: realtime}
+  - model_name: fake-realtime-full
+    litellm_params:
+      model: openai/fake-realtime-full
+      api_base: http://fake_realtime:8090
+      api_key: fake
+    model_info: {mode: realtime}
+
 router_settings:
   num_retries: 1
   timeout: 300

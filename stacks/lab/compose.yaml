@@ -137,6 +137,7 @@ services:
       STT_MODEL: ${LAB_STT_MODEL:-}
       TTS_MODEL: ${LAB_TTS_MODEL:-}
       TTS_VOICE: ${LAB_TTS_VOICE:-}
+      REALTIME_MODEL: ${LAB_REALTIME_MODEL:-}
     depends_on:
       litellm:
         condition: service_healthy
@@ -174,6 +175,8 @@ services:
     depends_on:
       fake_llm:
         condition: service_healthy
+      fake_realtime:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')"]
       interval: 2s
@@ -191,6 +194,17 @@ services:
       interval: 2s
       retries: 60
 
+  # A realtime model that answers from a script, in the event flow a real
+  # one was seen to send: fake_realtime/README.md.
+  fake_realtime:
+    build: ./fake_realtime
+    image: units-lab-fake-realtime:local
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8090), 1)"]
+      interval: 1s
+      retries: 30
+
   # A person in a real browser: e2e/chat.mjs. On the host's network, so the
   # browser goes to LAB_URL exactly as a person's would.
   e2e:
@@ -202,6 +216,7 @@ services:
       LAB_URL: ${LAB_URL}
       LAB_LLM_MODEL: ${LAB_LLM_MODEL:-fake}
       LAB_STT_MODEL: ${LAB_STT_MODEL:-}
+      LAB_REALTIME_MODEL: ${LAB_REALTIME_MODEL:-}
       E2E_VOICE_FILE: ${E2E_VOICE_FILE:-}
       E2E_TIMEOUT_MS: ${E2E_TIMEOUT_MS:-60000}
       E2E_ONLY: ${E2E_ONLY:-}

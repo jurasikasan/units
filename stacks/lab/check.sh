@@ -2,7 +2,10 @@
 # The lab from .env.example, on free ports, the whole round: up; in a real
 # browser a person logs in, says something and asks what they said first,
 # and the answer carries it back (the fake model, through mind and LiteLLM);
-# Stop ends a run, which the mind logs as cancelled, and a model answering
+# Stop ends a run, which the mind logs as cancelled; a call goes through the
+# mind to the fake realtime model and back, interrupted, muted and hung up,
+# in the flow Gemini sent and in the schema's whole set, every event in the
+# mind's log; and a model answering
 # 429 or 500 ends one with the mind's error on the page;
 # on a model declared to take words only, a picture is refused in words;
 # the chat is closed to nobody, a person gets mail; gate, mind and face are
@@ -50,6 +53,10 @@ run "build"          docker compose --profile e2e build -q
 run "up"             docker compose up -d --wait
 run "e2e: a conversation goes through whole, stopped, failed"  docker compose run --rm e2e "$first_user" "$first_password"
 run "the mind saw Stop as a cancel"  bash -c 'docker compose logs mind | grep -q "run cancelled"'
+run "the mind logged the call, each event"  bash -c 'docker compose logs mind | grep -q "dir=in .*type=conversation.item.truncate" && docker compose logs mind | grep -q "dir=out .*type=response.output_audio.delta" && docker compose logs mind | grep -q "realtime call closed .*by=client code=1000"'
+run "mind on the whole Realtime set"  env LAB_REALTIME_MODEL=fake-realtime-full docker compose up -d --wait mind
+run "e2e: a call, interrupted by speech_started"  env LAB_REALTIME_MODEL=fake-realtime-full E2E_ONLY=call docker compose run --rm e2e "$first_user" "$first_password"
+run "the model was told what was heard"  bash -c 'docker compose logs mind | grep -q "dir=out .*type=conversation.item.truncated"'
 run "mind on a text-only model"  env LAB_LLM_MODEL=fake-text docker compose up -d --wait mind
 # The same LAB_LLM_MODEL, or compose puts the mind back on fake on the way.
 run "e2e: a picture to it is refused, said"  env LAB_LLM_MODEL=fake-text E2E_ONLY=refused docker compose run --rm e2e "$first_user" "$first_password"

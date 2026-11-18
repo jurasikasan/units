@@ -30,6 +30,17 @@
 // the end; a speech endpoint that refuses is said on the page. E2E_ONLY=voice
 // runs this alone.
 //
+// A call, sound both ways (when LAB_REALTIME_MODEL is set): the page calls
+// the mind's /api/v1/realtime; the fake mic's sound goes out as PCM16, the
+// fake model (fake-realtime) hears it as an utterance and answers from its
+// script; both transcripts land in the thread as a voice conversation, the
+// answer's sound comes and plays; the next tone while a longer answer plays
+// is an interruption, and the page tells the model how much was heard
+// (truncate); muted, nothing goes out; hung up, the call closes. On
+// fake-realtime the interruption is seen as the answer done before its
+// sound (what Gemini sent), on fake-realtime-full as speech_started.
+// E2E_ONLY=call runs this alone.
+//
 // E2E_ONLY=refused is another round, on a mind asking a model that takes no
 // pictures (fake-text): a picture sent ends the run with the mind's error,
 // and the page shows it.
@@ -57,15 +68,17 @@ const fake = (process.env.LAB_LLM_MODEL ?? 'fake') === 'fake'
 const fakeEar = (process.env.LAB_STT_MODEL || 'fake-stt') === 'fake-stt'
 const timeout = Number(process.env.E2E_TIMEOUT_MS ?? 60000)
 const only = process.env.E2E_ONLY ?? ''
+const realtime = process.env.LAB_REALTIME_MODEL ?? ''
 
-// tone is a WAV of a second of 440 Hz, for the fake mic when no file is given.
+// tone is a WAV of a second of 440 Hz and two of quiet, for the fake mic
+// when no file is given: played over and over, an utterance each time.
 function tone(path) {
-  const rate = 16000, n = rate, data = Buffer.alloc(44 + n * 2)
+  const rate = 16000, n = rate * 3, data = Buffer.alloc(44 + n * 2)
   data.write('RIFF', 0); data.writeUInt32LE(36 + n * 2, 4); data.write('WAVEfmt ', 8)
   data.writeUInt32LE(16, 16); data.writeUInt16LE(1, 20); data.writeUInt16LE(1, 22)
   data.writeUInt32LE(rate, 24); data.writeUInt32LE(rate * 2, 28); data.writeUInt16LE(2, 32)
   data.writeUInt16LE(16, 34); data.write('data', 36); data.writeUInt32LE(n * 2, 40)
-  for (let i = 0; i < n; i++) data.writeInt16LE(Math.round(8000 * Math.sin(2 * Math.PI * 440 * i / rate)), 44 + i * 2)
+  for (let i = 0; i < rate; i++) data.writeInt16LE(Math.round(8000 * Math.sin(2 * Math.PI * 440 * i / rate)), 44 + i * 2)
   writeFileSync(path, data)
   return path
 }
@@ -194,6 +207,69 @@ async function voiceRound() {
   await page.unroute('**/api/v1/audio/speech')
 }
 
+// callRound: a call through the mind, on the fake realtime model.
+async function callRound() {
+  const sent = [], got = []
+  page.on('websocket', (ws) => {
+    if (!ws.url().endsWith('/api/v1/realtime')) return
+    ws.on('framesent', (f) => { try { sent.push({ t: Date.now(), ...JSON.parse(f.payload) }) } catch {} })
+    ws.on('framereceived', (f) => { try { got.push(JSON.parse(f.payload)) } catch {} })
+  })
+  const until = async (what, test, ms = timeout) => {
+    const end = Date.now() + ms
+    while (Date.now() < end) {
+      if (test()) return
+      await page.waitForTimeout(100)
+    }
+    throw new Error(`no ${what} within ${ms} ms`)
+  }
+  const count = (list, type) => list.filter((e) => e.type === type).length
+
+  await page.getByRole('button', { name: 'Start a call' }).click()
+  await page.getByRole('button', { name: 'Hang up' }).waitFor()
+  await until('session', () => count(got, 'session.created') > 0)
+  step('a call, opened', `${got.find((e) => e.type === 'session.created').session?.model ?? '?'}`)
+
+  const user = page.locator('[data-slot="aui_spoken-message-root"][data-role="user"]')
+  const assistant = page.locator('[data-slot="aui_spoken-message-root"][data-role="assistant"]')
+  await user.first().waitFor()
+  await assistant.first().waitFor()
+  await until('a whole answer', () => count(got, 'response.done') > 0)
+  const heard = (await user.first().innerText()).trim(), answered = (await assistant.first().innerText()).trim()
+  step('what was heard, in the thread', JSON.stringify(heard.slice(-60)))
+  step('what was answered, in the thread', JSON.stringify(answered.slice(-60)))
+  const sound = count(got, 'response.output_audio.delta')
+  step('sound out, sound back', `${count(sent, 'input_audio_buffer.append')} chunks out, ${sound} back`)
+  if (!heard.includes('capital of France') || !answered.includes('Paris') || !sound) {
+    step('FAIL', 'the call did not carry both sides')
+    failed = true
+  }
+
+  await until('an interruption told to the model', () => count(sent, 'conversation.item.truncate') > 0)
+  const cut = sent.find((e) => e.type === 'conversation.item.truncate')
+  step('interrupted, heard of the answer', `${cut.audio_end_ms} ms`)
+  if (!(cut.audio_end_ms > 0)) {
+    step('FAIL', 'the truncate says nothing was heard')
+    failed = true
+  }
+
+  await page.getByRole('button', { name: 'Mute' }).click()
+  await page.getByRole('button', { name: 'Unmute' }).waitFor()
+  await page.waitForTimeout(300)
+  const muted = count(sent, 'input_audio_buffer.append')
+  await page.waitForTimeout(1500)
+  step('muted: sound out in 1.5 s', `${count(sent, 'input_audio_buffer.append') - muted} chunks`)
+  if (count(sent, 'input_audio_buffer.append') !== muted) {
+    step('FAIL', 'sound went out while muted')
+    failed = true
+  }
+  await page.getByRole('button', { name: 'Unmute' }).click()
+
+  await page.getByRole('button', { name: 'Hang up' }).click()
+  await page.getByRole('button', { name: 'Start a call' }).waitFor()
+  step('hung up', `${await user.count()} heard, ${await assistant.count()} answered in the thread`)
+}
+
 // refusedRound: a picture to a model that takes none; the page says so.
 async function refusedRound() {
   await attach(dot)
@@ -291,9 +367,11 @@ try {
 
   if (only === 'refused') await refusedRound()
   else if (only === 'voice') await voiceRound()
+  else if (only === 'call') await callRound()
   else {
     await fullRound()
     await voiceRound()
+    if (realtime) await callRound()
   }
 } catch (e) {
   console.log(`  FAIL ${e.message.split('\n')[0]}`)

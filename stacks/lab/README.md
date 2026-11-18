@@ -14,6 +14,7 @@ its own check is its showcase.
 ```
 browser → nginx + gate ─ /      → face (static files)
                        └ /api/  → mind ─┬→ LiteLLM ─┬→ fake_llm (answers from files)
+                                        │           ├→ fake_realtime (a call, from a script)
                                         │           └→ real providers
                                         └→ MCP: LAB_MCP_SERVERS (profile everything: a sum, an image, …)
 ```
@@ -31,10 +32,17 @@ browser → nginx + gate ─ /      → face (static files)
 | `fake-stt`, `fake-tts` | [`fake_llm`](fake_llm/) behind OpenAI's audio API: any sound is heard as `What the fake ear heard.`, any words are a quarter-second beep |
 | `stt` | Groq's whisper-large-v3-turbo: what the browser records, any language |
 | `tts` | Gemini 3.8 flash-lite TTS: WAV only, Gemini's voices (OpenAI's names map to some); to try, not to run on |
+| `fake-realtime` | [`fake_realtime`](fake_realtime/) behind OpenAI's Realtime API: hears by loudness, answers from a script with a tone, in the event flow Gemini Live sent through LiteLLM |
+| `fake-realtime-full` | the same, in the schema's whole set (`speech_started`, a cancelled answer, `truncated`) |
 
 The mind serves OpenAI's audio API at `/api/v1/audio/…` and hands it on with
 `LAB_STT_MODEL` and `LAB_TTS_MODEL`: the page's mic puts what was said into
-the composer, and an answer can be read aloud.
+the composer, and an answer can be read aloud. A call goes to
+`/api/v1/realtime`, a WebSocket nginx keeps open (an hour without a
+message ends it), which the mind relays to LiteLLM's with
+`LAB_REALTIME_MODEL`; the call button shows only then. No realtime model
+on a key we hold is to be run on (Gemini Live is for tests only), so the lab
+has the fakes; our own is UNIT-47.
 
 What a model takes (pictures, PDFs, sounds) LiteLLM says from its map of
 models, or from `model_info` in `models.yaml` where the map does not know
@@ -85,6 +93,10 @@ the fake mic to play (a WAV):
 docker compose run --rm -v "$PWD/speech.wav:/voice.wav:ro" -e E2E_VOICE_FILE=/voice.wav -e E2E_ONLY=voice e2e alice alice-lab
 ```
 
+A call alone (`E2E_ONLY=call`): the fake mic's tone is an utterance every
+three seconds, so the second answer is interrupted by the next.
+
+
 ## .env
 
 | Variable | |
@@ -100,6 +112,7 @@ docker compose run --rm -v "$PWD/speech.wav:/voice.wav:ro" -e E2E_VOICE_FILE=/vo
 | `LAB_LLM_CONFIG` | another model list than `./litellm/models.yaml` |
 | `LAB_STT_MODEL`, `LAB_TTS_MODEL` | the models the mind asks to transcribe and to speak: `fake-stt`/`stt`, `fake-tts`/`tts`; empty, the page has no mic or read-aloud |
 | `LAB_TTS_VOICE` | the voice when the page names none; OpenAI's speech wants one |
+| `LAB_REALTIME_MODEL` | the model a call goes to: `fake-realtime`, `fake-realtime-full`; empty, the page has no call button |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_KEY`, `ZAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` | the providers' keys |
 | `LAB_SYSTEM_PROMPT` | first in every prompt the mind sends |
 | `LAB_MCP_SERVERS` | the MCP servers whose tools the model may call, `name=url,…`; none when empty. `everything=http://everything:3001/mcp` with `everything` in `COMPOSE_PROFILES` gives the model MCP's reference server, as `check.sh` does |
