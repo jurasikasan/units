@@ -63,8 +63,9 @@ the browser's Web Speech, which sends the sound wherever the browser's maker
 chose, so they are not used. Each button shows only where the page is
 answered (a `HEAD` that is not 404). Nothing is heard or played while it is
 still coming: a transcription answers once, for the whole recording, and a
-spoken answer plays when it has all come. A failed one is said in the
-browser's console only. A call (sound both ways, live) is not this: UNIT-40.
+spoken answer plays when it has all come. A failure (no mic, the endpoint's
+error) is said at the top of the page for a few seconds, in the endpoint's
+own words. A call (sound both ways, live) is not this: UNIT-40.
 
 ## Showcase
 

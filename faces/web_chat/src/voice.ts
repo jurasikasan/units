@@ -9,6 +9,16 @@ import type { DictationAdapter, SpeechSynthesisAdapter } from '@assistant-ui/rea
 
 type Listener<T> = (value: T) => void
 
+// VOICE_FAILED is the window event a failure is said with, its detail the
+// words for the person; the page shows it (src/VoiceNotice.tsx).
+export const VOICE_FAILED = 'voice-failed'
+
+function said(what: string, error: unknown) {
+  console.error(what, error)
+  const why = error instanceof Error ? error.message : String(error ?? '')
+  window.dispatchEvent(new CustomEvent(VOICE_FAILED, { detail: why ? `${what}: ${why}` : what }))
+}
+
 function listeners<T>() {
   const set = new Set<Listener<T>>()
   return {
@@ -110,7 +120,7 @@ export class TranscriptionDictationAdapter implements DictationAdapter {
           if (!cancelled && result.transcript) speech.emit(result)
           session.status = { type: 'ended', reason: 'stopped' }
         } catch (error) {
-          console.error('dictation: the sound was not transcribed', error)
+          said('The recording was not transcribed', error)
           session.status = { type: 'ended', reason: 'error' }
         }
         speechEnd.emit(result)
@@ -133,7 +143,7 @@ export class TranscriptionDictationAdapter implements DictationAdapter {
         session.status = { type: 'running' }
         speechStart.emit()
       } catch (error) {
-        console.error('dictation: no mic', error)
+        said('No microphone', error)
         session.status = { type: 'ended', reason: 'error' }
         speechEnd.emit({ transcript: '', isFinal: true })
       }
@@ -192,7 +202,7 @@ export class SpeechEndpointAdapter implements SpeechSynthesisAdapter {
         changed.emit()
       } catch (error) {
         if (abort.signal.aborted) return
-        console.error('read aloud: no sound', error)
+        said('Nothing to play', error)
         end({ type: 'ended', reason: 'error', error })
       }
     })()

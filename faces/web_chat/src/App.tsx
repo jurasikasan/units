@@ -6,6 +6,7 @@ import { Thread } from '@/upstream/components/assistant-ui/elements/thread.aui'
 import { TooltipProvider } from '@/upstream/components/ui/tooltip'
 import { attachments } from '@/attachments'
 import { SpeechEndpointAdapter, TranscriptionDictationAdapter } from '@/voice'
+import { VoiceNotice } from '@/VoiceNotice'
 
 // A 401 means the door in front no longer knows who this is: reloading the
 // page lets it ask. The face itself knows no door.
@@ -65,6 +66,7 @@ export default function App() {
         <main className="h-dvh">
           <Thread />
         </main>
+        <VoiceNotice />
       </TooltipProvider>
     </AssistantRuntimeProvider>
   )
