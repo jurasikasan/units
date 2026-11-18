@@ -11,7 +11,9 @@ rides with it to the client and goes back to that same model, never to
 another. A picture, a PDF or a sound goes with a
 message as the part it is; one the model does not take (LiteLLM's
 `/v1/model/info` says) or that nothing carries ends the run with an error
-the person reads, before any provider is asked. Every edge goes through its
+the person reads, before any provider is asked. What every call weighed in
+tokens (the context as the model read it) is kept, logged and sent with
+the run's end in AG-UI's own `usage`. Every edge goes through its
 standard's own SDK: AG-UI's Go SDK in, OpenAI's Go SDK to the model, the MCP
 Go SDK to tools.
 

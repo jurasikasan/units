@@ -72,7 +72,30 @@ event):
 3. `TEXT_MESSAGE_START` (`role: assistant`) when the first piece of the
    answer arrives, a `TEXT_MESSAGE_CONTENT` per piece, `TEXT_MESSAGE_END`.
    One `messageId` for all three, made by the assistant.
-4. `RUN_FINISHED` with `threadId`, `runId`.
+4. `RUN_FINISHED` with `threadId`, `runId`, and `usage`: what the run's
+   calls to the model weighed, summed, one AG-UI `TokenUsage` per provider
+   and model (`provider`, `model`, `inputTokens`, `outputTokens`,
+   `totalTokens`, `reasoningTokens`, `cachedInputTokens` when told).
+
+## Weight
+
+Every call to the model asks for usage (`stream_options.include_usage`;
+LiteLLM counts it itself when a provider does not tell). Its
+`inputTokens` (the call's prompt tokens) are the weight of the context as
+the model read it: the system prompt, the whole conversation, attachments,
+the tools' schemas. Each call's `TokenUsage` goes:
+
+- in the `metadata` of the event that ends its turn, under `usage`: the
+  turn's last `TOOL_CALL_END`, or its `TEXT_MESSAGE_END` when it called no
+  tool;
+- into the run's sum, in `RUN_FINISHED.usage`, or `RUN_ERROR.usage` when the
+  run fails after a call;
+- into the log: `model call` with `model`, `context_tokens`,
+  `output_tokens`, `reasoning_tokens` (`-1` when not told).
+
+What is not told is left out, never made a zero. No cost: AG-UI's
+`TokenUsage` has none, and nothing here counts money. The face
+(assistant-ui) shows none of it yet.
 
 ## Tools
 

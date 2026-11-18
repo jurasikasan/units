@@ -43,7 +43,7 @@ voice ──OpenAI Realtime (or Gemini Live)──▶ ?         └──units' 
 | asking a person mid-run | ✓ interrupts, `resume` | – | approvals for MCP | ✓ MRTR, elicitation | approvals for MCP | – |
 | long-running work | – | – | ✓ background, cancel | Tasks extension | – | job_runner's own run/peek/stop/list |
 | cancel | ✓ outcome `cancelled` | drop the stream | ✓ | close the stream | ✓ `response.cancel`, `truncate` | mind: the stream's context ✓ |
-| usage, cost | ✓ `RUN_FINISHED.usage` | ✓ + ext `cost` | ✓ + ext `cost` | – | ✓ | mind reports nothing |
+| usage, cost | ✓ `RUN_FINISHED.usage` (tokens only) | ✓ + ext `cost` | ✓ + ext `cost` | – | ✓ | mind: tokens of every call, the context's weight, in `usage` and event metadata (UNIT-35); no cost |
 | who speaks | `name` on a message | `name` (LiteLLM drops it for Anthropic) | – | – | – | subjects ✓; threads `sender` ✓ |
 | history | sent whole by the client | sent whole | stored or sent whole | stateless; handles as arguments | one session, ≤ 60 min | threads, append-only, no branch per entry; mind keeps nothing |
 | subagents | ✓ `SUBAGENT_*` | – | – | – (sampling deprecated) | – | – |

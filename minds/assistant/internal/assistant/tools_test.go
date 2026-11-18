@@ -19,6 +19,8 @@ import (
 type turn struct {
 	words string
 	calls []scriptedCall
+	usage string // the usage chunk's usage, as JSON; none when empty
+	model string // x-litellm-model-name, when set
 }
 
 // scriptedCall is a tool call as it streams: an id and a name, then the
@@ -46,6 +48,9 @@ func (f *scriptedModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	t := f.turns[min(n, len(f.turns)-1)]
 
 	w.Header().Set("Content-Type", "text/event-stream")
+	if t.model != "" {
+		w.Header().Set("X-Litellm-Model-Name", t.model)
+	}
 	chunk := func(delta map[string]any) {
 		b, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": delta}}})
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", b)
@@ -59,6 +64,9 @@ func (f *scriptedModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for _, a := range c.args {
 			chunk(map[string]any{"tool_calls": []any{map[string]any{"index": i, "function": map[string]any{"arguments": a}}}})
 		}
+	}
+	if t.usage != "" {
+		_, _ = fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":%s}\n\n", t.usage)
 	}
 	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 }

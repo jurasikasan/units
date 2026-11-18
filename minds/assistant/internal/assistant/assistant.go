@@ -183,6 +183,7 @@ type said struct {
 	text    string
 	calls   []call
 	thought *opaque
+	usage   *events.TokenUsage // what the call weighed (usage.go); nil when not told
 }
 
 // For is the conversation as model is asked it: every turn's opaque part
@@ -281,8 +282,9 @@ func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversat
 		return emit(refusal)
 	}
 	model := p.lastModel()
+	var used tally
 	for step := 0; step < a.maxSteps; step++ {
-		s, err := a.turn(ctx, in, p.For(model), k, emit)
+		s, err := a.turn(ctx, in, p.For(model), k, &used, emit)
 		if err != nil || ctx.Err() != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -293,7 +295,7 @@ func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversat
 			return nil // the turn failed and said so
 		}
 		if len(s.calls) == 0 {
-			return emit(events.NewRunFinishedEvent(in.ThreadID, in.RunID))
+			return emit(events.NewRunFinishedEventWithOptions(in.ThreadID, in.RunID, events.WithUsage(used)))
 		}
 		model = s.thought.Model
 		p = append(p, entry{said: s})
@@ -305,7 +307,7 @@ func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversat
 			p = append(p, entry{msg: openai.ToolMessage(results[i], c.id)})
 		}
 	}
-	return emit(events.NewRunErrorEvent(fmt.Sprintf("the model was still calling tools after %d steps", a.maxSteps), events.WithRunID(in.RunID)))
+	return emit(events.NewRunErrorEvent(fmt.Sprintf("the model was still calling tools after %d steps", a.maxSteps), events.WithRunID(in.RunID), events.WithErrorUsage(used)))
 }
 
 // turn asks the model once and streams what it thinks, says and the tools
@@ -316,8 +318,12 @@ func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversat
 // keeps it with this turn. It returns what the model said, its thought
 // always naming who answered; nil when the model failed and RUN_ERROR has
 // been sent.
-func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, msgs []openai.ChatCompletionMessageParamUnion, k *kit, emit func(events.Event) error) (*said, error) {
-	params := openai.ChatCompletionNewParams{Model: a.model, Messages: msgs}
+func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, msgs []openai.ChatCompletionMessageParamUnion, k *kit, used *tally, emit func(events.Event) error) (*said, error) {
+	params := openai.ChatCompletionNewParams{
+		Model:         a.model,
+		Messages:      msgs,
+		StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: openai.Bool(true)},
+	}
 	if k != nil && len(k.tools) > 0 {
 		params.Tools = k.tools
 	}
@@ -342,11 +348,16 @@ func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, msgs []ope
 		return emit(events.NewReasoningEndEvent(id))
 	}
 	chunkModel := ""
+	var usage openai.CompletionUsage
+	usageSeen := false
 	byIndex := map[int64]int{} // a call's index in the stream → its place in calls
 	for stream.Next() {
 		chunk := stream.Current()
 		if chunkModel == "" {
 			chunkModel = chunk.Model
+		}
+		if chunk.JSON.Usage.Valid() {
+			usage, usageSeen = chunk.Usage, true
 		}
 		for _, ch := range chunk.Choices {
 			if piece := reasoningText(ch.Delta.JSON.ExtraFields); piece != "" {
@@ -407,12 +418,17 @@ func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, msgs []ope
 		return nil, ctx.Err()
 	}
 	if err := stream.Err(); err != nil {
-		return nil, emit(events.NewRunErrorEvent(err.Error(), events.WithRunID(in.RunID)))
+		return nil, emit(events.NewRunErrorEvent(err.Error(), events.WithRunID(in.RunID), events.WithErrorUsage(*used)))
 	}
 	if err := stopThinking(); err != nil {
 		return nil, err
 	}
 	s.thought.Model = answeredBy(resp, chunkModel, a.model)
+	s.usage = callUsage(usage, usageSeen, s.thought.Model)
+	used.add(s.usage)
+	if u := s.usage; u != nil {
+		slog.Info("model call", "run", in.RunID, "model", s.thought.Model, "context_tokens", count(u.InputTokens), "output_tokens", count(u.OutputTokens), "reasoning_tokens", count(u.ReasoningTokens))
+	}
 	if !s.thought.empty() {
 		sealed := s.thought.seal()
 		if lastThought == "" { // nothing shown: an empty reasoning message to carry it
@@ -430,13 +446,23 @@ func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, msgs []ope
 			return nil, err
 		}
 	}
+	// The turn's weight goes on the event that ends it: its last call, else
+	// its words.
 	if started {
-		if err := emit(events.NewTextMessageEndEvent(msgID)); err != nil {
+		end := events.Event(events.NewTextMessageEndEvent(msgID))
+		if len(s.calls) == 0 {
+			end = withUsage(end, s.usage)
+		}
+		if err := emit(end); err != nil {
 			return nil, err
 		}
 	}
-	for _, c := range s.calls {
-		if err := emit(events.NewToolCallEndEvent(c.id)); err != nil {
+	for i, c := range s.calls {
+		end := events.Event(events.NewToolCallEndEvent(c.id))
+		if i == len(s.calls)-1 {
+			end = withUsage(end, s.usage)
+		}
+		if err := emit(end); err != nil {
 			return nil, err
 		}
 	}
