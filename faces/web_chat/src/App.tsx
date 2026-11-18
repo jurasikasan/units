@@ -7,6 +7,8 @@ import { TooltipProvider } from '@/upstream/components/ui/tooltip'
 import { attachments } from '@/attachments'
 import { SpeechEndpointAdapter, TranscriptionDictationAdapter } from '@/voice'
 import { VoiceNotice } from '@/VoiceNotice'
+import { RealtimeCallAdapter } from '@/realtime'
+import { Call } from '@/Call'
 
 // A 401 means the door in front no longer knows who this is: reloading the
 // page lets it ask. The face itself knows no door.
@@ -18,10 +20,12 @@ const fetchOrLogIn: typeof fetch = async (input, init) => {
 
 const TRANSCRIBE = '/api/v1/audio/transcriptions'
 const SPEAK = '/api/v1/audio/speech'
+const CALL = '/api/v1/realtime'
 
 // served is whether something answers POST at path: asked with HEAD, a
 // route that exists says "not this method" (405), one that does not says
-// 404. The mic and read-aloud show only where they would be answered.
+// 404. The mic, read-aloud and a call show only where they would be answered
+// (a call is a GET, so asked with HEAD it is refused, not missing).
 async function served(path: string) {
   try {
     const resp = await fetchOrLogIn(path, { method: 'HEAD' })
@@ -35,14 +39,16 @@ function useVoice() {
   const [voice, setVoice] = useState<{
     dictation?: TranscriptionDictationAdapter
     speech?: SpeechEndpointAdapter
+    call?: RealtimeCallAdapter
   }>({})
   useEffect(() => {
     let live = true
-    Promise.all([served(TRANSCRIBE), served(SPEAK)]).then(([ear, mouth]) => {
+    Promise.all([served(TRANSCRIBE), served(SPEAK), served(CALL)]).then(([ear, mouth, line]) => {
       if (!live) return
       setVoice({
         dictation: ear && TranscriptionDictationAdapter.isSupported() ? new TranscriptionDictationAdapter(TRANSCRIBE) : undefined,
         speech: mouth ? new SpeechEndpointAdapter(SPEAK) : undefined,
+        call: line && RealtimeCallAdapter.isSupported() ? new RealtimeCallAdapter(CALL) : undefined,
       })
     })
     return () => {
@@ -54,17 +60,18 @@ function useVoice() {
 
 // The face keeps one conversation, in memory, and sends it whole with each
 // run to whatever answers AG-UI at /api/run, attachments included. Sound
-// goes to OpenAI's audio API on the same origin (src/voice.ts).
+// goes to OpenAI's audio API on the same origin (src/voice.ts), and a call
+// to its Realtime API there (src/realtime.ts).
 export default function App() {
   const agent = useMemo(() => new HttpAgent({ url: '/api/run', fetch: fetchOrLogIn }), [])
-  const { dictation, speech } = useVoice()
-  const runtime = useAgUiRuntime({ agent, adapters: { attachments, dictation, speech } })
+  const { dictation, speech, call } = useVoice()
+  const runtime = useAgUiRuntime({ agent, adapters: { attachments, dictation, speech, voice: call } })
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <TooltipProvider>
         <main className="h-dvh">
-          <Thread />
+          <Thread components={call ? { ComposerExtra: Call } : undefined} />
         </main>
         <VoiceNotice />
       </TooltipProvider>

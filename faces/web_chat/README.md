@@ -38,6 +38,7 @@ is about the UI's edge, not to learn the face.
 | `POST /api/run` | an AG-UI agent: `RunAgentInput` in, events out as SSE; text messages are what it shows now |
 | `POST /api/v1/audio/transcriptions` | OpenAI's: a recording in, `{text}` out. The mic shows only when this is answered |
 | `POST /api/v1/audio/speech` | OpenAI's: `{input}` in, a sound out. Read-aloud shows only when this is answered |
+| `GET /api/v1/realtime` | OpenAI's Realtime API, a WebSocket: a call. The call button shows only when this is answered |
 
 A `401` from `/api/run` reloads the page: whatever door stands in front gets
 to ask the person to log in. The face knows no door of its own.
@@ -65,7 +66,27 @@ answered (a `HEAD` that is not 404). Nothing is heard or played while it is
 still coming: a transcription answers once, for the whole recording, and a
 spoken answer plays when it has all come. A failure (no mic, the endpoint's
 error) is said at the top of the page for a few seconds, in the endpoint's
-own words. A call (sound both ways, live) is not this: UNIT-40.
+own words. A call (sound both ways, live) is below.
+
+## A call
+
+A phone button in the composer starts a call: sound both ways, live, in
+OpenAI's Realtime schema over a WebSocket to `/api/v1/realtime` on the same
+origin (`src/realtime.ts`, assistant-ui's `RealtimeVoiceAdapter` with our
+own session; its own adapters go to a provider with a key in the page). The
+mic goes out as PCM16 at 24 kHz every 100 ms, echo cancelled by the
+browser; the answer's sound plays as it comes. The page asks for the
+session's formats, the model's own turn detection and a transcript of what
+was said; it names no model and no voice. What each side said lands in the
+thread as a voice conversation, the answer word by word. While the call
+goes: mute (nothing is sent), hang up. An interruption is taken from
+`input_audio_buffer.speech_started` while an answer plays, or from the
+answer's `response.done` before its `output_audio.done` (all a model behind
+LiteLLM was seen to send, `contracts/edges.md`): the sound stops and the
+model is told how much was heard (`conversation.item.truncate`,
+`audio_end_ms`). A close the page did not ask for, or the endpoint's
+`error`, is said at the top of the page. Typed text does not go into a
+call.
 
 ## Showcase
 
