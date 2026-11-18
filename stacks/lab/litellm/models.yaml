@@ -34,10 +34,13 @@ model_list:
       timeout: 120
     model_info: {id: chat-zai}
 
+  # Gemini shows its reasoning only at reasoning_effort high; lower, it is
+  # counted in tokens and never shown.
   - model_name: lite
     litellm_params:
       model: gemini/gemini-3.1-flash-lite
       api_key: os.environ/GEMINI_API_KEY
+      reasoning_effort: high
       timeout: 120
 
 router_settings:

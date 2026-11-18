@@ -193,6 +193,7 @@ services:
     network_mode: host
     environment:
       LAB_URL: ${LAB_URL}
+      LAB_LLM_MODEL: ${LAB_LLM_MODEL:-fake}
       E2E_TIMEOUT_MS: ${E2E_TIMEOUT_MS:-60000}
     depends_on:
       nginx:

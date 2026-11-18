@@ -37,8 +37,8 @@ voice ──OpenAI Realtime (or Gemini Live)──▶ ?         └──units' 
 | audio as a part | ✓ in only | ✓ in and out | in ✓, out *(unverified)* | ✓ result content | — | engines ✓ (OpenAI audio API); threads `audio` |
 | live voice | – | – | – | – | ✓ | hearing, speaking, web_audio_call, sip_phone: RTP and MRCP-shaped tools, not this schema |
 | tool calls | ✓ | ✓ | ✓, + hosted and remote MCP | ✓ | ✓, + MCP | MCP servers on go-sdk v1.1.0 (web_audio_call v1.8.0); threads `tool_call`/`tool_result`; mind: none |
-| reasoning shown | ✓ | ext (`reasoning_content`) | ✓ summary | – | config only | mind drops it (UNIT-26); threads has no block |
-| reasoning returned to the model | ✓ `encryptedValue` | ext (`thinking_blocks`) | ✓ `encrypted_content` | – | – | – |
+| reasoning shown | ✓ | ext (`reasoning_content`) | ✓ summary | – | config only | mind ✓ as AG-UI reasoning; threads has no block |
+| reasoning returned to the model | ✓ `encryptedValue` | ext (`thinking_blocks`, `provider_specific_fields`) | ✓ `encrypted_content` | – | – | mind ✓, to the model that made it only |
 | asking a person mid-run | ✓ interrupts, `resume` | – | approvals for MCP | ✓ MRTR, elicitation | approvals for MCP | – |
 | long-running work | – | – | ✓ background, cancel | Tasks extension | – | job_runner's own run/peek/stop/list |
 | cancel | ✓ outcome `cancelled` | drop the stream | ✓ | close the stream | ✓ `response.cancel`, `truncate` | mind: the stream's context ✓ |
@@ -137,7 +137,6 @@ exists only as a child thread.
 |---|---|---|
 | mind ignores images, documents, audio parts | adapter (mind) | UNIT-25 |
 | AG-UI has no agent-made images or sound | the standard's | an image the agent makes reaches the face as a tool result or activity, until AG-UI carries it |
-| mind drops reasoning, both halves | adapter (mind) | UNIT-26, together with tool calls |
 | Chat Completions or Responses toward models | adapter (mind) | Chat Completions now, with LiteLLM's extensions as an explicit layer; Responses when LiteLLM carries it for our providers (see Probed) |
 | mind calls no tools | adapter (mind) | an MCP client on go-sdk v1.8 |
 | units' MCP on 2025-06-18 | unit | each unit to go-sdk v1.8, stateless, before the mind calls it |
@@ -199,6 +198,18 @@ reasoning, a tool loop, an image, a PDF and `name`, on both APIs.
   `reasoning_content` and `thinking_blocks` only at `reasoning_effort: high`;
   at `low` the reasoning is counted in tokens and never shown. Anthropic-style
   `thinking: {…}` with `drop_params` turns Gemini's thinking off altogether.
+- **Streamed, Gemini 3.1 flash-lite sent no `thinking_blocks`** (asked
+  again the same day, at `high`): its signatures came only in
+  `provider_specific_fields`, `thought_signatures` on the message and
+  `thought_signature` on each tool call. It answered as well without them
+  sent back, so whether it needs them could not be seen.
+- **Who answered is in a header.** The chunks' `model` is the group asked
+  for (`lite`); `x-litellm-model-name` is the provider and model that
+  answered (`gemini/gemini-3.1-flash-lite`), `x-litellm-model-id` the
+  deployment.
+- **LiteLLM passes `thinking_blocks` and `provider_specific_fields` on to
+  an OpenAI-shaped provider as they are**; GLM through Cloudflare took
+  Gemini's and answered.
 - **Gemini's thought signature rides in the tool call's `id`**
   (`call_…__thought__<signature>`) as well as in `provider_specific_fields`,
   so a tool loop works even when only the standard fields are sent back. A

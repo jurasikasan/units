@@ -1,6 +1,6 @@
 {
   "name": "tool_result-stream",
-  "priority": 1,
+  "priority": 2,
   "request": {
     "method": "POST",
     "urlPath": "/v1/chat/completions",

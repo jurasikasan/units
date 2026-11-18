@@ -44,7 +44,10 @@ http://localhost:8025.
 `./check.sh` runs the whole round from `.env.example` on free ports: up; in a
 real browser (Playwright, `e2e/chat.mjs`) a person logs in, says something,
 asks what they said first and gets it back, which only happens when the
-whole conversation goes page → AG-UI → mind → LiteLLM → model; the chat
+whole conversation goes page → AG-UI → mind → LiteLLM → model; a tool
+adds two numbers; the model's reasoning is shown apart from its answer, and
+the thought signatures a model left go back to it with the tool call and,
+a run later, from the page; the chat
 refuses someone not logged in; a person gets mail, a second account is added, a backup is taken,
 everything is deleted with its volumes, the backup is restored, and the
 second account logs in again.

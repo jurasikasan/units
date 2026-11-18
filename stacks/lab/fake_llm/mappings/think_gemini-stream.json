@@ -1,0 +1,36 @@
+{
+  "name": "think_gemini-stream",
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/chat/completions",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": {
+          "expression": "$.stream",
+          "equalTo": "true"
+        }
+      },
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].role",
+          "equalTo": "user"
+        }
+      },
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].content",
+          "matches": "(?s)(.*\\s)?#think_gemini(\\s.*)?"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache"
+    },
+    "body": "data: {\"id\": \"fake-wm\", \"object\": \"chat.completion.chunk\", \"created\": 0, \"model\": \"fake-1\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"reasoning_content\": \"**Adding**\\n\\nThe get-sum tool adds two numbers.\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"fake-wm\", \"object\": \"chat.completion.chunk\", \"created\": 0, \"model\": \"fake-1\", \"choices\": [{\"index\": 0, \"delta\": {\"provider_specific_fields\": {\"thought_signatures\": [\"FAKE_SIG_1\"]}, \"tool_calls\": [{\"index\": 0, \"id\": \"call_sum__thought__FAKE_SIG_1\", \"type\": \"function\", \"function\": {\"name\": \"everything__get-sum\", \"arguments\": \"{\\\"a\\\": 2, \\\"b\\\": 3}\"}, \"provider_specific_fields\": {\"thought_signature\": \"FAKE_SIG_1\"}}]}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"fake-wm\", \"object\": \"chat.completion.chunk\", \"created\": 0, \"model\": \"fake-1\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+  }
+}

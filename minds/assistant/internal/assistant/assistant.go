@@ -90,44 +90,121 @@ func text(m types.Message) string {
 
 // Prompt is what the model is asked: the system prompt, then the
 // conversation as the client sent it: words, the tool calls an answer made
-// (their ids as they were) and what the tools said. The client's history is
-// believed, since there is nowhere else to read it from yet.
-func (a *Assistant) Prompt(in types.RunAgentInput) ([]openai.ChatCompletionMessageParamUnion, error) {
+// (their ids as they were), what the tools said, and the opaque part of a
+// turn's reasoning (a reasoning message's encryptedValue, or the answer's
+// own, naming the answer it belongs to). The client's history is believed, since there is nowhere
+// else to read it from yet.
+func (a *Assistant) Prompt(in types.RunAgentInput) (Conversation, error) {
 	n := len(in.Messages)
 	if n == 0 || in.Messages[n-1].Role != types.RoleUser || text(in.Messages[n-1]) == "" {
 		return nil, ErrBadInput
 	}
-	var msgs []openai.ChatCompletionMessageParamUnion
+	var p Conversation
 	if a.system != "" {
-		msgs = append(msgs, openai.SystemMessage(a.system))
+		p = append(p, entry{msg: openai.SystemMessage(a.system)})
+	}
+	// Opaque parts are found by the answer they name, wherever the client
+	// put them: a turn's opaque part is whole only when the model has
+	// finished, so it reaches the client after the turn's words, and a
+	// client gives it back where it came. By the answer's id, else by its
+	// calls.
+	byID := map[string]*opaque{}
+	for _, m := range in.Messages {
+		if o := unseal(m.EncryptedValue); o != nil && (m.Role == types.RoleReasoning || m.Role == types.RoleAssistant) {
+			if o.Message != "" {
+				byID[o.Message] = o
+			}
+			for id := range o.Calls {
+				byID[id] = o
+			}
+		}
+	}
+	thoughtOf := func(m types.Message) *opaque {
+		if o := byID[m.ID]; o != nil && m.ID != "" {
+			return o
+		}
+		for _, tc := range m.ToolCalls {
+			if o := byID[tc.ID]; o != nil {
+				return o
+			}
+		}
+		return nil
 	}
 	called := map[string]bool{} // ids of the calls the history has made
 	for _, m := range in.Messages {
 		t := text(m)
 		switch {
-		case m.Role == types.RoleAssistant && len(m.ToolCalls) > 0:
-			calls := make([]call, len(m.ToolCalls))
-			for i, tc := range m.ToolCalls {
-				calls[i] = call{id: tc.ID, name: tc.Function.Name, args: tc.Function.Arguments}
+		case m.Role == types.RoleReasoning:
+			// The words were the person's to read; the opaque part was
+			// found above.
+		case m.Role == types.RoleAssistant && (t != "" || len(m.ToolCalls) > 0):
+			s := &said{text: t, thought: thoughtOf(m)}
+			for _, tc := range m.ToolCalls {
+				s.calls = append(s.calls, call{id: tc.ID, name: tc.Function.Name, args: tc.Function.Arguments})
 				called[tc.ID] = true
 			}
-			msgs = append(msgs, answered(t, calls))
+			p = append(p, entry{said: s})
 		case m.Role == types.RoleTool:
 			// A result with no call before it is left out: a model refuses one.
 			if called[m.ToolCallID] {
-				msgs = append(msgs, openai.ToolMessage(t, m.ToolCallID))
+				p = append(p, entry{msg: openai.ToolMessage(t, m.ToolCallID)})
 			}
 		case t == "":
 		case m.Role == types.RoleUser:
-			msgs = append(msgs, openai.UserMessage(t))
-		case m.Role == types.RoleAssistant:
-			msgs = append(msgs, openai.AssistantMessage(t))
+			p = append(p, entry{msg: openai.UserMessage(t)})
 		case m.Role == types.RoleSystem, m.Role == types.RoleDeveloper:
-			msgs = append(msgs, openai.SystemMessage(t))
+			p = append(p, entry{msg: openai.SystemMessage(t)})
 		}
-		// reasoning, activity: not read yet
+		// activity: not read yet
 	}
-	return msgs, nil
+	return p, nil
+}
+
+// Conversation is the prompt kept apart enough to be told again to
+// whichever model answers next: the model's own turns stay turns, so the
+// opaque part of each goes only to the model that made it.
+type Conversation []entry
+
+type entry struct {
+	msg  openai.ChatCompletionMessageParamUnion // a message of anyone but the model
+	said *said                                  // or a turn of the model
+}
+
+// said is a turn of the model: its words, its calls, and the opaque part of
+// its reasoning.
+type said struct {
+	text    string
+	calls   []call
+	thought *opaque
+}
+
+// For is the conversation as model is asked it: every turn's opaque part
+// that model made goes with it, any other model's is left out.
+func (p Conversation) For(model string) []openai.ChatCompletionMessageParamUnion {
+	out := make([]openai.ChatCompletionMessageParamUnion, len(p))
+	for i, e := range p {
+		if e.said == nil {
+			out[i] = e.msg
+			continue
+		}
+		var thought *opaque
+		if !e.said.thought.empty() && e.said.thought.Model == model {
+			thought = e.said.thought
+		}
+		out[i] = answered(e.said.text, e.said.calls, thought)
+	}
+	return out
+}
+
+// lastModel is who made the latest opaque part in the conversation: the
+// model expected to answer next, as far as the history knows.
+func (p Conversation) lastModel() string {
+	for i := len(p) - 1; i >= 0; i-- {
+		if s := p[i].said; s != nil && !s.thought.empty() {
+			return s.thought.Model
+		}
+	}
+	return ""
 }
 
 // call is a tool call as the model made it. The id goes back to the model
@@ -138,19 +215,35 @@ type call struct {
 }
 
 // answered is the model's turn as it goes back into the prompt: what it
-// said and the calls it made.
-func answered(text string, calls []call) openai.ChatCompletionMessageParamUnion {
+// said, the calls it made, and, for the model that made it, the opaque part
+// of its reasoning, in the fields LiteLLM reads back: thinking_blocks and
+// provider_specific_fields on the message and on each call.
+func answered(text string, calls []call, thought *opaque) openai.ChatCompletionMessageParamUnion {
 	m := &openai.ChatCompletionAssistantMessageParam{}
 	if text != "" {
 		m.Content.OfString = param.NewOpt(text)
 	}
+	if thought != nil {
+		extras := map[string]any{}
+		if len(thought.Blocks) > 0 {
+			extras["thinking_blocks"] = thought.Blocks
+		}
+		if len(thought.Fields) > 0 {
+			extras["provider_specific_fields"] = thought.Fields
+		}
+		if len(extras) > 0 {
+			m.SetExtraFields(extras)
+		}
+	}
 	for _, c := range calls {
-		m.ToolCalls = append(m.ToolCalls, openai.ChatCompletionMessageToolCallUnionParam{
-			OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
-				ID:       c.id,
-				Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{Name: c.name, Arguments: c.args},
-			},
-		})
+		fc := &openai.ChatCompletionMessageFunctionToolCallParam{
+			ID:       c.id,
+			Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{Name: c.name, Arguments: c.args},
+		}
+		if psf := thought.callFields(c.id); psf != nil {
+			fc.SetExtraFields(map[string]any{"provider_specific_fields": psf})
+		}
+		m.ToolCalls = append(m.ToolCalls, openai.ChatCompletionMessageToolCallUnionParam{OfFunction: fc})
 	}
 	return openai.ChatCompletionMessageParamUnion{OfAssistant: m}
 }
@@ -158,10 +251,12 @@ func answered(text string, calls []call) openai.ChatCompletionMessageParamUnion 
 // Run answers one run, sending its events to emit. The model is asked; when
 // it calls tools, they are called (all of one turn at once), what they say
 // goes back to it, and it is asked again, until it answers in words or the
-// steps run out. An error from emit (the listener is gone) or a cancelled
-// ctx ends the run and whatever call is under way. A failing model ends the
-// run with RUN_ERROR.
-func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, msgs []openai.ChatCompletionMessageParamUnion, emit func(events.Event) error) error {
+// steps run out. Each time it is asked as the model that answered last: the
+// opaque part of reasoning another model made is left out, so a fallback to
+// another model carries on without it. An error from emit (the listener is
+// gone) or a cancelled ctx ends the run and whatever call is under way. A
+// failing model ends the run with RUN_ERROR.
+func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversation, emit func(events.Event) error) error {
 	if err := emit(events.NewRunStartedEvent(in.ThreadID, in.RunID)); err != nil {
 		return err
 	}
@@ -173,98 +268,184 @@ func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, msgs []open
 		k = openKit(ctx, a.mcp, a.servers)
 		defer k.close()
 	}
+	model := p.lastModel()
 	for step := 0; step < a.maxSteps; step++ {
-		said, calls, err := a.turn(ctx, in, msgs, k, emit)
+		s, err := a.turn(ctx, in, p.For(model), k, emit)
 		if err != nil || ctx.Err() != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			return err
 		}
-		if said == nil {
+		if s == nil {
 			return nil // the turn failed and said so
 		}
-		if len(calls) == 0 {
+		if len(s.calls) == 0 {
 			return emit(events.NewRunFinishedEvent(in.ThreadID, in.RunID))
 		}
-		msgs = append(msgs, answered(*said, calls))
-		results := k.callAll(ctx, calls)
-		for i, c := range calls {
+		model = s.thought.Model
+		p = append(p, entry{said: s})
+		results := k.callAll(ctx, s.calls)
+		for i, c := range s.calls {
 			if err := emit(events.NewToolCallResultEvent(events.GenerateMessageID(), c.id, results[i])); err != nil {
 				return err
 			}
-			msgs = append(msgs, openai.ToolMessage(results[i], c.id))
+			p = append(p, entry{msg: openai.ToolMessage(results[i], c.id)})
 		}
 	}
 	return emit(events.NewRunErrorEvent(fmt.Sprintf("the model was still calling tools after %d steps", a.maxSteps), events.WithRunID(in.RunID)))
 }
 
-// turn asks the model once and streams what it says and the tools it calls.
-// It returns the words and the calls; said is nil when the model failed and
-// RUN_ERROR has been sent.
-func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, msgs []openai.ChatCompletionMessageParamUnion, k *kit, emit func(events.Event) error) (said *string, calls []call, err error) {
+// turn asks the model once and streams what it thinks, says and the tools
+// it calls: reasoning first as AG-UI reasoning, then the words, then the
+// calls; the opaque part of the reasoning, if any, at the end of the turn as
+// REASONING_ENCRYPTED_VALUE on the turn's reasoning message (an empty one
+// when the model showed none), before any tool has answered, so the client
+// keeps it with this turn. It returns what the model said, its thought
+// always naming who answered; nil when the model failed and RUN_ERROR has
+// been sent.
+func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, msgs []openai.ChatCompletionMessageParamUnion, k *kit, emit func(events.Event) error) (*said, error) {
 	params := openai.ChatCompletionNewParams{Model: a.model, Messages: msgs}
 	if k != nil && len(k.tools) > 0 {
 		params.Tools = k.tools
 	}
-	stream := a.client.Chat.Completions.NewStreaming(ctx, params)
+	var resp *http.Response
+	stream := a.client.Chat.Completions.NewStreaming(ctx, params, option.WithResponseInto(&resp))
 	defer func() { _ = stream.Close() }()
 
 	msgID := events.GenerateMessageID()
+	s := &said{thought: &opaque{Message: msgID}}
 	var words strings.Builder
 	started := false
+	var thinking, lastThought string // the reasoning message open now, and the turn's latest
+	stopThinking := func() error {
+		if thinking == "" {
+			return nil
+		}
+		id := thinking
+		thinking = ""
+		if err := emit(events.NewReasoningMessageEndEvent(id)); err != nil {
+			return err
+		}
+		return emit(events.NewReasoningEndEvent(id))
+	}
+	chunkModel := ""
 	byIndex := map[int64]int{} // a call's index in the stream → its place in calls
 	for stream.Next() {
-		for _, ch := range stream.Current().Choices {
+		chunk := stream.Current()
+		if chunkModel == "" {
+			chunkModel = chunk.Model
+		}
+		for _, ch := range chunk.Choices {
+			if piece := reasoningText(ch.Delta.JSON.ExtraFields); piece != "" {
+				if thinking == "" {
+					thinking = events.GenerateMessageID()
+					lastThought = thinking
+					if err := emit(events.NewReasoningStartEvent(thinking)); err != nil {
+						return nil, err
+					}
+					if err := emit(events.NewReasoningMessageStartEvent(thinking, "reasoning")); err != nil {
+						return nil, err
+					}
+				}
+				if err := emit(events.NewReasoningMessageContentEvent(thinking, piece)); err != nil {
+					return nil, err
+				}
+			}
+			s.thought.take(ch.Delta.JSON.ExtraFields)
 			if piece := ch.Delta.Content; piece != "" {
+				if err := stopThinking(); err != nil {
+					return nil, err
+				}
 				if !started {
 					if err := emit(events.NewTextMessageStartEvent(msgID, events.WithRole("assistant"))); err != nil {
-						return nil, nil, err
+						return nil, err
 					}
 					started = true
 				}
 				words.WriteString(piece)
 				if err := emit(events.NewTextMessageContentEvent(msgID, piece)); err != nil {
-					return nil, nil, err
+					return nil, err
 				}
 			}
 			for _, tc := range ch.Delta.ToolCalls {
+				if err := stopThinking(); err != nil {
+					return nil, err
+				}
 				n, seen := byIndex[tc.Index]
 				if !seen {
-					n = len(calls)
+					n = len(s.calls)
 					byIndex[tc.Index] = n
-					calls = append(calls, call{id: tc.ID, name: tc.Function.Name})
+					s.calls = append(s.calls, call{id: tc.ID, name: tc.Function.Name})
 					if err := emit(events.NewToolCallStartEvent(tc.ID, tc.Function.Name, events.WithParentMessageID(msgID))); err != nil {
-						return nil, nil, err
+						return nil, err
 					}
 				}
+				s.thought.takeCall(s.calls[n].id, tc.JSON.ExtraFields)
 				if d := tc.Function.Arguments; d != "" {
-					calls[n].args += d
-					if err := emit(events.NewToolCallArgsEvent(calls[n].id, d)); err != nil {
-						return nil, nil, err
+					s.calls[n].args += d
+					if err := emit(events.NewToolCallArgsEvent(s.calls[n].id, d)); err != nil {
+						return nil, err
 					}
 				}
 			}
 		}
 	}
 	if ctx.Err() != nil {
-		return nil, nil, ctx.Err()
+		return nil, ctx.Err()
 	}
 	if err := stream.Err(); err != nil {
-		return nil, nil, emit(events.NewRunErrorEvent(err.Error(), events.WithRunID(in.RunID)))
+		return nil, emit(events.NewRunErrorEvent(err.Error(), events.WithRunID(in.RunID)))
+	}
+	if err := stopThinking(); err != nil {
+		return nil, err
+	}
+	s.thought.Model = answeredBy(resp, chunkModel, a.model)
+	if !s.thought.empty() {
+		sealed := s.thought.seal()
+		if lastThought == "" { // nothing shown: an empty reasoning message to carry it
+			lastThought = events.GenerateMessageID()
+			if err := emit(events.NewReasoningStartEvent(lastThought)); err != nil {
+				return nil, err
+			}
+			if err := emit(events.NewReasoningEncryptedValueEvent(events.ReasoningEncryptedValueSubtypeMessage, lastThought, sealed)); err != nil {
+				return nil, err
+			}
+			if err := emit(events.NewReasoningEndEvent(lastThought)); err != nil {
+				return nil, err
+			}
+		} else if err := emit(events.NewReasoningEncryptedValueEvent(events.ReasoningEncryptedValueSubtypeMessage, lastThought, sealed)); err != nil {
+			return nil, err
+		}
 	}
 	if started {
 		if err := emit(events.NewTextMessageEndEvent(msgID)); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
-	for _, c := range calls {
+	for _, c := range s.calls {
 		if err := emit(events.NewToolCallEndEvent(c.id)); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
-	s := words.String()
-	return &s, calls, nil
+	s.text = words.String()
+	return s, nil
+}
+
+// answeredBy is who answered a call: LiteLLM names the provider and model
+// it used in x-litellm-model-name, which differs from what was asked for
+// after a fallback; without it, the model the chunks name, else the one
+// asked for.
+func answeredBy(resp *http.Response, chunkModel, asked string) string {
+	if resp != nil {
+		if m := resp.Header.Get("X-Litellm-Model-Name"); m != "" {
+			return m
+		}
+	}
+	if chunkModel != "" {
+		return chunkModel
+	}
+	return asked
 }
 
 // ServeHTTP is POST /run: AG-UI's RunAgentInput in, its events out as SSE.
@@ -280,7 +461,7 @@ func (a *Assistant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the body is not a RunAgentInput: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	msgs, err := a.Prompt(in)
+	p, err := a.Prompt(in)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -299,7 +480,7 @@ func (a *Assistant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	emit := func(ev events.Event) error { return a.sse.WriteEvent(r.Context(), w, ev) }
-	if err := a.Run(r.Context(), in, msgs, emit); err != nil {
+	if err := a.Run(r.Context(), in, p, emit); err != nil {
 		slog.Info("run ended early", "principal", principal, "thread", in.ThreadID, "run", in.RunID, "err", err)
 	}
 }
