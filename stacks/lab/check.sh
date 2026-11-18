@@ -33,7 +33,9 @@ work=$(mktemp -d)
 port=$(free_port)
 sed -e "s|^LAB_URL=.*|LAB_URL=https://lab.localhost:$port|" \
     -e "s|^LAB_PORT=.*|LAB_PORT=$port|" \
-    -e "s|^LAB_MAILPIT_PORT=.*|LAB_MAILPIT_PORT=$(free_port)|" .env.example > "$work/env"
+    -e "s|^LAB_MAILPIT_PORT=.*|LAB_MAILPIT_PORT=$(free_port)|" \
+    -e "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=mailpit,everything|" \
+    -e "s|^LAB_MCP_SERVERS=.*|LAB_MCP_SERVERS=everything=http://everything:3001/mcp|" .env.example > "$work/env"
 export COMPOSE_ENV_FILES="$work/env" COMPOSE_PROJECT_NAME="lab-check-$$"
 first_user=$(sed -n 's/^LAB_FIRST_USER=//p' .env.example)
 first_password=$(sed -n 's/^LAB_FIRST_PASSWORD=//p' .env.example)

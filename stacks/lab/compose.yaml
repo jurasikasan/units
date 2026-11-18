@@ -133,17 +133,20 @@ services:
       LLM_MODEL: ${LAB_LLM_MODEL:-fake}
       LLM_API_KEY: ${LAB_LLM_KEY}
       SYSTEM_PROMPT: ${LAB_SYSTEM_PROMPT:-}
-      MCP_SERVERS: ${LAB_MCP_SERVERS:-everything=http://everything:3001/mcp}
+      MCP_SERVERS: ${LAB_MCP_SERVERS:-}
     depends_on:
       litellm:
         condition: service_healthy
       everything:
         condition: service_healthy
+        required: false
 
-  # Tools for the model: MCP's own reference server (everything/Dockerfile).
+  # Tools for the model to try: MCP's own reference server
+  # (everything/Dockerfile), under its profile; check.sh's e2e uses it.
   everything:
     build: ./everything
     image: units-lab-everything:local
+    profiles: [everything]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/mcp',{method:'POST'}).then(()=>process.exit(0),()=>process.exit(1))"]
