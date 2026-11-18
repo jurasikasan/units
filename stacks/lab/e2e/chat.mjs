@@ -27,7 +27,8 @@
 // (a tone, or E2E_VOICE_FILE, a WAV) and the transcript lands in the
 // composer ("What the fake ear heard." on fake-stt); an answer is read
 // aloud: the speech endpoint answers with a sound, the page plays it to
-// the end. E2E_ONLY=voice runs this alone.
+// the end; a speech endpoint that refuses is said on the page. E2E_ONLY=voice
+// runs this alone.
 //
 // E2E_ONLY=refused is another round, on a mind asking a model that takes no
 // pictures (fake-text): a picture sent ends the run with the mind's error,
@@ -182,6 +183,15 @@ async function voiceRound() {
   await answer.getByRole('button', { name: 'Stop reading' }).waitFor()
   await answer.getByRole('button', { name: 'Read aloud' }).waitFor()
   step('played to the end', 'yes')
+
+  // A speech endpoint that refuses: the page says so, in its words.
+  await page.route('**/api/v1/audio/speech', (route) =>
+    route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: { message: 'no such voice', code: '400' } }) }))
+  await answer.getByRole('button', { name: 'Read aloud' }).click()
+  const notice = page.getByRole('alert').filter({ hasText: 'no such voice' })
+  await notice.waitFor()
+  step('a refusal, said', JSON.stringify(await notice.innerText()))
+  await page.unroute('**/api/v1/audio/speech')
 }
 
 // refusedRound: a picture to a model that takes none; the page says so.
