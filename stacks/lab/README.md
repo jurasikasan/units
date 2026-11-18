@@ -43,6 +43,11 @@ message ends it), which the mind relays to LiteLLM's with
 `LAB_REALTIME_MODEL`; the call button shows only then. No realtime model
 on a key we hold is to be run on (Gemini Live is for tests only), so the lab
 has the fakes; our own is UNIT-47.
+nginx writes its site from `site.conf.template`, and LiteLLM reads
+`models.yaml`, only when they start: after pulling a change to either (the
+call came with both), `docker compose up -d --force-recreate nginx litellm`;
+otherwise the call ends at once with 1006, or LiteLLM says it has no such
+model.
 
 What a model takes (pictures, PDFs, sounds) LiteLLM says from its map of
 models, or from `model_info` in `models.yaml` where the map does not know
