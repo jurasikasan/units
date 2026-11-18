@@ -40,6 +40,16 @@ is about the UI's edge, not to learn the face.
 A `401` from `/api/run` reloads the page: whatever door stands in front gets
 to ask the person to log in. The face knows no door of its own.
 
+## Attachments
+
+A picture, a text file or a PDF can go with a message (`src/attachments.ts`):
+assistant-ui's own adapters for pictures (a `data:` URL) and text files (the
+text, naming the file), and ours for a PDF (a file part). The AG-UI runtime
+sends them as `image` and `document` parts, or text, with the message, and,
+since the whole conversation goes with each run, with every run after. A
+file over 10 MB is refused when attached: the attachment shows an error,
+its reason when pointed at, and nothing is sent while it is there.
+
 ## Showcase
 
 ```bash
@@ -62,10 +72,6 @@ too), lint (ours only), the manifest.
 Light or dark follows the system's setting, and changes with it.
 
 ## Not yet
-
-- Attachments: the attach button shows only when the runtime is given an
-  attachment adapter, and it is not yet; files have to reach the model as
-  content parts all the way through first.
 
 - One conversation, kept in the page: a reload forgets it. A list of threads
   comes when there is somewhere to keep them.

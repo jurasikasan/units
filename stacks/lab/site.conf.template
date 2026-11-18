@@ -12,9 +12,11 @@ server {
     location /auth {
         include /etc/nginx/gate/portal.conf;
     }
-    # The mind; /api/run reaches it as /run.
+    # The mind; /api/run reaches it as /run. A run carries the whole
+    # conversation, attachments inline: the mind takes up to 16 MB.
     location /api/ {
         include /etc/nginx/gate/api.conf;
+        client_max_body_size 16m;
         set $mind mind:8088;
         rewrite ^/api/(.*)$ /$1 break;
         proxy_pass http://$mind;

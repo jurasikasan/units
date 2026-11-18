@@ -31,7 +31,7 @@ voice ──OpenAI Realtime (or Gemini Live)──▶ ?         └──units' 
 | kind | AG-UI (people) | Chat Completions | Responses | MCP (tools) | Realtime (voice) | units today |
 |---|---|---|---|---|---|---|
 | text, streamed | ✓ | ✓ | ✓ | ✓ result content | ✓ | mind ✓; threads `text` |
-| images in | ✓ user parts | ✓ | ✓ | ✓ result content | ✓ | threads `image`; face and mind: not wired (UNIT-25) |
+| images in | ✓ user parts | ✓ | ✓ | ✓ result content | ✓ | threads `image`; face and mind: carried (UNIT-25) |
 | images out | – (a capability flag only) | ext (LiteLLM `message.images`) | ✓ hosted tool | ✓ result content | – | – |
 | documents in | ✓ user parts | ✓ | ✓ | ✓ resources | – | artifact_store keeps bytes; threads has no block |
 | audio as a part | ✓ in only | ✓ in and out | in ✓, out *(unverified)* | ✓ result content | — | engines ✓ (OpenAI audio API); threads `audio` |
@@ -135,7 +135,7 @@ exists only as a child thread.
 
 | gap | where it belongs | what it is |
 |---|---|---|
-| mind ignores images, documents, audio parts | adapter (mind) | UNIT-25 |
+| mind ignores audio and video parts | adapter (mind) | images and documents carried (UNIT-25); audio when a model here takes it |
 | AG-UI has no agent-made images or sound | the standard's | an image the agent makes reaches the face as a tool result or activity, until AG-UI carries it |
 | Chat Completions or Responses toward models | adapter (mind) | Chat Completions now, with LiteLLM's extensions as an explicit layer; Responses when LiteLLM carries it for our providers (see Probed) |
 | mind calls no tools | adapter (mind) | an MCP client on go-sdk v1.8 |

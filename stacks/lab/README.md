@@ -47,7 +47,9 @@ asks what they said first and gets it back, which only happens when the
 whole conversation goes page → AG-UI → mind → LiteLLM → model; a tool
 adds two numbers; the model's reasoning is shown apart from its answer, and
 the thought signatures a model left go back to it with the tool call and,
-a run later, from the page; the chat
+a run later, from the page; a file over the page's limit is refused there
+and nothing is sent, then a picture and a text file go with a question and
+the answer carries what only the file holds; the chat
 refuses someone not logged in; a person gets mail, a second account is added, a backup is taken,
 everything is deleted with its volumes, the backup is restored, and the
 second account logs in again.

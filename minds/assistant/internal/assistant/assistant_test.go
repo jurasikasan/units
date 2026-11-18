@@ -38,14 +38,21 @@ type fakeModel struct {
 	hang   bool          // after the first piece, wait for the caller to leave
 	left   chan struct{} // closed when a hanging call saw its caller leave
 	asked  []msg
+	raw    []json.RawMessage // the same messages as they came: content may be parts
 }
 
 func (f *fakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Messages []msg `json:"messages"`
+		Messages []json.RawMessage `json:"messages"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
-	f.asked = body.Messages
+	f.raw = body.Messages
+	f.asked = nil
+	for _, m := range body.Messages {
+		var one msg
+		_ = json.Unmarshal(m, &one) // content as parts stays empty here
+		f.asked = append(f.asked, one)
+	}
 	if f.status != 0 {
 		http.Error(w, "the model is down", f.status)
 		return

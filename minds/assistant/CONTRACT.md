@@ -23,19 +23,28 @@ header: 401, before anything else is read.
 `runId` and `messages`; `tools`, `state`, `context` and `forwardedProps` are
 accepted and not read.
 
-- The **last message** must be the user's and say something in words, else
-  400. A message's words are its `content` when it is a string, or its `text`
-  parts joined by a newline when it is a list of parts; other parts (an
-  image, a recording) are passed over, not refused.
+- The **last message** must be the user's and say or carry something (words,
+  a picture, a document), else 400. A run is at most 16 MB, attachments
+  included, else 413.
 - The **prompt** is `SYSTEM_PROMPT` (when set), then every message as the
   client sent it: `user`, `assistant` and `system` as they are, `developer`
   as `system`; an `assistant` message's `toolCalls` with their ids exactly
   as they are, and each `tool` message whose call is in the history before
   it (one without is left out: a model refuses it); of a `reasoning`
   message only its `encryptedValue` is read (see Reasoning), never its
-  words; `activity` is left out. Words only: other parts are passed over.
-  The client's history is believed: there is nowhere else to read it from
-  yet.
+  words; `activity` is left out. The client's history is believed: there is
+  nowhere else to read it from yet.
+- A **user message** of words only (a string, or `text` parts joined by a
+  newline) goes as a plain string. One with attachments goes as chat
+  completions parts, in the order they came: `text` as text; `image` as
+  `image_url` (its data as a `data:` URL, or its URL as it is); a `document`
+  that is text (`text/*`, JSON) as a text part `<attachment name="…">…
+  </attachment>`, the shape assistant-ui gives text files itself; any other
+  `document` (a PDF) as a `file` part, its data as a `data:` URL and its
+  name from the part's `filename` or `metadata.filename`. The older `binary`
+  part goes by its media type. Audio, video and a document by URL are
+  passed over for now. LiteLLM carries the parts to the model; whether the
+  model takes them is the model's (UNIT-33).
 - `threadId` and `runId` are echoed; missing ones are made up.
 
 The answer is an event stream (`text/event-stream`, one `data:` line per
@@ -123,7 +132,9 @@ model generated. Neither is built yet; nothing here is shaped against them.
 ## Not yet
 
 - No storage: a thread is only as long as the client remembers it.
-- No images or audio read into the prompt, nor from tools' results.
+- No audio or video read into the prompt, nor images from tools' results;
+  a model that takes no pictures answers a picture with its provider's
+  error (UNIT-33).
 - The words of a model's reasoning are not given back to it, not even to
   the same model in a tool loop.
 - `thinking_blocks` streamed in pieces are joined into whole blocks

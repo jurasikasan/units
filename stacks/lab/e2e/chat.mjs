@@ -14,6 +14,9 @@
 // the call only if they did, and on the next run that both came back again
 // from the page, which kept them as the reasoning's encrypted value. A real
 // model is only asked to think and add; the signatures are the fake's check.
+// Then attachments: a file over the face's limit is refused on the page and
+// never sent; a picture and a text file go with a question (#attached), and
+// the answer has to carry what only the file holds.
 import { chromium } from 'playwright'
 
 const [user, password] = process.argv.slice(2)
@@ -24,6 +27,15 @@ const sum = 'Use the get-sum tool to add 2 and 3, and tell me what it said. #too
 const think = 'Think it over first: is 1001 a prime number? #think_glm'
 const signed = 'Think, then use the get-sum tool to add 2 and 3. #think_gemini'
 const back = 'Did my signatures come back? #signatures_back'
+const attached = 'What does the attached note say? Quote its code. #attached'
+const secret = 'ZEBRA-7'
+const note = { name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.from(`The code is ${secret}.\n`) }
+const dot = {
+  name: 'dot.png',
+  mimeType: 'image/png',
+  buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==', 'base64'),
+}
+const huge = { name: 'huge.txt', mimeType: 'text/plain', buffer: Buffer.alloc(11 * 1024 * 1024, 'a') }
 const fake = (process.env.LAB_LLM_MODEL ?? 'fake') === 'fake'
 const timeout = Number(process.env.E2E_TIMEOUT_MS ?? 60000)
 
@@ -52,6 +64,14 @@ async function say(text) {
     last = now
     await page.waitForTimeout(500)
   }
+}
+
+// attach puts files on the message being written, through the page's own
+// attach button.
+async function attach(...files) {
+  const chooser = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: 'Add Attachment' }).click()
+  await (await chooser).setFiles(files)
 }
 
 // reasoned is how many reasoning blocks the page shows, and the words of the
@@ -113,6 +133,35 @@ try {
   }
   if (fake && !a6.includes('Both signatures came back')) {
     step('FAIL', 'the thought signatures did not come back from the page')
+    failed = true
+  }
+
+  // Over the limit: the page says why when the person points at the file,
+  // and pressing send sends nothing while it is there.
+  let runs = 0
+  page.on('request', (r) => { if (r.url().endsWith('/api/run')) runs++ })
+  await attach(huge)
+  await page.getByLabel('Document attachment huge.txt, upload failed').hover({ position: { x: 12, y: 44 } })
+  const refused = page.getByText(/Too large: 11\.0 MB/).first()
+  await refused.waitFor()
+  step('a file over the limit', await refused.innerText())
+  const sent = runs
+  await page.getByRole('textbox', { name: 'Message input' }).fill('this goes nowhere')
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(2000)
+  step('sent with it', `${runs - sent} runs`)
+  if (runs !== sent) {
+    step('FAIL', 'a message went out with a file over the limit')
+    failed = true
+  }
+  await page.getByRole('button', { name: 'Remove huge.txt' }).click()
+  await page.getByLabel(/attachment huge\.txt/).waitFor({ state: 'detached' })
+
+  await attach(dot, note)
+  const a7 = await say(attached)
+  step('a picture and a file, attached', JSON.stringify(a7.slice(0, 80)))
+  if (!a7.includes(secret)) {
+    step('FAIL', `the answer does not carry what the file holds, ${secret}`)
     failed = true
   }
 } catch (e) {

@@ -69,11 +69,10 @@ func New(base, model, key, system string) *Assistant {
 }
 
 // ErrBadInput is a run this mind cannot answer as asked.
-var ErrBadInput = errors.New("the last message must be the user's and say something")
+var ErrBadInput = errors.New("the last message must be the user's and say or carry something")
 
 // text is what a message says in words: its content when that is a string,
-// or its text parts joined. Other parts (an image, a recording) are passed
-// over, not refused.
+// or its text parts joined. A person's other parts are userMessage's.
 func text(m types.Message) string {
 	if s, ok := m.ContentString(); ok {
 		return s
@@ -96,7 +95,10 @@ func text(m types.Message) string {
 // else to read it from yet.
 func (a *Assistant) Prompt(in types.RunAgentInput) (Conversation, error) {
 	n := len(in.Messages)
-	if n == 0 || in.Messages[n-1].Role != types.RoleUser || text(in.Messages[n-1]) == "" {
+	if n == 0 || in.Messages[n-1].Role != types.RoleUser {
+		return nil, ErrBadInput
+	}
+	if _, ok := userMessage(in.Messages[n-1]); !ok {
 		return nil, ErrBadInput
 	}
 	var p Conversation
@@ -149,9 +151,11 @@ func (a *Assistant) Prompt(in types.RunAgentInput) (Conversation, error) {
 			if called[m.ToolCallID] {
 				p = append(p, entry{msg: openai.ToolMessage(t, m.ToolCallID)})
 			}
-		case t == "":
 		case m.Role == types.RoleUser:
-			p = append(p, entry{msg: openai.UserMessage(t)})
+			if u, ok := userMessage(m); ok {
+				p = append(p, entry{msg: u})
+			}
+		case t == "":
 		case m.Role == types.RoleSystem, m.Role == types.RoleDeveloper:
 			p = append(p, entry{msg: openai.SystemMessage(t)})
 		}
@@ -448,6 +452,10 @@ func answeredBy(resp *http.Response, chunkModel, asked string) string {
 	return asked
 }
 
+// MaxBody is the largest run taken: the whole conversation goes with each
+// run, attachments inline as base64 (a third larger than the file).
+const MaxBody = 16 << 20
+
 // ServeHTTP is POST /run: AG-UI's RunAgentInput in, its events out as SSE.
 // Who asks comes in X-Principal-Id, set by the door in front.
 func (a *Assistant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -457,7 +465,12 @@ func (a *Assistant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in types.RunAgentInput
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&in); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, MaxBody)).Decode(&in); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			http.Error(w, fmt.Sprintf("a run is at most %d MB, attachments included", MaxBody>>20), http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "the body is not a RunAgentInput: "+err.Error(), http.StatusBadRequest)
 		return
 	}

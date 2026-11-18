@@ -11,7 +11,7 @@ provides:
   rest:
     port: 8088
     routes:
-      - "POST /run"     # AG-UI: RunAgentInput in, an event stream (SSE) out
+      - "POST /run"     # AG-UI: RunAgentInput in (at most 16 MB, attachments inline), an event stream (SSE) out
   health: GET :8088/health
 
 consumes:
