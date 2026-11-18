@@ -16,7 +16,12 @@
 // model is only asked to think and add; the signatures are the fake's check.
 // Then attachments: a file over the face's limit is refused on the page and
 // never sent; a picture and a text file go with a question (#attached), and
-// the answer has to carry what only the file holds.
+// the answer has to carry what only the file holds. Last, the run stopped
+// and failed: Stop pressed while the model says nothing yet (#hang) ends
+// the run, and its late words never show; a model answering 429 or 500
+// (#fail_429, #fail_500, after LiteLLM's retry) ends the run with the mind's
+// error, which the page shows. Fake model only: a real one does not fail on
+// cue. That the mind saw the stop as a cancel is check.sh's, from its log.
 //
 // E2E_ONLY=refused is another round, on a mind asking a model that takes no
 // pictures (fake-text): a picture sent ends the run with the mind's error,
@@ -89,6 +94,30 @@ async function reasoned() {
   const content = page.locator('[data-slot="reasoning-content"]').last()
   await content.waitFor()
   return { n, text: (await content.innerText()).trim() }
+}
+
+// stoppedAndFailed: Stop mid-run, then a model that fails, twice.
+async function stoppedAndFailed() {
+  const before = await page.locator('[data-role="assistant"]').count()
+  await page.getByRole('textbox', { name: 'Message input' }).fill('Take your time. #hang')
+  await page.keyboard.press('Enter')
+  await page.getByRole('button', { name: 'Stop generating' }).click()
+  await page.getByRole('button', { name: 'Send message' }).waitFor()
+  await page.waitForTimeout(5000) // past when the late answer would have come
+  const late = (await page.locator('[data-role="assistant"]').allInnerTexts()).slice(before).join('\n')
+  step('stopped while the model was silent', JSON.stringify(late.slice(0, 60)))
+  if (late.includes('arrived late')) {
+    step('FAIL', 'the answer came after Stop')
+    failed = true
+  }
+  for (const [tag, status] of [['#fail_429', '429'], ['#fail_500', '500']]) {
+    const said = await say(`Say anything. ${tag}`)
+    step(`a model answering ${status}`, JSON.stringify(said.slice(0, 80)))
+    if (!said.includes(`answered ${status}`)) {
+      step('FAIL', `the page does not say the model answered ${status}`)
+      failed = true
+    }
+  }
 }
 
 // refusedRound: a picture to a model that takes none; the page says so.
@@ -173,6 +202,8 @@ async function fullRound() {
     step('FAIL', `the answer does not carry what the file holds, ${secret}`)
     failed = true
   }
+
+  if (fake) await stoppedAndFailed()
 }
 
 try {

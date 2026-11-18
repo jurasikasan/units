@@ -2,6 +2,8 @@
 # The lab from .env.example, on free ports, the whole round: up; in a real
 # browser a person logs in, says something and asks what they said first,
 # and the answer carries it back (the fake model, through mind and LiteLLM);
+# Stop ends a run, which the mind logs as cancelled, and a model answering
+# 429 or 500 ends one with the mind's error on the page;
 # on a model declared to take words only, a picture is refused in words;
 # the chat is closed to nobody, a person gets mail; gate, mind and face are
 # recreated on new addresses and the site still reaches them without touching
@@ -44,7 +46,8 @@ restore() { ./restore.sh "$(cat "$work/archive")"; }
 
 run "build"          docker compose --profile e2e build -q
 run "up"             docker compose up -d --wait
-run "e2e: a conversation goes through whole"  docker compose run --rm e2e "$first_user" "$first_password"
+run "e2e: a conversation goes through whole, stopped, failed"  docker compose run --rm e2e "$first_user" "$first_password"
+run "the mind saw Stop as a cancel"  bash -c 'docker compose logs mind | grep -q "run cancelled"'
 run "mind on a text-only model"  env LAB_LLM_MODEL=fake-text docker compose up -d --wait mind
 # The same LAB_LLM_MODEL, or compose puts the mind back on fake on the way.
 run "e2e: a picture to it is refused, said"  env LAB_LLM_MODEL=fake-text E2E_ONLY=refused docker compose run --rm e2e "$first_user" "$first_password"
