@@ -14,8 +14,8 @@ either that the code no longer fits shows up as a build or test failure here.
 
 ## Who is asking
 
-`POST /run` reads `X-Principal-Id`, set by the door in front (`gate`). No
-header: 401, before anything else is read.
+`POST /run` and the audio calls read `X-Principal-Id`, set by the door in
+front (`gate`). No header: 401, before anything else is read.
 
 ## A run
 
@@ -182,6 +182,35 @@ What a model thinks comes in two halves, and they go different ways.
   back mid-call, the model it falls back to has already been sent the first
   one's opaque part. LiteLLM passes those fields to an OpenAI-shaped
   provider as they are; GLM through Cloudflare took Gemini's and answered.
+
+## Sound, turn by turn
+
+OpenAI's audio API, served by the mind and handed on to the endpoint at
+`LLM_URL` (LiteLLM) with `LLM_API_KEY`. The mind is the door, not a
+translator: the client never holds the endpoint's key, the model is the
+mind's, every call is logged; everything else passes as it is, so any
+OpenAI client pointed at the mind's `/v1` is a client of it. It is a
+pass-through rather than OpenAI's Go SDK, which would read the request into
+its own types and drop what it does not know.
+
+- `POST /v1/audio/transcriptions`, served when `STT_MODEL` is set: the
+  client's multipart form goes on part by part as it arrives, `model`
+  replaced by `STT_MODEL`, every other field and the sound as they came. At
+  most 25 MB (OpenAI's own limit), else 413.
+- `POST /v1/audio/speech`, served when `TTS_MODEL` is set: the client's
+  JSON with `model` set to `TTS_MODEL`, and `voice` to `TTS_VOICE` when the
+  client names none. At most 1 MB, else 413.
+- The answer is the endpoint's, streamed as it comes: its status, its
+  `Content-Type`, its bytes; an error in the endpoint's own words and shape.
+  An endpoint that does not answer at all: 502, OpenAI's error shape, `type:
+  model_unreachable`. A body that is not a form or not JSON: 400.
+- A client that goes away drops the call to the endpoint.
+- The log line of each call: the call, who asked, the model asked and the
+  one that answered (LiteLLM's `x-litellm-model-name`), the status, bytes in
+  and out, how long it took.
+
+What sound a model takes and gives (formats, voices, languages) is the
+model's; the mind neither checks nor converts it.
 
 ## Toward voice
 

@@ -3,7 +3,7 @@
 
 unit: minds/assistant
 kind: mind              # decides what is said; organs and stores decide nothing
-summary: A chat assistant. An AG-UI run in, a model's answer streamed out as AG-UI events, tools of MCP servers called on the way; keeps nothing.
+summary: A chat assistant. An AG-UI run in, a model's answer streamed out as AG-UI events, tools of MCP servers called on the way; OpenAI's audio API handed on to the same endpoint; keeps nothing.
 contract: CONTRACT.md
 maturity: probe
 
@@ -12,6 +12,8 @@ provides:
     port: 8088
     routes:
       - "POST /run"     # AG-UI: RunAgentInput in (at most 16 MB, attachments inline), an event stream (SSE) out
+      - "POST /v1/audio/transcriptions"   # OpenAI's: a sound in (multipart, at most 25 MB), its text out; served when STT_MODEL is set
+      - "POST /v1/audio/speech"           # OpenAI's: words in (JSON), a sound out, streamed; served when TTS_MODEL is set
   health: GET :8088/health
 
 consumes:
@@ -19,7 +21,7 @@ consumes:
     - unit: litellm     # or any OpenAI-shaped chat endpoint
       via: http
       env: LLM_URL
-      calls: ["POST /v1/chat/completions", "GET /v1/model/info"]   # model/info: LiteLLM's, what a model takes; optional
+      calls: ["POST /v1/chat/completions", "GET /v1/model/info", "POST /v1/audio/transcriptions", "POST /v1/audio/speech"]   # model/info: LiteLLM's, what a model takes; optional. audio: only when STT_MODEL / TTS_MODEL are set
     - unit: any MCP server   # MCP 2026-07-28, Streamable HTTP; whichever MCP_SERVERS names
       via: mcp
       env: MCP_SERVERS
@@ -37,6 +39,9 @@ config:
     MCP_SERVERS: "MCP servers whose tools the model may call, name=url,name=url (Streamable HTTP endpoints)"
     MAX_TOOL_STEPS: "how many times a run asks the model while it keeps calling tools; 8"
     LLM_IDLE_TIMEOUT: "how long a model call may go without a byte before the run ends with RUN_ERROR (model_timed_out); a Go duration, 5m"
+    STT_MODEL: "the model asked to transcribe; POST /v1/audio/transcriptions is served only when set"
+    TTS_MODEL: "the model asked to speak; POST /v1/audio/speech is served only when set"
+    TTS_VOICE: "the voice when a speech request names none"
     PORT: "8088"
   secrets:
     LLM_API_KEY: sent as a Bearer token, when the endpoint asks for one

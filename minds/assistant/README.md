@@ -16,7 +16,9 @@ tokens (the context as the model read it) is kept, logged and sent with
 the run's end in AG-UI's own `usage`. A run the client drops stops the
 model's and the tools' calls under way; a model that fails or goes silent
 ends the run with an error that says which, in the endpoint's own words.
-Every edge goes through its
+OpenAI's audio API (a sound to text, words to a sound) is served too and
+handed on to the same endpoint, with the mind's model: the client never
+holds the endpoint's key, and every call is logged. Every edge goes through its
 standard's own SDK: AG-UI's Go SDK in, OpenAI's Go SDK to the model, the MCP
 Go SDK to tools.
 
@@ -48,6 +50,9 @@ shows that a request with nobody named is refused. A real model: change
 | `MCP_SERVERS` | MCP servers whose tools the model may call: `name=url,name=url`, Streamable HTTP endpoints; none by default |
 | `MAX_TOOL_STEPS` | how many times a run asks the model while it keeps calling tools; `8` |
 | `LLM_IDLE_TIMEOUT` | how long a model call may go without a byte before the run ends with `model_timed_out`; a Go duration, `5m` |
+| `STT_MODEL` | the model asked to transcribe; `POST /v1/audio/transcriptions` is served only when set |
+| `TTS_MODEL` | the model asked to speak; `POST /v1/audio/speech` is served only when set |
+| `TTS_VOICE` | the voice when a speech request names none |
 | `PORT` | `8088` |
 
 `./check.sh`: build, vet, gofmt, the tests (against a fake OpenAI endpoint
