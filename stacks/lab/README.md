@@ -22,7 +22,7 @@ browser → nginx + gate ─ /      → face (static files)
 ## Models
 
 `litellm/models.yaml` names them; the mind asks for `LAB_LLM_MODEL` unless
-the person picks another in the page: the picker in the composer offers the
+the person picks another in the page: the picker in the sidebar offers the
 chat groups (`fake`, `fake-text`, `chat`, `lite`; not the sound or realtime
 ones), `LAB_LLM_MODEL` chosen, and the pick holds until the page is
 reloaded. A group whose key is empty is offered too and fails when asked.
@@ -81,7 +81,9 @@ a run later, from the page; a file over the page's limit is refused there
 and nothing is sent, then a picture and a text file go with a question and
 the answer carries what only the file holds; the picker offers the chat
 groups with `fake` chosen, and picking `fake-text` is what answers the next
-run, `fake` again the one after (`E2E_ONLY=model`); the mic (the browser's fake
+run, `fake` again the one after (`E2E_ONLY=model`); a new chat in the
+sidebar starts empty and runs as a thread of its own, and the first is all
+there when switched back to (`E2E_ONLY=threads`); the mic (the browser's fake
 one) puts what the fake ear heard into the composer and an answer is read
 aloud to the end; on the mind recreated to ask
 `fake-text`, a picture is refused and the page says the model takes none

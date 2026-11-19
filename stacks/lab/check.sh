@@ -51,7 +51,7 @@ restore() { ./restore.sh "$(cat "$work/archive")"; }
 
 run "build"          docker compose --profile e2e build -q
 run "up"             docker compose up -d --wait
-run "e2e: a conversation goes through whole, stopped, failed, a model picked"  docker compose run --rm e2e "$first_user" "$first_password"
+run "e2e: a conversation goes through whole, stopped, failed, a model picked, chats apart"  docker compose run --rm e2e "$first_user" "$first_password"
 run "the mind saw Stop as a cancel"  bash -c 'docker compose logs mind | grep -q "run cancelled"'
 run "the mind logged the call, each event"  bash -c 'docker compose logs mind | grep -q "dir=in .*type=conversation.item.truncate" && docker compose logs mind | grep -q "dir=out .*type=response.output_audio.delta" && docker compose logs mind | grep -q "realtime call closed .*by=client code=1000"'
 run "mind on the whole Realtime set"  env LAB_REALTIME_MODEL=fake-realtime-full docker compose up -d --wait mind

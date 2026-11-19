@@ -299,6 +299,30 @@ async function modelRound() {
   }
 }
 
+// threadsRound: the sidebar's chats. A new one starts empty and runs as a
+// thread of its own; the first is all there when switched back to.
+async function threadsRound() {
+  await page.reload()
+  await page.getByRole('textbox', { name: 'Message input' }).waitFor()
+  const user = page.locator('[data-role="user"]')
+  await say('the first chat')
+  const ids = []
+  page.on('request', (r) => { if (r.url().endsWith('/api/run')) ids.push(JSON.parse(r.postData() ?? '{}').threadId) })
+  await page.getByRole('button', { name: 'New Thread' }).click()
+  const empty = await user.count()
+  await say('the second chat')
+  const second = await user.allInnerTexts()
+  await page.getByText('the first chat', { exact: true }).first().click()
+  await page.getByText('the second chat').first().waitFor({ state: 'detached' }).catch(() => {})
+  const first = await user.allInnerTexts()
+  await say('back in the first')
+  step('a new chat, then back', `${empty} messages in the new one; then ${JSON.stringify(first)}`)
+  if (empty !== 0 || second.join() !== 'the second chat' || first.join() !== 'the first chat' || ids.length !== 2 || ids[0] === ids[1]) {
+    step('FAIL', `chats not apart: ${JSON.stringify({ empty, second, first, ids })}`)
+    failed = true
+  }
+}
+
 // refusedRound: a picture to a model that takes none; the page says so.
 async function refusedRound() {
   await attach(dot)
@@ -398,9 +422,11 @@ try {
   else if (only === 'voice') await voiceRound()
   else if (only === 'call') await callRound()
   else if (only === 'model') await modelRound()
+  else if (only === 'threads') await threadsRound()
   else {
     await fullRound()
     if (fake) await modelRound()
+    await threadsRound()
     await voiceRound()
     if (realtime) await callRound()
   }
