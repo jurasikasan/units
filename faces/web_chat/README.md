@@ -37,7 +37,7 @@ is about the UI's edge, not to learn the face.
 | | |
 |---|---|
 | `POST /api/run` | an AG-UI agent: `RunAgentInput` in, events out as SSE; text messages are what it shows now |
-| `GET /api/v1/models` | OpenAI's list of models, the one a run without a pick goes to first. The picker shows only when this answers |
+| `GET /api/v1/models` | OpenAI's list of models, with `mode` and a speech model's `voices` beside OpenAI's fields; each mode's first is the agent's own. The pickers show only when this answers |
 | `POST /api/v1/audio/transcriptions` | OpenAI's: a recording in, `{text}` out. The mic shows only when this is answered |
 | `POST /api/v1/audio/speech` | OpenAI's: `{input}` in, a sound out. Read-aloud shows only when this is answered |
 | `GET /api/v1/realtime` | OpenAI's Realtime API, a WebSocket: a call. The call button shows only when this is answered |
@@ -58,15 +58,25 @@ Below the chats sit the selectors; those settings move to the subject's
 page once there is one. Collapsed by the button at the top left, a sheet
 on a phone.
 
-## Which model
+## Which model, ear, mouth and voice
 
-A picker in the sidebar offers the models `GET /api/v1/models`
-lists (for the lab's mind, LiteLLM's groups: `fake`, `chat`, `lite`, …),
-the first chosen (`src/Models.tsx`). It is assistant-ui's own
-`model-selector`: the pick goes into the runtime's model context, which the
-AG-UI runtime sends with each run as `forwardedProps.modelName`. The pick
-holds while the page is open; a reload is the first one again. Nothing
-answers there: no picker, and the agent's own default.
+Pickers in the sidebar offer what `GET /api/v1/models` lists (OpenAI's
+list; for the lab's mind, LiteLLM's groups), each list's first chosen
+(`src/Models.tsx`). The agent's entries say what each is for in `mode`
+(`chat` when not said, `audio_transcription`, `audio_speech`) and a speech
+model's `voices`, fields of its own beside OpenAI's.
+
+- **Model**: assistant-ui's own `model-selector`; the pick goes into the
+  runtime's model context, which the AG-UI runtime sends with each run as
+  `forwardedProps.modelName`.
+- **Speech to text**, **Text to speech**, **Voice**: the same selector
+  without the runtime (its props-driven elements); the mic sends the pick
+  as the transcription's `model` (before the sound), read-aloud as the
+  speech's `model` and `voice`. A new speech model brings its first voice;
+  the voice picker shows only when the model's voices are known.
+
+Picks hold while the page is open; a reload is the first ones again.
+Nothing answers there: no pickers, and the agent's own.
 
 ## Attachments
 

@@ -71,9 +71,12 @@ export class TranscriptionDictationAdapter implements DictationAdapter {
   disableInputDuringDictation = true
 
   private path: string
+  private pick: () => { model?: string }
 
-  constructor(path = '/api/v1/audio/transcriptions') {
+  // pick is the model to ask, read at each call; none: the agent's own.
+  constructor(path = '/api/v1/audio/transcriptions', pick: () => { model?: string } = () => ({})) {
     this.path = path
+    this.pick = pick
   }
 
   static isSupported() {
@@ -89,6 +92,7 @@ export class TranscriptionDictationAdapter implements DictationAdapter {
     let cancelled = false
     const chunks: Blob[] = []
     const path = this.path
+    const pick = this.pick
 
     const session: DictationAdapter.Session = {
       status: { type: 'starting' },
@@ -111,6 +115,9 @@ export class TranscriptionDictationAdapter implements DictationAdapter {
         stream?.getTracks().forEach((t) => t.stop())
         const type = recorder.mimeType || 'audio/webm'
         const form = new FormData()
+        // The model before the sound, where OpenAI's clients put it.
+        const { model } = pick()
+        if (model) form.append('model', model)
         form.append('file', new Blob(chunks, { type }), `dictation.${extension(type)}`)
         let result: DictationAdapter.Result = { transcript: '', isFinal: true }
         try {
@@ -157,9 +164,13 @@ export class TranscriptionDictationAdapter implements DictationAdapter {
 // and played when they have all come.
 export class SpeechEndpointAdapter implements SpeechSynthesisAdapter {
   private path: string
+  private pick: () => { model?: string; voice?: string }
 
-  constructor(path = '/api/v1/audio/speech') {
+  // pick is the model and voice to ask, read at each call; none: the
+  // agent's own.
+  constructor(path = '/api/v1/audio/speech', pick: () => { model?: string; voice?: string } = () => ({})) {
     this.path = path
+    this.pick = pick
   }
 
   speak(text: string): SpeechSynthesisAdapter.Utterance {
@@ -189,7 +200,7 @@ export class SpeechEndpointAdapter implements SpeechSynthesisAdapter {
       try {
         const resp = await post(this.path, {
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ input: text }),
+          body: JSON.stringify({ input: text, ...this.pick() }),
           signal: abort.signal,
         })
         url = URL.createObjectURL(await resp.blob())

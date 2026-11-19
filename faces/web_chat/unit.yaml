@@ -14,9 +14,9 @@ provides:
 consumes:
   agui: POST /api/run   # any AG-UI agent, on the same origin; the picked model in forwardedProps.modelName
   http:                 # OpenAI's API, on the same origin; each shows only when answered
-    - GET /api/v1/models                  # the model picker: OpenAI's list, the first chosen
-    - POST /api/v1/audio/transcriptions   # the mic (HEAD not 404): a recording (WebM/Opus, Ogg or MP4, as the browser makes) in, {text} out
-    - POST /api/v1/audio/speech           # read aloud: {input} in, a sound the browser plays out
+    - GET /api/v1/models                  # the pickers: OpenAI's list with mode and voices (the agent's fields), each mode's first chosen
+    - POST /api/v1/audio/transcriptions   # the mic (HEAD not 404), model as picked: a recording (WebM/Opus, Ogg or MP4, as the browser makes) in, {text} out
+    - POST /api/v1/audio/speech           # read aloud, model and voice as picked: {input} in, a sound the browser plays out
     - GET /api/v1/realtime                # a call: OpenAI's Realtime schema over a WebSocket, PCM16 24 kHz both ways
 
 wire: []

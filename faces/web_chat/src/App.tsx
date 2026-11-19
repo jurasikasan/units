@@ -9,7 +9,7 @@ import { SpeechEndpointAdapter, TranscriptionDictationAdapter } from '@/voice'
 import { VoiceNotice } from '@/VoiceNotice'
 import { RealtimeCallAdapter } from '@/realtime'
 import { Call } from '@/Call'
-import { Models, useModels } from '@/Models'
+import { Models, useModels, type SoundPick } from '@/Models'
 import { ChatSidebar } from '@/Sidebar'
 import { useThreads } from '@/threads'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/upstream/components/ui/sidebar'
@@ -39,7 +39,7 @@ async function served(path: string) {
   }
 }
 
-function useVoice() {
+function useVoice(sound: SoundPick) {
   const [voice, setVoice] = useState<{
     dictation?: TranscriptionDictationAdapter
     speech?: SpeechEndpointAdapter
@@ -50,15 +50,15 @@ function useVoice() {
     Promise.all([served(TRANSCRIBE), served(SPEAK), served(CALL)]).then(([ear, mouth, line]) => {
       if (!live) return
       setVoice({
-        dictation: ear && TranscriptionDictationAdapter.isSupported() ? new TranscriptionDictationAdapter(TRANSCRIBE) : undefined,
-        speech: mouth ? new SpeechEndpointAdapter(SPEAK) : undefined,
+        dictation: ear && TranscriptionDictationAdapter.isSupported() ? new TranscriptionDictationAdapter(TRANSCRIBE, () => ({ model: sound.stt })) : undefined,
+        speech: mouth ? new SpeechEndpointAdapter(SPEAK, () => ({ model: sound.tts, voice: sound.voice })) : undefined,
         call: line && RealtimeCallAdapter.isSupported() ? new RealtimeCallAdapter(CALL) : undefined,
       })
     })
     return () => {
       live = false
     }
-  }, [])
+  }, [sound])
   return voice
 }
 
@@ -71,8 +71,9 @@ function useVoice() {
 // to its Realtime API there (src/realtime.ts).
 export default function App() {
   const agent = useMemo(() => new HttpAgent({ url: '/api/run', fetch: fetchOrLogIn, threadId: crypto.randomUUID() }), [])
-  const { dictation, speech, call } = useVoice()
-  const models = useModels(fetchOrLogIn)
+  const sound = useMemo<SoundPick>(() => ({}), [])
+  const { dictation, speech, call } = useVoice(sound)
+  const offers = useModels(fetchOrLogIn)
   const threads = useThreads(agent)
   const runtime = useAgUiRuntime({ agent, adapters: { attachments, dictation, speech, voice: call, threadList: threads.adapter } })
   const { bind } = threads
@@ -82,7 +83,7 @@ export default function App() {
     <AssistantRuntimeProvider runtime={runtime}>
       <TooltipProvider>
         <SidebarProvider>
-          <ChatSidebar settings={<Models models={models} />} />
+          <ChatSidebar settings={<Models offers={offers} sound={sound} />} />
           <SidebarInset className="h-dvh">
             <SidebarTrigger className="absolute top-2 left-2 z-10" />
             <Thread components={call ? { ComposerExtra: Call } : undefined} />
