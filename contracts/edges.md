@@ -16,6 +16,7 @@ people ──AG-UI 1.0──▶ faces/web_chat ──AG-UI──▶ minds/assist
                           │                          ├──MCP 2026-07-28──▶ units' tools
                           │                          └──units' own HTTP / CloudEvents──▶ threads, subjects, …
                           └──a call: OpenAI Realtime, WebSocket──▶ minds/assistant ──as is──▶ LiteLLM /v1/realtime ──▶ a realtime model
+                                                                                                   └──▶ minds/realtime: hearing → a chat model → speaking
 ```
 
 | edge | standard | library here |
@@ -24,7 +25,7 @@ people ──AG-UI 1.0──▶ faces/web_chat ──AG-UI──▶ minds/assist
 | models | OpenAI Chat Completions or Responses, through LiteLLM | `openai-go/v3` v3.100.0; LiteLLM v1.108.0 |
 | tools | MCP 2026-07-28 | `modelcontextprotocol/go-sdk` — v1.8.0 speaks it (`Stateless: true` over HTTP); v1.1.0 speaks 2025-06-18 |
 | sound, turn by turn | OpenAI's audio API (`/v1/audio/transcriptions`, `/v1/audio/speech`), through LiteLLM | assistant-ui's `DictationAdapter`, `SpeechSynthesisAdapter` (face, our implementations); the mind hands the calls on as they are |
-| voice | OpenAI Realtime (WebRTC, WebSocket, SIP); Gemini Live a different shape; OpenAI Live (`/v1/live/sessions`) a newer third | assistant-ui's `RealtimeVoiceAdapter`, our own over a WebSocket (face; its `OpenAIRealtimeVoiceAdapter` and `GeminiLiveVoiceAdapter` go to a provider with a key in the page); the mind relays the session as is to LiteLLM's `/v1/realtime` |
+| voice | OpenAI Realtime (WebRTC, WebSocket, SIP); Gemini Live a different shape; OpenAI Live (`/v1/live/sessions`) a newer third | assistant-ui's `RealtimeVoiceAdapter`, our own over a WebSocket (face; its `OpenAIRealtimeVoiceAdapter` and `GeminiLiveVoiceAdapter` go to a provider with a key in the page); the mind relays the session as is to LiteLLM's `/v1/realtime`; `minds/realtime` answers it there, made of hearing, a chat model and speaking (our own Go, `coder/websocket`, go-sdk v1.1.0 toward the organs) |
 
 ## The map
 
@@ -39,7 +40,7 @@ people ──AG-UI 1.0──▶ faces/web_chat ──AG-UI──▶ minds/assist
 | audio as a part | ✓ in only | ✓ in and out | in ✓, out *(unverified)* | ✓ result content | — | engines ✓ (OpenAI audio API); threads `audio`; mind: in, WAV and MP3 |
 | what a model takes | – | ext (LiteLLM `/v1/model/info`, `supports_vision` …) | – | – | – | mind: a part the model does not take, or nothing carries, ends the run with `RUN_ERROR` (UNIT-33) |
 | speech to text, text to speech | – | – (the audio API beside it) | – | – | ✓ (transcripts, voice out) | engines ✓, models in the lab's LiteLLM (UNIT-46); mind: the audio API handed on to LiteLLM, the picked model or its own, logged (UNIT-45, UNIT-46); face: mic into the composer, read-aloud, ear, mouth and voice picked in the sidebar |
-| live voice | – | – | – | – | ✓ | face: a call in the schema (mic, voice out, mute, hang up, transcripts in the thread, truncate); mind: relays it to LiteLLM, each event logged (UNIT-40); hearing, speaking, web_audio_call, sip_phone: RTP and MRCP-shaped tools, not this schema (UNIT-41, UNIT-47) |
+| live voice | – | – | – | – | ✓ | face: a call in the schema (mic, voice out, mute, hang up, transcripts in the thread, truncate); mind: relays it to LiteLLM, each event logged (UNIT-40); minds/realtime: the schema's whole set from hearing, a chat model and speaking (UNIT-47); web_audio_call, sip_phone: RTP lines, not this schema |
 | tool calls | ✓ | ✓ | ✓, + hosted and remote MCP | ✓ | ✓, + MCP | MCP servers on go-sdk v1.1.0 (web_audio_call v1.8.0); threads `tool_call`/`tool_result`; mind: none |
 | reasoning shown | ✓ | ext (`reasoning_content`) | ✓ summary | – | config only | mind ✓ as AG-UI reasoning; threads has no block |
 | reasoning returned to the model | ✓ `encryptedValue` | ext (`thinking_blocks`, `provider_specific_fields`) | ✓ `encrypted_content` | – | – | mind ✓, to the model that made it only |
@@ -101,6 +102,10 @@ WebRTC and SIP do by themselves. Azure and LiteLLM's `/v1/realtime` speak it
 (LiteLLM translates Gemini Live into it); llama.cpp speaks a subset with no
 VAD and no truncate. Gemini Live keeps only what reached the client and has no
 truncate.
+Ours, `minds/realtime` (UNIT-47), is a cascade behind the same schema: hearing
+finds the utterance and its words, a chat model through LiteLLM answers,
+speaking says it a sentence at a time and reports what went out; it sends the
+whole set and takes `truncate` (Probed, our own call).
 
 **Tool calls.** AG-UI `TOOL_CALL_START/ARGS/END/RESULT`, and tools the face
 itself offers in `RunAgentInput.tools`. Chat Completions `tools`,
@@ -166,8 +171,8 @@ exists only as a child thread.
 | mind calls no tools | adapter (mind) | an MCP client on go-sdk v1.8 |
 | units' MCP on 2025-06-18 | unit | each unit to go-sdk v1.8, stateless, before the mind calls it |
 | job_runner's own long-running verbs | unit, later | Tasks extension once go-sdk has it |
-| live voice is not the Realtime schema | our own view, partly | below; our own realtime from hearing and speaking is UNIT-47 |
-| a real model's flow lacks half the schema | the provider's and LiteLLM's | no `speech_started`, an interruption as an early `response.done`, `truncate` dropped (Probed, a call); the face takes both signs, ours should send the whole set |
+| live voice is not the Realtime schema | our own view, partly | minds/realtime speaks it from hearing and speaking (UNIT-47); event by event below; the organs' own gaps are UNIT-49, UNIT-50, UNIT-51 |
+| a real model's flow lacks half the schema | the provider's and LiteLLM's | no `speech_started`, an interruption as an early `response.done`, `truncate` dropped (Probed, a call); the face takes both signs; ours (`cascade`) sends the whole set |
 | OpenAI's audio API has no voice list, and its model list no mode | the standard's | our engines serve `GET /v1/audio/voices`, LiteLLM carries it only as a pass-through we configure per model (`/audio/voices/<model>`); the mind adds `mode` and `voices` to its `/v1/models` entries |
 | threads: no document or reasoning block, no branch per entry | unit | when the mind first writes to threads |
 | usage not shown | face | small; assistant-ui does not read it |
@@ -206,6 +211,76 @@ exists only as a child thread.
 - **Voice through the same mind.** assistant-ui sends voice straight to a
   provider; here voice comes to the mind, which may speak the Realtime schema
   to the face while hearing and speaking stay units.
+
+## Realtime, event by event
+
+What a call in OpenAI's Realtime schema (GA, WebSocket) asks for, against
+what hearing and speaking carry — the spec our own realtime (UNIT-47) is
+built from: a cascade, hearing → a model through LiteLLM → speaking, behind
+`/v1/realtime`. Sorted:
+
+- **equal** — the same thing in other words; the cascade translates.
+- **the cascade's** — neither unit has it and neither should: the
+  conversation's own state (items, responses, the model's turn), held by the
+  service that speaks the schema.
+- **bug** — hearing or speaking lacks what it should carry; a task each.
+- **our own view** — we decide it differently, on purpose (see Our own view).
+- **not now** — not carried, nobody asks for it yet.
+
+Client → server:
+
+| Realtime | ours | sort |
+|---|---|---|
+| `session.update` `audio.input.format` (`audio/pcm` 24 kHz, `pcmu`, `pcma`) | hearing takes L16 48 kHz, PCMU, PCMA as RTP (§4) | equal: the cascade resamples 24 → 48 kHz |
+| `session.update` `audio.input.transcription` `{model, language, prompt}` | hearing: `speech_language` at `open`; the model is `STT_MODEL`, one per deployment; no prompt | **bug** (UNIT-49): the ear picked per session (UNIT-46's sidebar) cannot reach hearing |
+| `session.update` `turn_detection: server_vad` `{threshold, prefix_padding_ms, silence_duration_ms}` | `HEARING_ONSET`, `HEARING_PREROLL`, `HEARING_MERGE_WINDOW`, one per deployment; threshold the VAD's | **bug**, UNIT-49 too: per session at `open` |
+| `turn_detection: semantic_vad` `{eagerness}` | — | not now: an utterance ends on silence |
+| `turn_detection.create_response` | hearing decides nothing (§1) | the cascade's: answer each utterance, or wait for `response.create` |
+| `turn_detection.interrupt_response` | hearing reports a start, speaking stops only when told (`barge_in_occurred`) | our own view: barge-in is the driver's call — `true` makes the cascade the reflex, `false` leaves it to the client's `response.cancel` |
+| `turn_detection.idle_timeout_ms` → `input_audio_buffer.timeout_triggered` | `HEARING_IDLE_TIMEOUT` closes a session with no packets: another thing | not now |
+| `audio.input.noise_reduction` | — (the browser's `noiseSuppression`) | not now |
+| `audio.output.voice` | speaking's `voice_name` `<engine>_<voice>` at `open` (`piper_irina`: UNIT-46's model and voice) | equal; both fix it once audio has gone out |
+| `audio.output.speed` | — | not now |
+| `audio.output.format` | speaking sends L16 48 kHz (§4) | equal: the cascade resamples 48 → 24 kHz |
+| `instructions`, `tools`, `tool_choice`, `max_output_tokens` | — | the cascade's: the model's request through LiteLLM |
+| `input_audio_buffer.append` | RTP to hearing's `audio_in` | equal |
+| `input_audio_buffer.commit`, `.clear` (turns by the client, `turn_detection: null`) | hearing always finds utterances itself; no "end it now", no "forget it" | not now: push-to-talk, when a face needs it |
+| `conversation.item.create` (text, a `function_call_output`) | — | the cascade's |
+| `conversation.item.truncate` `{item_id, audio_end_ms}` | speaking's `spoken`: the prefix sent, once, at `speak-complete` | **bug** (UNIT-51): speaking says what went out only at the end and not where in the sound each piece began, so "heard up to 3.2 s" cannot be turned into words but by guessing; a marker per piece (MRCP's SPEECH-MARKER, by the stream's own clock) would |
+| `conversation.item.retrieve`, `.delete` | — | the cascade's |
+| `response.create` | — | the cascade's: one turn of the model, its words to `speak` sentence by sentence |
+| `response.cancel` | speaking `stop` → `speak-complete` `cancelled` | equal |
+| `output_audio_buffer.clear` (WebRTC, SIP) | — | web_audio_call's, not this WebSocket |
+
+Server → client:
+
+| Realtime | ours | sort |
+|---|---|---|
+| `session.created`, `.updated` | hearing and speaking `open` | the cascade's |
+| `input_audio_buffer.speech_started` `{audio_start_ms, item_id}` | hearing `speechrecog.start-of-input` `{started_at}` | equal; `started_at` by the RTP clock is `audio_start_ms`. A short word's start comes late, with its text (§3, Short): our own view, a cough never interrupts |
+| `input_audio_buffer.speech_stopped` `{audio_end_ms}` | hearing knows it `HEARING_MERGE_WINDOW` after the last speech, but says it only in `recognition-complete` `ended_at`, after STT | **bug** or not (UNIT-50): an end of input when it is known, before the words (MRCP has none). While hearing hears only speech, words are what "heard" means; open until other recognisers come |
+| `input_audio_buffer.committed` | each utterance an implicit RECOGNIZE (§7) | the cascade's, at the end of speech |
+| `conversation.item.input_audio_transcription.completed` `{transcript}` | `recognition-complete` `text`, `language` | equal |
+| `conversation.item.input_audio_transcription.failed` | `recognition-complete` `recognizer-error` | equal; `no-match` (empty text) is a completed one with nothing in it |
+| `conversation.item.input_audio_transcription.delta` | — (§6, needs a streaming STT) | equal: the schema has deltas only for models that stream; whisper sends `completed` alone |
+| `conversation.item.added`, `.done`, `response.created`, `response.output_item.*`, `response.content_part.*` | — | the cascade's |
+| `response.output_audio.delta` | speaking's RTP | equal |
+| `response.output_audio_transcript.delta` | the model's words as they are spoken: `speak` per sentence | equal, the cascade's words |
+| `response.output_audio.done`, `.output_audio_transcript.done` | the response's last `speak-complete` `normal` | equal |
+| `response.done` `completed` | every `speak-complete` `normal` (or `kept_on_barge_in` and played out) | equal |
+| `response.done` `cancelled` `{reason: turn_detected}` | `speak-complete` `barge-in`, `spoken` | equal |
+| `response.done` `cancelled` `{reason: client_cancelled}` | `speak-complete` `cancelled` | equal |
+| `response.done` `failed` | `speak-complete` `error`, the model's error | equal |
+| — | `kill_on_barge_in: false`, `kept_on_barge_in` | our own view: "let me finish" is the speaker's per phrase; Realtime has no word for it, the cascade leaves it `true` |
+| `conversation.item.truncated` | — | the cascade's: the answer in its history cut to what was heard |
+| `response.output_text.*` (text out) | — | the cascade's, when a session asks for text only |
+| `response.function_call_arguments.*`, `response.mcp_call*`, `mcp_list_tools.*` | — | the cascade's, the model's tools; not in UNIT-47 |
+| `output_audio_buffer.started/stopped/cleared` | — | web_audio_call's (WebRTC, SIP) |
+| `rate_limits.updated` | — | not now |
+| `error` | MCP tool errors, `session-closed` `failed` | equal |
+
+Beside the schema: hearing does not hear itself (no echo cancellation, §6
+Open) — over a browser's WebSocket the browser's `echoCancellation` does it.
 
 ## Probed
 
@@ -332,7 +407,8 @@ are in the fake's script and README.
   `speechsynth.speak-complete` with `spoken` and `completion_cause:
   barge-in` is what `truncate` and a cancelled `response.done` say;
   web_audio_call is the line (WebRTC and Opus where this is a WebSocket
-  and PCM16). The mapping event by event is UNIT-41.
+  and PCM16). The mapping event by event: "Realtime, event by event" above,
+  built in UNIT-47 (below).
 
 Our engines as models (UNIT-46), on 2026-11-19, LiteLLM v1.108.0, bot's GPU
 box reached over the VPN:
@@ -354,6 +430,44 @@ box reached over the VPN:
   router picks it. A `voice` an engine does not have is its 400 in its own
   words; the mind does not check it against the list.
 
+Our own call (UNIT-47), on 2026-11-19: `minds/realtime` behind LiteLLM
+v1.108.0 as `cascade` (`openai/` with it as `api_base`), the face's call
+through the mind unchanged (lab e2e), and on its own with real engines on
+CPU (its showcase: piper says the caller's question, whisper `base` hears it
+through hearing's energy detector, a model that echoes answers, speaking
+says it with piper).
+
+- **What comes, per utterance and answer**: `input_audio_buffer.speech_started`
+  (hearing's `start-of-input`, `HEARING_ONSET` into the speech);
+  `speech_stopped`, `committed`, `conversation.item.added`,
+  `conversation.item.input_audio_transcription.completed`,
+  `conversation.item.done`, all at once when hearing has the words; then
+  `response.created`, `response.output_item.added`, `conversation.item.added`,
+  `response.content_part.added`, a `response.output_audio_transcript.delta`
+  per sentence as it is given to speaking, `response.output_audio.delta` (100
+  ms each) as speaking's sound comes back, and at the end
+  `response.output_audio.done`, `response.output_audio_transcript.done` (the
+  whole text), `response.content_part.done`, `response.output_item.done`,
+  `conversation.item.done`, `response.done` `completed`.
+- **Barge-in**: the caller's `speech_started` while an answer goes, then at
+  once `response.output_item.done` (`incomplete`), `response.done`
+  `cancelled` `{reason: turn_detected}` with what went out; the client's
+  `truncate` is answered with `conversation.item.truncated`, and the answer
+  in the conversation is what was heard; the next utterance's answer is
+  asked with it.
+- **Time** (the showcase, CPU): the caller stopped at 1.38 s of sound, the
+  words came at 1.92 s (the merge window, 400 ms, then whisper), the first
+  sentence at 2.28 s, its sound at 2.42 s: about 0.9 s from the end of speech
+  to the answer's sound, the model taking no time. `speech_stopped` comes
+  with the words, not when speech ended (UNIT-50).
+- **On fakes in the lab** (fake ear, fake model, a quarter-second beep per
+  sentence): the face's call heard, answered, was interrupted and truncated,
+  muted and hung up, as on `fake-realtime-full`.
+- **What it does not carry yet**: tools in the session, push-to-talk
+  (`commit`, `clear`), text-only answers; the ear and turn timings are
+  hearing's, per deployment (UNIT-49); `truncate` within a sentence is a
+  guess by letters (UNIT-51).
+
 ## Not verified
 
 - Anthropic-shaped reasoning (signatures, `redacted_thinking`) live, and
@@ -362,4 +476,6 @@ box reached over the VPN:
 - A free realtime provider; a local llama.cpp behind `/v1/realtime`.
 - A call in Safari and Firefox (Chromium only, fake mic), and a person's own
   voice and echo in a real room.
+- Our own call (`cascade`) with a person's voice in a browser, on silero's
+  VAD, whisper on the GPU box and a real chat model.
 - OpenAI Live's interruption semantics, and whether it replaces Realtime.
