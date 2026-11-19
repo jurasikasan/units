@@ -173,6 +173,7 @@ exists only as a child thread.
 | job_runner's own long-running verbs | unit, later | Tasks extension once go-sdk has it |
 | live voice is not the Realtime schema | our own view, partly | minds/realtime speaks it from hearing and speaking (UNIT-47); event by event below; the organs' own gaps are UNIT-49, UNIT-50, UNIT-51 |
 | a real model's flow lacks half the schema | the provider's and LiteLLM's | no `speech_started`, an interruption as an early `response.done`, `truncate` dropped (Probed, a call); the face takes both signs; ours (`cascade`) sends the whole set |
+| a cascade's chat model has no field in Realtime | the standard's | `session.chat_model`, ours; the ear and the voice ride in the schema's own fields (UNIT-49) |
 | OpenAI's audio API has no voice list, and its model list no mode | the standard's | our engines serve `GET /v1/audio/voices`, LiteLLM carries it only as a pass-through we configure per model (`/audio/voices/<model>`); the mind adds `mode` and `voices` to its `/v1/models` entries |
 | threads: no document or reasoning block, no branch per entry | unit | when the mind first writes to threads |
 | usage not shown | face | small; assistant-ui does not read it |
@@ -232,8 +233,8 @@ Client → server:
 | Realtime | ours | sort |
 |---|---|---|
 | `session.update` `audio.input.format` (`audio/pcm` 24 kHz, `pcmu`, `pcma`) | hearing takes L16 48 kHz, PCMU, PCMA as RTP (§4) | equal: the cascade resamples 24 → 48 kHz |
-| `session.update` `audio.input.transcription` `{model, language, prompt}` | hearing: `speech_language` at `open`; the model is `STT_MODEL`, one per deployment; no prompt | **bug** (UNIT-49): the ear picked per session (UNIT-46's sidebar) cannot reach hearing |
-| `session.update` `turn_detection: server_vad` `{threshold, prefix_padding_ms, silence_duration_ms}` | `HEARING_ONSET`, `HEARING_PREROLL`, `HEARING_MERGE_WINDOW`, one per deployment; threshold the VAD's | **bug**, UNIT-49 too: per session at `open` |
+| `session.update` `audio.input.transcription` `{model, language, prompt}` | hearing: `speech_language` at `open`; the model is `STT_MODEL`, one per deployment; no prompt | equal since UNIT-49: hearing's `open` takes `stt_model`, `stt_prompt`; the face sends the ear picked in the sidebar here |
+| `session.update` `turn_detection: server_vad` `{threshold, prefix_padding_ms, silence_duration_ms}` | `HEARING_ONSET`, `HEARING_PREROLL`, `HEARING_MERGE_WINDOW`, one per deployment; threshold the VAD's | equal since UNIT-49: `merge_window_ms`, `preroll_ms` at `open`; onset has no field here |
 | `turn_detection: semantic_vad` `{eagerness}` | — | not now: an utterance ends on silence |
 | `turn_detection.create_response` | hearing decides nothing (§1) | the cascade's: answer each utterance, or wait for `response.create` |
 | `turn_detection.interrupt_response` | hearing reports a start, speaking stops only when told (`barge_in_occurred`) | our own view: barge-in is the driver's call — `true` makes the cascade the reflex, `false` leaves it to the client's `response.cancel` |
@@ -243,6 +244,7 @@ Client → server:
 | `audio.output.speed` | — | not now |
 | `audio.output.format` | speaking sends L16 48 kHz (§4) | equal: the cascade resamples 48 → 24 kHz |
 | `instructions`, `tools`, `tool_choice`, `max_output_tokens` | — | the cascade's: the model's request through LiteLLM |
+| — (the chat model that answers) | — | the cascade's, ours: `chat_model` in the session; the schema's `model` is the realtime model itself, so a cascade has no standard field for its parts' models |
 | `input_audio_buffer.append` | RTP to hearing's `audio_in` | equal |
 | `input_audio_buffer.commit`, `.clear` (turns by the client, `turn_detection: null`) | hearing always finds utterances itself; no "end it now", no "forget it" | not now: push-to-talk, when a face needs it |
 | `conversation.item.create` (text, a `function_call_output`) | — | the cascade's |
@@ -465,8 +467,8 @@ says it with piper).
   muted and hung up, as on `fake-realtime-full`.
 - **What it does not carry yet**: tools in the session, push-to-talk
   (`commit`, `clear`), text-only answers; the ear and turn timings are
-  hearing's, per deployment (UNIT-49); `truncate` within a sentence is a
-  guess by letters (UNIT-51).
+  hearing's, per deployment (UNIT-49, since taken per session from the
+  call); `truncate` within a sentence is a guess by letters (UNIT-51).
 
 ## Not verified
 
