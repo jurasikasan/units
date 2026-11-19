@@ -4,8 +4,8 @@
 # and the answer carries it back (the fake model, through mind and LiteLLM);
 # Stop ends a run, which the mind logs as cancelled; a call goes through the
 # mind to the fake realtime model and back, interrupted, muted and hung up,
-# in the flow Gemini sent and in the schema's whole set, every event in the
-# mind's log; and a model answering
+# in the flow Gemini sent, in the schema's whole set, and on our own
+# (cascade: hearing, the fake model, speaking), every event in the mind's log; and a model answering
 # 429 or 500 ends one with the mind's error on the page;
 # on a model declared to take words only, a picture is refused in words;
 # the chat is closed to nobody, a person gets mail; gate, mind and face are
@@ -57,6 +57,9 @@ run "the mind logged the call, each event"  bash -c 'docker compose logs mind | 
 run "mind on the whole Realtime set"  env LAB_REALTIME_MODEL=fake-realtime-full docker compose up -d --wait mind
 run "e2e: a call, interrupted by speech_started"  env LAB_REALTIME_MODEL=fake-realtime-full E2E_ONLY=call docker compose run --rm e2e "$first_user" "$first_password"
 run "the model was told what was heard"  bash -c 'docker compose logs mind | grep -q "dir=out .*type=conversation.item.truncated"'
+run "mind on our own realtime"  env LAB_REALTIME_MODEL=cascade docker compose up -d --wait mind
+run "e2e: a call on cascade, hearing and speaking"  env LAB_REALTIME_MODEL=cascade E2E_ONLY=call docker compose run --rm e2e "$first_user" "$first_password"
+run "cascade: heard, answered, talked over, truncated"  bash -c 'l=$(docker compose logs realtime); for w in "type=speechrecog.recognition-complete" "msg=answered" "reason=turn_detected" "answer truncated" "type=conversation.item.truncated"; do echo "$l" | grep -q "$w" || { echo "no $w"; exit 1; }; done'
 run "mind on a text-only model"  env LAB_LLM_MODEL=fake-text docker compose up -d --wait mind
 # The same LAB_LLM_MODEL, or compose puts the mind back on fake on the way.
 run "e2e: a picture to it is refused, said"  env LAB_LLM_MODEL=fake-text E2E_ONLY=refused docker compose run --rm e2e "$first_user" "$first_password"

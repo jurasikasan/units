@@ -15,6 +15,7 @@ its own check is its showcase.
 browser → nginx + gate ─ /      → face (static files)
                        └ /api/  → mind ─┬→ LiteLLM ─┬→ fake_llm (answers from files)
                                         │           ├→ fake_realtime (a call, from a script)
+                                        │           ├→ realtime (a call: hearing → a chat model → speaking)
                                         │           └→ real providers
                                         └→ MCP: LAB_MCP_SERVERS (profile everything: a sum, an image, …)
 ```
@@ -45,6 +46,7 @@ fails when asked.
 | `tts` | Gemini 3.8 flash-lite TTS: WAV only, Gemini's voices (OpenAI's names map to some); to try, not to run on |
 | `fake-realtime` | [`fake_realtime`](fake_realtime/) behind OpenAI's Realtime API: hears by loudness, answers from a script with a tone, in the event flow Gemini Live sent through LiteLLM |
 | `fake-realtime-full` | the same, in the schema's whole set (`speech_started`, a cancelled answer, `truncated`) |
+| `cascade` | our own: [`minds/realtime`](../../minds/realtime/) made of [`senses/hearing`](../../senses/hearing/) (ear `LAB_CASCADE_STT_MODEL`), a chat model (`LAB_CASCADE_LLM_MODEL`) and [`abilities/speaking`](../../abilities/speaking/) (voice `LAB_CASCADE_VOICE`), all through this LiteLLM; the whole set, truncate honoured. On the defaults the fake ear, the fake model and the fake mouth's beep |
 
 The mind serves OpenAI's audio API at `/api/v1/audio/…` and hands it on with
 `LAB_STT_MODEL` and `LAB_TTS_MODEL`: the page's mic puts what was said into
@@ -53,7 +55,9 @@ the composer, and an answer can be read aloud. A call goes to
 message ends it), which the mind relays to LiteLLM's with
 `LAB_REALTIME_MODEL`; the call button shows only then. No realtime model
 on a key we hold is to be run on (Gemini Live is for tests only), so the lab
-has the fakes; our own is UNIT-47.
+has the fakes and our own, `cascade`. Its organs' events go on a Redis of
+their own, `bus`; hearing finds speech by loudness unless
+`LAB_CASCADE_VAD=silero` (which needs silero's VAD at `vad`).
 nginx writes its site from `site.conf.template`, and LiteLLM reads
 `models.yaml`, only when they start: after pulling a change to either (the
 call came with both), `docker compose up -d --force-recreate nginx litellm`;
@@ -116,7 +120,16 @@ docker compose run --rm -v "$PWD/speech.wav:/voice.wav:ro" -e E2E_VOICE_FILE=/vo
 ```
 
 A call alone (`E2E_ONLY=call`): the fake mic's tone is an utterance every
-three seconds, so the second answer is interrupted by the next.
+three seconds, so the second answer is interrupted by the next. On our own:
+
+```bash
+LAB_REALTIME_MODEL=cascade docker compose up -d --wait mind
+LAB_REALTIME_MODEL=cascade E2E_ONLY=call docker compose run --rm e2e alice alice-lab
+```
+
+With real parts, in `.env`: `LAB_CASCADE_STT_MODEL=whisper-gpu`,
+`LAB_CASCADE_LLM_MODEL=chat` (or `local`), `LAB_CASCADE_VOICE=piper_irina`
+(the `engines` profile) or `voxcpm_<voice>`, `LAB_CASCADE_LANGUAGE=ru`.
 
 
 ## .env
@@ -136,7 +149,8 @@ three seconds, so the second answer is interrupted by the next.
 | `LAB_TTS_VOICE` | `LAB_TTS_MODEL`'s voice when the page names none; OpenAI's speech wants one |
 | `LAB_STT_GPU_URL`, `LAB_VOXCPM_URL`, `LAB_OLLAMA_URL` | the GPU engines, each with `/v1` (Ollama without); empty, their models fail when asked |
 | `LAB_SILERO_ACCEL` | silero's image: `xpu` (falls back to CPU), `cuda` |
-| `LAB_REALTIME_MODEL` | the model a call goes to: `fake-realtime`, `fake-realtime-full`; empty, the page has no call button |
+| `LAB_REALTIME_MODEL` | the model a call goes to: `fake-realtime`, `fake-realtime-full`, `cascade`; empty, the page has no call button |
+| `LAB_CASCADE_STT_MODEL`, `LAB_CASCADE_LLM_MODEL`, `LAB_CASCADE_VOICE`, `LAB_CASCADE_LANGUAGE`, `LAB_CASCADE_PROMPT`, `LAB_CASCADE_VAD` | `cascade`'s parts: hearing's ear (a model here), the chat model, speaking's `<model>_<voice>`, hearing's language hint, the instructions, `energy` or `silero` |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_KEY`, `ZAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` | the providers' keys |
 | `LAB_SYSTEM_PROMPT` | first in every prompt the mind sends |
 | `LAB_MCP_SERVERS` | the MCP servers whose tools the model may call, `name=url,…`; none when empty. `everything=http://everything:3001/mcp` with `everything` in `COMPOSE_PROFILES` gives the model MCP's reference server, as `check.sh` does |

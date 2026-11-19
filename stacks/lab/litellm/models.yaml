@@ -152,6 +152,15 @@ model_list:
       api_key: fake
     model_info: {mode: realtime}
 
+  # Our own realtime (minds/realtime): hearing, a chat model, speaking,
+  # behind the same schema; the full set of events, truncate honoured.
+  - model_name: cascade
+    litellm_params:
+      model: openai/cascade
+      api_base: http://realtime:8080
+      api_key: none
+    model_info: {mode: realtime}
+
 router_settings:
   fallbacks:
     - stt: [whisper-gpu]

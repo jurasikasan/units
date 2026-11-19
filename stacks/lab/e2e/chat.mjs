@@ -240,7 +240,10 @@ async function callRound() {
   step('what was answered, in the thread', JSON.stringify(answered.slice(-60)))
   const sound = count(got, 'response.output_audio.delta')
   step('sound out, sound back', `${count(sent, 'input_audio_buffer.append')} chunks out, ${sound} back`)
-  if (!heard.includes('capital of France') || !answered.includes('Paris') || !sound) {
+  // The scripted fakes answer from their script; ours (cascade) is the
+  // fake ear's words and the fake model's answer, through hearing and speaking.
+  const [ear, mouth] = realtime === 'cascade' ? ['fake ear heard', 'fake LLM'] : ['capital of France', 'Paris']
+  if (!heard.includes(ear) || !answered.includes(mouth) || !sound) {
     step('FAIL', 'the call did not carry both sides')
     failed = true
   }

@@ -202,6 +202,64 @@ services:
     profiles: [engines]
     restart: unless-stopped
 
+  # Our own realtime model (minds/realtime): a call in OpenAI's Realtime
+  # schema made of organs — hearing finds the caller's utterances and their
+  # words, a chat model through LiteLLM answers, speaking says it. LiteLLM
+  # reaches it as `cascade` (litellm/models.yaml); the organs' events go on
+  # a Redis of their own (bus). Its ear, model and voice: LAB_CASCADE_*.
+  realtime:
+    build: ../../minds/realtime
+    image: units-minds-realtime:local
+    restart: unless-stopped
+    environment:
+      LLM_URL: http://litellm:4000
+      LLM_KEY: ${LAB_LLM_KEY}
+      LLM_MODEL: ${LAB_CASCADE_LLM_MODEL:-fake}
+      VOICE: ${LAB_CASCADE_VOICE:-fake-tts_alloy}
+      SPEECH_LANGUAGE: ${LAB_CASCADE_LANGUAGE:-}
+      SYSTEM_PROMPT: ${LAB_CASCADE_PROMPT:-}
+      REDIS_ADDR: bus:6379
+      AUDIO_IN_HOST: realtime
+      HEARING_URL: http://hearing:8080/mcp
+      SPEAKING_URL: http://speaking:8080/
+    depends_on:
+      bus: {condition: service_healthy}
+      hearing: {condition: service_started}
+      speaking: {condition: service_started}
+  hearing:
+    build: ../../senses/hearing
+    image: units-senses-hearing:local
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: bus:6379
+      STT_URL: http://litellm:4000/v1
+      STT_KEY: ${LAB_LLM_KEY}
+      STT_MODEL: ${LAB_CASCADE_STT_MODEL:-fake-stt}
+      # energy: no VAD engine to run; silero needs engines/vad/silero at VAD_URL
+      HEARING_VAD: ${LAB_CASCADE_VAD:-energy}
+      VAD_URL: http://vad:8096
+      AUDIO_IN_HOST: hearing
+    depends_on:
+      bus: {condition: service_healthy}
+  speaking:
+    build: ../../abilities/speaking
+    image: units-abilities-speaking:local
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: bus:6379
+      TTS_URL: http://litellm:4000/v1
+      TTS_KEY: ${LAB_LLM_KEY}
+    depends_on:
+      bus: {condition: service_healthy}
+  bus:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      retries: 30
+
   # A model that answers from files, the same each time: fake_llm/README.md.
   fake_llm:
     image: wiremock/wiremock:3.13.2
