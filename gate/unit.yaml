@@ -17,6 +17,7 @@ provides:
     - nginx/portal.conf
     - nginx/page.conf
     - nginx/api.conf
+    - nginx/userinfo.conf  # who is logged in, as OIDC UserInfo, plus end_session_endpoint; for the person's page
   health: GET :9091/auth/api/health
 
 consumes:

@@ -34,6 +34,7 @@ loc=$(c -o /dev/null -w '%{redirect_url}' "$B/")
 case "$loc" in "$B/auth/?rd="*) expect "  … at /auth/?rd=" ok ok ;; *) expect "  … at /auth/?rd=" "$loc" "$B/auth/?rd=…" ;; esac
 expect "an API answers 401" "$(code "$B/api/whoami.txt")" 401
 expect "a forged X-Principal-Id changes nothing" "$(code -H 'X-Principal-Id: alice' "$B/api/whoami.txt")" 401
+expect "who is logged in: nobody" "$(code -H 'Remote-User: alice' "$B/api/v1/userinfo")" 401
 
 echo "log in"
 expect "wrong password" "$(login alice wrong)" 401
@@ -48,6 +49,10 @@ expect "X-Principal-Id (client sent mallory)" "$(echo "$seen" | sed -n 's/^princ
 expect "Cookie" "[$(echo "$seen" | sed -n 's/^cookie=//p')]" "[]"
 expect "Authorization (client sent a Bearer)" "[$(echo "$seen" | sed -n 's/^authorization=//p')]" "[]"
 
+echo "who is logged in, for the person's page"
+expect "userinfo" "$(c -H 'Remote-User: mallory' "$B/api/v1/userinfo")" \
+  '{"sub":"alice","preferred_username":"alice","name":"Alice","email":"alice@example.com","end_session_endpoint":"/auth/logout"}'
+
 echo "mail"
 # Registering a passkey starts with a one-time code mailed to the account.
 c -o /dev/null -X POST "$B/auth/api/user/session/elevation"
@@ -58,6 +63,7 @@ logout() { c -o /dev/null -X POST "$B/auth/api/logout" -H 'Content-Type: applica
 echo "log out"
 logout
 expect "the API is closed again" "$(code "$B/api/whoami.txt")" 401
+expect "userinfo too" "$(code "$B/api/v1/userinfo")" 401
 
 echo "another person"
 expect "bob" "$(login bob bob-showcase)" 200

@@ -29,6 +29,7 @@ no session
   a page sends to the login page             302
   an API answers 401                         401
   a forged X-Principal-Id changes nothing    401
+  who is logged in: nobody                   401
 log in
   wrong password                             401
   alice                                      200
@@ -38,10 +39,13 @@ what the application sees
   X-Principal-Id (client sent mallory)       alice
   Cookie                                     []
   Authorization (client sent a Bearer)       []
+who is logged in, for the person's page
+  userinfo                                   {"sub":"alice",…,"end_session_endpoint":"/auth/logout"}
 mail
   a one-time code mailed to alice            [Authelia] Confirm your identity
 log out
   the API is closed again                    401
+  userinfo too                               401
 another person
   bob                                        200
   the page                                   hello, bob
@@ -68,6 +72,11 @@ demo and the restart on free ports.
 - A page without a session is sent to the login page and comes back after
   it; a login started on the login page itself ends in the application, at
   `GATE_URL/`. A program gets a plain 401.
+- Who is logged in is told to the person's own page, not to the
+  application: where the site includes `userinfo.conf`, OpenID Connect's
+  UserInfo claims (`sub` and `preferred_username` the username, `name`,
+  `email`) and, beside them, `end_session_endpoint`, OIDC's name for where
+  logging out happens (Authelia's `/auth/logout`). Without a session, 401.
 
 ## Putting it in front of an application
 
@@ -81,6 +90,7 @@ server {
     include /etc/nginx/gate/authz.conf;          # once per server
 
     location /auth { include /etc/nginx/gate/portal.conf; }
+    location = /api/v1/userinfo { include /etc/nginx/gate/userinfo.conf; }
     location /api/ { include /etc/nginx/gate/api.conf;  set $app app; proxy_pass http://$app; }
     location /     { include /etc/nginx/gate/page.conf; set $app app; proxy_pass http://$app; }
 }
@@ -96,6 +106,11 @@ short (a second costs one lookup a second). The
 application is best named the same way, for the same reason. A `proxy_pass`
 with a variable passes the request's path as it is, so a prefix to strip
 takes a `rewrite … break` (stacks/lab's `/api/` does).
+
+`userinfo.conf` answers from nginx alone: the claims come from Authelia's
+answer to the session check, and a value that would break the JSON (a
+quote, a backslash; `gate-user` makes none) is refused with a 500 rather
+than escaped.
 
 A location that includes `page.conf` or `api.conf` takes its
 `proxy_set_header` lines from there; nginx does not merge them with the
