@@ -18,9 +18,11 @@ model's and the tools' calls under way; a model that fails or goes silent
 ends the run with an error that says which, in the endpoint's own words.
 The model is `LLM_MODEL`, or the one a run picks
 (`forwardedProps.modelName`) among those the mind offers at `GET /v1/models`,
-OpenAI's list: the endpoint's chat models the key may use, for LiteLLM its
-groups. OpenAI's audio API (a sound to text, words to a sound) is served too and
-handed on to the same endpoint, with the mind's model: the client never
+OpenAI's list: the endpoint's models the key may use, for LiteLLM its
+groups, each with its mode (chat, transcription, speech) and a speech
+model's voices. OpenAI's audio API (a sound to text, words to a sound) is served too and
+handed on to the same endpoint, with the model the client picked among
+those offered, or the mind's own: the client never
 holds the endpoint's key, and every call is logged. OpenAI's Realtime API
 (a call: sound both ways, live, over a WebSocket) is relayed the same way,
 each event logged and passed on unchanged. Every edge goes through its
@@ -55,9 +57,9 @@ shows that a request with nobody named is refused. A real model: change
 | `MCP_SERVERS` | MCP servers whose tools the model may call: `name=url,name=url`, Streamable HTTP endpoints; none by default |
 | `MAX_TOOL_STEPS` | how many times a run asks the model while it keeps calling tools; `8` |
 | `LLM_IDLE_TIMEOUT` | how long a model call may go without a byte before the run ends with `model_timed_out`; a Go duration, `5m` |
-| `STT_MODEL` | the model asked to transcribe; `POST /v1/audio/transcriptions` is served only when set |
-| `TTS_MODEL` | the model asked to speak; `POST /v1/audio/speech` is served only when set |
-| `TTS_VOICE` | the voice when a speech request names none |
+| `STT_MODEL` | the model asked to transcribe when the request picks none; `POST /v1/audio/transcriptions` is served only when set |
+| `TTS_MODEL` | the model asked to speak when the request picks none; `POST /v1/audio/speech` is served only when set |
+| `TTS_VOICE` | `TTS_MODEL`'s voice when a speech request names none |
 | `REALTIME_MODEL` | the model a call is relayed to; `GET /v1/realtime` (WebSocket) is served only when set |
 | `PORT` | `8088` |
 

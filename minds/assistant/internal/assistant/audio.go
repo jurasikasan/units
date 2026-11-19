@@ -17,8 +17,9 @@ import (
 // Audio is OpenAI's audio API, served by the mind and handed on to the
 // endpoint (LiteLLM): speech to text at POST /v1/audio/transcriptions, text
 // to speech at POST /v1/audio/speech. The mind is the door: the client
-// never holds the endpoint's key, the model is the mind's to choose, and
-// every call is logged. Nothing else is changed on the way: the fields the
+// never holds the endpoint's key, the model is one the mind offers (the
+// client's pick, else the mind's own: models.go), and every call is
+// logged. Nothing else is changed on the way: the fields the
 // client sent, the sound, the answer and the endpoint's errors pass as they
 // are, so any OpenAI client is a client of this.
 //
@@ -26,12 +27,10 @@ import (
 // into its own types and write it out again, dropping what it does not
 // know, and a door should not.
 type Audio struct {
-	base   string // the endpoint, with /v1
-	key    string
-	stt    string // the model asked to transcribe
-	tts    string // the model asked to speak
-	voice  string // the voice when the client names none
-	client *http.Client
+	base    string // the endpoint, with /v1
+	key     string
+	catalog *Catalog // the models offered, and the mind's own of each mode
+	client  *http.Client
 }
 
 // Largest bodies taken: a sound to transcribe (OpenAI's own limit), and
@@ -39,29 +38,29 @@ type Audio struct {
 const (
 	MaxSound  = 25 << 20
 	MaxSpeech = 1 << 20
+	MaxField  = 64 << 10 // a form field before the sound (model, language, prompt)
 )
 
 // NewAudio hands audio calls to an OpenAI-shaped endpoint (base without
-// /v1); key is sent as a Bearer token when set. stt and tts are the models
-// asked; an empty one leaves that call unserved. voice is used when a
-// speech request names none.
-func NewAudio(base, key, stt, tts, voice string) *Audio {
+// /v1); key is sent as a Bearer token when set. The catalog's own
+// transcription and speech models are asked when a request picks none; a
+// mode without one leaves that call unserved. Its voice is used when a
+// speech request to its own speech model names none.
+func NewAudio(base, key string, catalog *Catalog) *Audio {
 	return &Audio{
-		base:   strings.TrimRight(base, "/") + "/v1",
-		key:    key,
-		stt:    stt,
-		tts:    tts,
-		voice:  voice,
-		client: &http.Client{}, // no timeout: a call lasts as long as its client waits
+		base:    strings.TrimRight(base, "/") + "/v1",
+		key:     key,
+		catalog: catalog,
+		client:  &http.Client{}, // no timeout: a call lasts as long as its client waits
 	}
 }
 
 // Routes puts the calls this Audio serves on mux.
 func (a *Audio) Routes(mux *http.ServeMux) {
-	if a.stt != "" {
+	if a.catalog.Default(ModeTranscribe) != "" {
 		mux.HandleFunc("POST /v1/audio/transcriptions", a.transcribe)
 	}
-	if a.tts != "" {
+	if a.catalog.Default(ModeSpeak) != "" {
 		mux.HandleFunc("POST /v1/audio/speech", a.speak)
 	}
 }
@@ -78,8 +77,16 @@ func tooBig(err error) bool {
 	return errors.As(err, &e)
 }
 
+// formField is a form field read before the sound: its header and value.
+type formField struct {
+	header map[string][]string
+	value  []byte
+}
+
 // transcribe is POST /v1/audio/transcriptions: the client's multipart form
-// goes on part by part as it arrives, its model replaced by the mind's.
+// goes on part by part as it arrives. Its model is read from the fields
+// before the sound (where OpenAI's clients put it); one not offered is
+// refused, none is the mind's own.
 func (a *Audio) transcribe(w http.ResponseWriter, r *http.Request) {
 	principal := r.Header.Get("X-Principal-Id")
 	if principal == "" {
@@ -93,7 +100,42 @@ func (a *Audio) transcribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The form is copied into a pipe while the endpoint reads it, so a sound
+	// The fields before the sound are read first (small: at most MaxField
+	// each), to know the model.
+	var before []formField
+	var first *multipart.Part
+	picked := ""
+	for {
+		p, err := in.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			openAIError(w, http.StatusBadRequest, "invalid_request_error", "the form could not be read: "+err.Error())
+			return
+		}
+		if p.FileName() != "" {
+			first = p
+			break
+		}
+		v, err := io.ReadAll(io.LimitReader(p, MaxField+1))
+		if err != nil || len(v) > MaxField {
+			openAIError(w, http.StatusBadRequest, "invalid_request_error", "a form field before the sound is too long or broken")
+			return
+		}
+		if p.FormName() == "model" {
+			picked = strings.TrimSpace(string(v))
+			continue
+		}
+		before = append(before, formField{header: p.Header, value: v})
+	}
+	model, ok := a.catalog.Pick(r.Context(), ModeTranscribe, picked)
+	if !ok {
+		openAIError(w, http.StatusBadRequest, CodeNotOffered, notOffered(picked))
+		return
+	}
+
+	// The rest is copied into a pipe while the endpoint reads it, so a sound
 	// is never held whole; a bad form shows up as the copy's error.
 	pr, pw := io.Pipe()
 	out := multipart.NewWriter(pw)
@@ -101,16 +143,31 @@ func (a *Audio) transcribe(w http.ResponseWriter, r *http.Request) {
 	var sound int64
 	go func() {
 		err := func() error {
-			if err := out.WriteField("model", a.stt); err != nil {
+			if err := out.WriteField("model", model); err != nil {
 				return err
 			}
-			for {
-				p, err := in.NextPart()
-				if err == io.EOF {
-					return out.Close()
-				}
+			for _, f := range before {
+				dst, err := out.CreatePart(f.header)
 				if err != nil {
 					return err
+				}
+				if _, err := dst.Write(f.value); err != nil {
+					return err
+				}
+			}
+			next := first
+			for {
+				p := next
+				next = nil
+				if p == nil {
+					var err error
+					p, err = in.NextPart()
+					if err == io.EOF {
+						return out.Close()
+					}
+					if err != nil {
+						return err
+					}
 				}
 				if p.FormName() == "model" {
 					continue
@@ -132,14 +189,15 @@ func (a *Audio) transcribe(w http.ResponseWriter, r *http.Request) {
 		copied <- err
 	}()
 
-	a.pass(w, r, "transcription", a.stt, out.FormDataContentType(), pr, principal, func() (int64, error) {
+	a.pass(w, r, "transcription", model, out.FormDataContentType(), pr, principal, func() (int64, error) {
 		err := <-copied
 		return sound, err
 	})
 }
 
-// speak is POST /v1/audio/speech: the client's JSON with the mind's model,
-// and the mind's voice when the client named none.
+// speak is POST /v1/audio/speech: the client's JSON as it is, its model one
+// offered (refused otherwise; none: the mind's own), and, to the mind's own
+// speech model, the mind's voice when the client named none.
 func (a *Audio) speak(w http.ResponseWriter, r *http.Request) {
 	principal := r.Header.Get("X-Principal-Id")
 	if principal == "" {
@@ -158,12 +216,19 @@ func (a *Audio) speak(w http.ResponseWriter, r *http.Request) {
 	if req == nil {
 		req = map[string]json.RawMessage{}
 	}
-	req["model"], _ = json.Marshal(a.tts)
-	if v, ok := req["voice"]; (!ok || string(v) == `""` || string(v) == "null") && a.voice != "" {
-		req["voice"], _ = json.Marshal(a.voice)
+	var picked string
+	_ = json.Unmarshal(req["model"], &picked)
+	model, ok := a.catalog.Pick(r.Context(), ModeSpeak, picked)
+	if !ok {
+		openAIError(w, http.StatusBadRequest, CodeNotOffered, notOffered(picked))
+		return
+	}
+	req["model"], _ = json.Marshal(model)
+	if v, ok := req["voice"]; (!ok || string(v) == `""` || string(v) == "null") && model == a.catalog.Default(ModeSpeak) && a.catalog.Voice() != "" {
+		req["voice"], _ = json.Marshal(a.catalog.Voice())
 	}
 	body, _ := json.Marshal(req)
-	a.pass(w, r, "speech", a.tts, "application/json", io.NopCloser(bytes.NewReader(body)), principal, func() (int64, error) { return int64(len(body)), nil })
+	a.pass(w, r, "speech", model, "application/json", io.NopCloser(bytes.NewReader(body)), principal, func() (int64, error) { return int64(len(body)), nil })
 }
 
 // pass sends body to the endpoint's path for kind and streams the answer

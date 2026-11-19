@@ -83,13 +83,26 @@ A model here is what the endpoint answers to by name: for LiteLLM a group
 (`chat`, `lite`, …, one or more deployments behind each), not a provider's
 model.
 
-`GET /v1/models` is OpenAI's: `{"object":"list","data":[{"id","object":
-"model","created","owned_by"}]}`, the models a person may pick, `LLM_MODEL`
-first. Offered is what the endpoint's own `GET /v1/models` lists (LiteLLM:
-the groups the key may use, so a virtual key narrows it) less those whose
-`mode` in LiteLLM's `GET /v1/model/info` is set and not `chat` (sound,
-realtime, embeddings). When the endpoint does not answer, only `LLM_MODEL`
-is offered; when `/v1/model/info` does not, nothing is left out.
+`GET /v1/models` is OpenAI's list, `{"object":"list","data":[{"id",
+"object":"model","created","owned_by"}]}`, each entry with two fields of
+ours beside OpenAI's: `mode`, what it is for in LiteLLM's words (`chat`,
+`audio_transcription`, `audio_speech`), and, on a speech model, `voices`
+(ids) when they are known. The models a person may pick, chat first, then
+transcription, then speech; the mind's own of each mode first of it
+(`LLM_MODEL`, `STT_MODEL`, `TTS_MODEL`); a mode the mind does not serve (no
+`STT_MODEL`, no `TTS_MODEL`) has none listed. Offered is what the
+endpoint's own `GET /v1/models` lists (LiteLLM: the groups the key may use,
+so a virtual key narrows it), sorted by its `mode` in LiteLLM's `GET
+/v1/model/info` (none said: chat); any other mode (realtime, embeddings) is
+not offered. When the endpoint does not answer, only the mind's own are
+offered; when `/v1/model/info` does not, every model is taken for chat.
+
+A speech model's voices are asked at `LLM_URL/audio/voices/<model>`, with
+the key: in LiteLLM a pass-through (`pass_through_endpoints`) to the
+engine's own `GET /v1/audio/voices`, `{"voices":[{"id",…}]}`, which our
+engines serve and OpenAI does not have. Nothing there: no `voices`, except
+on `TTS_MODEL` with `TTS_VOICE` set, which lists that one. `TTS_VOICE`
+comes first on `TTS_MODEL` where its list has it.
 
 A run picks one in `forwardedProps.modelName`, where assistant-ui's model
 selector puts it (assistant-ui sends its ModelContext `config` as
@@ -214,19 +227,28 @@ What a model thinks comes in two halves, and they go different ways.
 
 OpenAI's audio API, served by the mind and handed on to the endpoint at
 `LLM_URL` (LiteLLM) with `LLM_API_KEY`. The mind is the door, not a
-translator: the client never holds the endpoint's key, the model is the
-mind's, every call is logged; everything else passes as it is, so any
+translator: the client never holds the endpoint's key, the model is one
+the mind offers (see Which model), every call is logged; everything else
+passes as it is, so any
 OpenAI client pointed at the mind's `/v1` is a client of it. It is a
 pass-through rather than OpenAI's Go SDK, which would read the request into
 its own types and drop what it does not know.
 
 - `POST /v1/audio/transcriptions`, served when `STT_MODEL` is set: the
-  client's multipart form goes on part by part as it arrives, `model`
-  replaced by `STT_MODEL`, every other field and the sound as they came. At
-  most 25 MB (OpenAI's own limit), else 413.
+  client's multipart form goes on part by part as it arrives, every field
+  and the sound as they came. Its `model` is read from the fields before
+  the sound (where OpenAI's clients put it; one after it is dropped): a
+  transcription model offered goes on, none is `STT_MODEL`. A field before
+  the sound is at most 64 KB, else 400. At most 25 MB in all (OpenAI's own
+  limit), else 413.
 - `POST /v1/audio/speech`, served when `TTS_MODEL` is set: the client's
-  JSON with `model` set to `TTS_MODEL`, and `voice` to `TTS_VOICE` when the
-  client names none. At most 1 MB, else 413.
+  JSON as it came, its `model` a speech model offered, none is `TTS_MODEL`;
+  to `TTS_MODEL`, `voice` is `TTS_VOICE` when the client names none. At
+  most 1 MB, else 413.
+- A `model` not offered for that call (`whisper-1`, a chat model, a speech
+  model to transcribe) is refused before the endpoint is asked: 400,
+  OpenAI's error shape, `type: model_not_offered`. An OpenAI client learns
+  the names from `GET /v1/models`.
 - The answer is the endpoint's, streamed as it comes: its status, its
   `Content-Type`, its bytes; an error in the endpoint's own words and shape.
   An endpoint that does not answer at all: 502, OpenAI's error shape, `type:
@@ -283,5 +305,7 @@ model generated. Neither is built yet; nothing here is shaped against them.
 - The face's own tools (`RunAgentInput.tools`) are not offered to the model.
 - An MCP server that asks back mid-call (`input_required`) is not answered.
 - Two runs at once in one thread are not prevented.
-- The list of models is asked of the endpoint on each request for it and
-  on each run with a pick other than `LLM_MODEL`; nothing is cached.
+- The list of models (and voices) is asked of the endpoint on each request
+  for it and on each run or audio call with a pick other than the mind's
+  own; nothing is cached.
+- A voice is not checked against the list: the engine has the last word.

@@ -26,7 +26,23 @@ type fakeAudio struct {
 	answer string
 }
 
+// The fake endpoint's catalog: LiteLLM's lists, and an engine's voices
+// through its pass-through.
+var audioCatalog = map[string]string{
+	"/v1/models":              `{"data":[{"id":"chat-model"},{"id":"stt-model"},{"id":"other-stt"},{"id":"tts-model"},{"id":"other-tts"}]}`,
+	"/v1/model/info":          `{"data":[{"model_name":"stt-model","model_info":{"mode":"audio_transcription"}},{"model_name":"other-stt","model_info":{"mode":"audio_transcription"}},{"model_name":"tts-model","model_info":{"mode":"audio_speech"}},{"model_name":"other-tts","model_info":{"mode":"audio_speech"}}]}`,
+	"/audio/voices/other-tts": `{"voices":[{"id":"denis","gender":"male"},{"id":"irina"}]}`,
+}
+
 func (f *fakeAudio) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		if b, ok := audioCatalog[r.URL.Path]; ok {
+			_, _ = io.WriteString(w, b)
+			return
+		}
+		http.NotFound(w, r)
+		return
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.path, f.auth, f.fields = r.URL.Path, r.Header.Get("Authorization"), map[string]string{}
@@ -78,7 +94,9 @@ func audioMind(t *testing.T, f http.Handler, voice string) string {
 	end := httptest.NewServer(f)
 	t.Cleanup(end.Close)
 	mux := http.NewServeMux()
-	NewAudio(end.URL, "k", "stt-model", "tts-model", voice).Routes(mux)
+	c := NewCatalog(end.URL, "k", "chat-model", "", "", "")
+	c.Sound("stt-model", "tts-model", voice)
+	NewAudio(end.URL, "k", c).Routes(mux)
 	mind := httptest.NewServer(mux)
 	t.Cleanup(mind.Close)
 	return mind.URL
@@ -119,7 +137,7 @@ func TestTranscriptionGoesOnWithTheMindsModel(t *testing.T) {
 	f := &fakeAudio{ctype: "application/json", answer: `{"text":"hello"}`}
 	url := audioMind(t, f, "")
 	sound := bytes.Repeat([]byte{1, 2, 3, 0}, 50000)
-	ct, body := form(t, map[string]string{"model": "whatever-the-client-said", "language": "ru", "response_format": "verbose_json"}, sound)
+	ct, body := form(t, map[string]string{"language": "ru", "response_format": "verbose_json"}, sound)
 
 	resp, got := postAudio(t, url+"/v1/audio/transcriptions", "alice", ct, body)
 	if resp.StatusCode != 200 || got != `{"text":"hello"}` || resp.Header.Get("Content-Type") != "application/json" {
@@ -140,7 +158,7 @@ func TestSpeechGoesOnWithTheMindsModelAndVoice(t *testing.T) {
 	f := &fakeAudio{ctype: "audio/wav", answer: "RIFF....WAVE"}
 	url := audioMind(t, f, "Kore")
 
-	resp, got := postAudio(t, url+"/v1/audio/speech", "alice", "application/json", strings.NewReader(`{"model":"tts-1","input":"Hi.","speed":1.5}`))
+	resp, got := postAudio(t, url+"/v1/audio/speech", "alice", "application/json", strings.NewReader(`{"input":"Hi.","speed":1.5}`))
 	if resp.StatusCode != 200 || got != "RIFF....WAVE" || resp.Header.Get("Content-Type") != "audio/wav" {
 		t.Fatalf("answer: %d %q %q", resp.StatusCode, resp.Header.Get("Content-Type"), got)
 	}
@@ -197,7 +215,9 @@ func TestAudioEndpointUnreachable(t *testing.T) {
 	end := httptest.NewServer(http.NotFoundHandler())
 	end.Close()
 	mux := http.NewServeMux()
-	NewAudio(end.URL, "", "s", "t", "").Routes(mux)
+	c := NewCatalog(end.URL, "", "m", "", "", "")
+	c.Sound("s", "t", "")
+	NewAudio(end.URL, "", c).Routes(mux)
 	mind := httptest.NewServer(mux)
 	defer mind.Close()
 
@@ -210,11 +230,59 @@ func TestAudioEndpointUnreachable(t *testing.T) {
 
 func TestAudioUnconfiguredIsNotServed(t *testing.T) {
 	mux := http.NewServeMux()
-	NewAudio("http://nowhere", "", "", "", "").Routes(mux)
+	NewAudio("http://nowhere", "", NewCatalog("http://nowhere", "", "m", "", "", "")).Routes(mux)
 	mind := httptest.NewServer(mux)
 	defer mind.Close()
 	resp, _ := postAudio(t, mind.URL+"/v1/audio/speech", "alice", "application/json", strings.NewReader(`{"input":"Hi."}`))
 	if resp.StatusCode != 404 {
 		t.Fatalf("%d", resp.StatusCode)
+	}
+}
+
+func TestAPickedSoundModelIsTheOneAsked(t *testing.T) {
+	f := &fakeAudio{ctype: "application/json", answer: `{"text":"hello"}`}
+	url := audioMind(t, f, "Kore")
+
+	// The model before the sound, as OpenAI's clients send it.
+	ct, body := form(t, map[string]string{"model": "other-stt", "language": "ru"}, []byte("sound"))
+	if resp, got := postAudio(t, url+"/v1/audio/transcriptions", "alice", ct, body); resp.StatusCode != 200 {
+		t.Fatalf("%d %s", resp.StatusCode, got)
+	}
+	if f.fields["model"] != "other-stt" || f.fields["language"] != "ru" || string(f.file) != "sound" {
+		t.Fatalf("sent %v %q", f.fields, f.file)
+	}
+
+	// Another speech model: its own voice, never the mind's default one's.
+	postAudio(t, url+"/v1/audio/speech", "alice", "application/json", strings.NewReader(`{"model":"other-tts","input":"Hi."}`))
+	if f.fields["model"] != "other-tts" || f.fields["voice"] != "" {
+		t.Fatalf("sent %v", f.fields)
+	}
+	postAudio(t, url+"/v1/audio/speech", "alice", "application/json", strings.NewReader(`{"model":"other-tts","input":"Hi.","voice":"irina"}`))
+	if f.fields["model"] != "other-tts" || f.fields["voice"] != "irina" {
+		t.Fatalf("sent %v", f.fields)
+	}
+}
+
+func TestASoundModelNotOfferedIsRefused(t *testing.T) {
+	f := &fakeAudio{answer: "{}"}
+	url := audioMind(t, f, "")
+	for _, c := range []struct{ path, model string }{
+		{"/v1/audio/transcriptions", "whisper-1"},
+		{"/v1/audio/transcriptions", "tts-model"}, // offered, but to speak
+		{"/v1/audio/speech", "tts-1"},
+		{"/v1/audio/speech", "chat-model"},
+	} {
+		f.path = ""
+		var resp *http.Response
+		var got string
+		if strings.HasSuffix(c.path, "transcriptions") {
+			ct, body := form(t, map[string]string{"model": c.model}, []byte("x"))
+			resp, got = postAudio(t, url+c.path, "alice", ct, body)
+		} else {
+			resp, got = postAudio(t, url+c.path, "alice", "application/json", strings.NewReader(`{"input":"Hi.","model":"`+c.model+`"}`))
+		}
+		if resp.StatusCode != 400 || !strings.Contains(got, CodeNotOffered) || !strings.Contains(got, c.model) || f.path != "" {
+			t.Errorf("%s %s: %d %s, sent to %q", c.path, c.model, resp.StatusCode, got, f.path)
+		}
 	}
 }

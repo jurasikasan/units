@@ -57,9 +57,10 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /run", a)
-	mux.HandleFunc("GET /v1/models", a.Models)
 	stt, tts := env("STT_MODEL", ""), env("TTS_MODEL", "")
-	assistant.NewAudio(mustEnv("LLM_URL"), env("LLM_API_KEY", ""), stt, tts, env("TTS_VOICE", "")).Routes(mux)
+	a.Catalog().Sound(stt, tts, env("TTS_VOICE", ""))
+	mux.HandleFunc("GET /v1/models", a.Catalog().Models)
+	assistant.NewAudio(mustEnv("LLM_URL"), env("LLM_API_KEY", ""), a.Catalog()).Routes(mux)
 	if stt != "" || tts != "" {
 		slog.Info("OpenAI's audio API handed on", "stt", stt, "tts", tts)
 	}

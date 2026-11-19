@@ -39,7 +39,12 @@ type Assistant struct {
 	servers  []Server
 	maxSteps int
 	idle     time.Duration // how long a model call may go without a byte
+	catalog  *Catalog      // what a run may pick (models.go)
 }
+
+// Catalog is what this assistant offers to be picked; its sound is set
+// there (Catalog.Sound).
+func (a *Assistant) Catalog() *Catalog { return a.catalog }
 
 // SetIdle is how long a model call may go without a byte before the run
 // ends with RUN_ERROR (DefaultIdle when 0 or less).
@@ -78,7 +83,7 @@ func New(base, model, key, system string) *Assistant {
 	if key != "" {
 		opts = append(opts, option.WithAPIKey(key))
 	}
-	return &Assistant{client: openai.NewClient(opts...), model: model, system: system, sse: sse.NewSSEWriter(), maxSteps: DefaultMaxSteps, info: 5 * time.Second, idle: DefaultIdle}
+	return &Assistant{catalog: NewCatalog(base, key, model, "", "", ""), client: openai.NewClient(opts...), model: model, system: system, sse: sse.NewSSEWriter(), maxSteps: DefaultMaxSteps, info: 5 * time.Second, idle: DefaultIdle}
 }
 
 // ErrBadInput is a run this mind cannot answer as asked.

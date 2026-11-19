@@ -26,7 +26,7 @@ func offeredBy(t *testing.T, f *fakeModel) []string {
 	t.Helper()
 	model := httptest.NewServer(f)
 	t.Cleanup(model.Close)
-	mind := httptest.NewServer(http.HandlerFunc(New(model.URL, "m", "k", "").Models))
+	mind := httptest.NewServer(http.HandlerFunc(New(model.URL, "m", "k", "").Catalog().Models))
 	t.Cleanup(mind.Close)
 	req, _ := http.NewRequest(http.MethodGet, mind.URL, nil)
 	req.Header.Set("X-Principal-Id", "alice")
@@ -110,8 +110,29 @@ func TestAPickNotOfferedIsSaid(t *testing.T) {
 
 func TestTheListNeedsAPrincipal(t *testing.T) {
 	rec := httptest.NewRecorder()
-	New("http://nowhere", "m", "", "").Models(rec, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	New("http://nowhere", "m", "", "").Catalog().Models(rec, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
 	if b, _ := io.ReadAll(rec.Body); rec.Code != http.StatusUnauthorized {
 		t.Errorf("%d %s", rec.Code, b)
+	}
+}
+
+func TestSoundModelsAndVoicesAreOfferedByMode(t *testing.T) {
+	end := httptest.NewServer(&fakeAudio{})
+	t.Cleanup(end.Close)
+	c := NewCatalog(end.URL, "k", "chat-model", "", "", "")
+	c.Sound("stt-model", "other-tts", "irina")
+	var got []string
+	for _, o := range c.List(context.Background()) {
+		got = append(got, o.Mode+":"+o.ID+"("+strings.Join(o.Voices, ",")+")")
+	}
+	want := "chat:chat-model() audio_transcription:stt-model() audio_transcription:other-stt() audio_speech:other-tts(irina,denis) audio_speech:tts-model()"
+	if strings.Join(got, " ") != want {
+		t.Errorf("offered\n got %s\nwant %s", strings.Join(got, " "), want)
+	}
+
+	// Sound not served: none of it offered.
+	c = NewCatalog(end.URL, "k", "chat-model", "", "", "")
+	if l := c.List(context.Background()); len(l) != 1 || l[0].ID != "chat-model" {
+		t.Errorf("without sound: %v", l)
 	}
 }
