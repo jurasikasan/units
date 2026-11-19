@@ -73,6 +73,22 @@ model_list:
       api_key: fake
     model_info: {mode: audio_speech}
 
+  # Second fakes: a pick of another ear or mouth shows in what comes back
+  # (fake_llm: `What the second fake ear heard.`, a shorter, lower tone,
+  # voices denis and irina; another voice is refused).
+  - model_name: fake-stt-b
+    litellm_params:
+      model: openai/fake-whisper-b
+      api_base: http://fake_llm:8089/v1
+      api_key: fake
+    model_info: {mode: audio_transcription}
+  - model_name: fake-tts-b
+    litellm_params:
+      model: openai/fake-tts-b
+      api_base: http://fake_llm:8089/v1
+      api_key: fake
+    model_info: {mode: audio_speech}
+
   # Groq's whisper: any language, the formats a browser records (WebM/Opus)
   # included.
   - model_name: stt
@@ -81,6 +97,32 @@ model_list:
       api_key: os.environ/GROQ_API_KEY
       timeout: 60
     model_info: {mode: audio_transcription}
+
+  # Whisper large-v3 on a GPU box (engines/stt/whisper, bot's gpu profile),
+  # at LAB_STT_GPU_URL; stt falls back to it, and it can be picked itself.
+  # Unset, it points at .invalid: LiteLLM would otherwise send the sound
+  # to api.openai.com.
+  - model_name: whisper-gpu
+    litellm_params: {model: openai/whisper, api_base: os.environ/STT_GPU_URL, api_key: none, timeout: 30}
+    model_info: {mode: audio_transcription}
+
+  # Our speech engines (engines/tts): piper and silero run in the lab under
+  # the `engines` profile, voxcpm on a GPU box at LAB_VOXCPM_URL. WAV only,
+  # their own voices: each lists them at GET /v1/audio/voices, which the
+  # pass-throughs below put at /audio/voices/<model> for the mind.
+  - model_name: piper
+    litellm_params: {model: openai/piper, api_base: http://piper:8000/v1, api_key: none, timeout: 15}
+    model_info: {mode: audio_speech}
+  - model_name: silero
+    litellm_params: {model: openai/silero, api_base: http://silero:8000/v1, api_key: none, timeout: 30}
+    model_info: {mode: audio_speech}
+  - model_name: voxcpm
+    litellm_params: {model: openai/voxcpm, api_base: os.environ/VOXCPM_URL, api_key: none, timeout: 60}
+    model_info: {mode: audio_speech}
+
+  # A chat model on the GPU box's Ollama, at LAB_OLLAMA_URL.
+  - model_name: local
+    litellm_params: {model: ollama_chat/gpt-oss:20b, api_base: os.environ/OLLAMA_URL, timeout: 300}
 
   # Gemini's speech: WAV only (24 kHz, 16-bit mono; mp3 or opus asked for
   # is refused), its own voices (Kore, Puck, …; OpenAI's names map to some),
@@ -111,6 +153,8 @@ model_list:
     model_info: {mode: realtime}
 
 router_settings:
+  fallbacks:
+    - stt: [whisper-gpu]
   num_retries: 1
   timeout: 300
 
@@ -119,3 +163,11 @@ litellm_settings:
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
+  # A speech model's voices, which OpenAI's API has no call for: the
+  # engine's own list, behind LiteLLM's key. The mind asks
+  # /audio/voices/<model>.
+  pass_through_endpoints:
+    - {path: /audio/voices/fake-tts-b, target: "http://fake_llm:8089/v1/audio/voices"}
+    - {path: /audio/voices/piper, target: "http://piper:8000/v1/audio/voices"}
+    - {path: /audio/voices/silero, target: "http://silero:8000/v1/audio/voices"}
+    - {path: /audio/voices/voxcpm, target: os.environ/VOXCPM_VOICES_URL}

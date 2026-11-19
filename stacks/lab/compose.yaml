@@ -170,6 +170,10 @@ services:
       ZAI_API_KEY: ${ZAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
+      STT_GPU_URL: ${LAB_STT_GPU_URL:-http://stt-gpu.invalid/v1}
+      VOXCPM_URL: ${LAB_VOXCPM_URL:-http://voxcpm.invalid/v1}
+      VOXCPM_VOICES_URL: ${LAB_VOXCPM_URL:-http://voxcpm.invalid/v1}/audio/voices
+      OLLAMA_URL: ${LAB_OLLAMA_URL:-http://ollama.invalid}
     volumes:
       - ${LAB_LLM_CONFIG:-./litellm/models.yaml}:/config.yaml:ro
     depends_on:
@@ -181,6 +185,22 @@ services:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')"]
       interval: 2s
       retries: 90
+
+  # Our speech engines on this machine, under their profile (big images):
+  # models piper and silero in LiteLLM. The GPU ones (voxcpm, whisper) run
+  # elsewhere, at the URLs in .env.
+  piper:
+    build: ../../engines/tts/piper
+    image: units-engines-tts-piper:local
+    profiles: [engines]
+    restart: unless-stopped
+  silero:
+    build:
+      context: ../../engines/tts/silero
+      args: {ACCEL: "${LAB_SILERO_ACCEL:-xpu}"}
+    image: units-engines-tts-silero:local
+    profiles: [engines]
+    restart: unless-stopped
 
   # A model that answers from files, the same each time: fake_llm/README.md.
   fake_llm:

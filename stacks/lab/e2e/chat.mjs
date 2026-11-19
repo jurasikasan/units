@@ -323,6 +323,51 @@ async function threadsRound() {
   }
 }
 
+// choose picks name in the sidebar's picker called label and returns what
+// it offered.
+async function choose(label, name) {
+  await page.getByRole('combobox', { name: new RegExp(`^${label}:`) }).click()
+  const offered = await page.getByRole('option').allInnerTexts()
+  await page.getByRole('option', { name, exact: true }).click()
+  await page.getByRole('option').first().waitFor({ state: 'detached' })
+  return offered
+}
+
+// soundPickRound: the second fake ear and mouth picked in the sidebar, and a
+// voice of the mouth's own: what comes back is theirs.
+async function soundPickRound() {
+  await page.reload()
+  await page.getByRole('textbox', { name: 'Message input' }).waitFor()
+  const ears = await choose('Speech to text', 'fake-stt-b')
+  step('ears offered', ears.join(' '))
+  const box = page.getByRole('textbox', { name: 'Message input' })
+  await page.getByRole('button', { name: 'Start voice input' }).click()
+  await page.getByRole('button', { name: 'Stop voice input' }).waitFor()
+  await page.waitForTimeout(1000)
+  await page.getByRole('button', { name: 'Stop voice input' }).click()
+  await page.getByRole('button', { name: 'Start voice input' }).waitFor()
+  const heard = await box.inputValue()
+  step('the second ear heard', JSON.stringify(heard))
+
+  const mouths = await choose('Text to speech', 'fake-tts-b')
+  const voices = await choose('Voice', 'irina')
+  step('mouths, its voices', `${mouths.join(' ')}; ${voices.join(' ')}`)
+  await say(heard || 'Say something.')
+  const answer = page.locator('[data-role="assistant"]').last()
+  await answer.hover()
+  const spoken = page.waitForResponse((r) => r.url().endsWith('/api/v1/audio/speech'))
+  await answer.getByRole('button', { name: 'Read aloud' }).click()
+  const sound = await spoken
+  const asked = JSON.parse(sound.request().postData() ?? '{}')
+  const bytes = (await sound.body()).length
+  step('read aloud by the second mouth', `${sound.status()} ${bytes} bytes, asked ${asked.model} ${asked.voice}`)
+  if (heard !== 'What the second fake ear heard.' || !ears.includes('fake-stt') || !mouths.includes('fake-tts')
+    || voices.join() !== 'denis,irina' || sound.status() !== 200 || bytes !== 3244 || asked.model !== 'fake-tts-b' || asked.voice !== 'irina') {
+    step('FAIL', 'the picked ear, mouth or voice did not answer')
+    failed = true
+  }
+}
+
 // refusedRound: a picture to a model that takes none; the page says so.
 async function refusedRound() {
   await attach(dot)
@@ -423,11 +468,13 @@ try {
   else if (only === 'call') await callRound()
   else if (only === 'model') await modelRound()
   else if (only === 'threads') await threadsRound()
+  else if (only === 'sound') await soundPickRound()
   else {
     await fullRound()
     if (fake) await modelRound()
     await threadsRound()
     await voiceRound()
+    if (fakeEar) await soundPickRound()
     if (realtime) await callRound()
   }
 } catch (e) {

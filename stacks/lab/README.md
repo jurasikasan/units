@@ -22,10 +22,12 @@ browser → nginx + gate ─ /      → face (static files)
 ## Models
 
 `litellm/models.yaml` names them; the mind asks for `LAB_LLM_MODEL` unless
-the person picks another in the page: the picker in the sidebar offers the
-chat groups (`fake`, `fake-text`, `chat`, `lite`; not the sound or realtime
-ones), `LAB_LLM_MODEL` chosen, and the pick holds until the page is
-reloaded. A group whose key is empty is offered too and fails when asked.
+the person picks another in the page: the pickers in the sidebar offer the
+chat groups (`LAB_LLM_MODEL` chosen), the ears (`LAB_STT_MODEL` chosen),
+the mouths (`LAB_TTS_MODEL` chosen) and the picked mouth's voices, where
+its engine lists them; realtime ones are not offered. Picks hold until the
+page is reloaded. A group whose key or URL is empty is offered too and
+fails when asked.
 
 | model | |
 |---|---|
@@ -34,7 +36,12 @@ reloaded. A group whose key is empty is offered too and fails when asked.
 | `chat` | Cloudflare's glm-4.7-flash, then z.ai's; a reasoning model, so 10–15 s of thinking before the first word; words only |
 | `lite` | Gemini 3.1 flash-lite |
 | `fake-stt`, `fake-tts` | [`fake_llm`](fake_llm/) behind OpenAI's audio API: any sound is heard as `What the fake ear heard.`, any words are a quarter-second beep |
-| `stt` | Groq's whisper-large-v3-turbo: what the browser records, any language |
+| `fake-stt-b`, `fake-tts-b` | second fakes, to see a pick: `What the second fake ear heard.`, a tenth of a second of a lower tone in voice `denis` or `irina` (listed), another voice refused |
+| `stt` | Groq's whisper-large-v3-turbo: what the browser records, any language; then `whisper-gpu` when Groq fails |
+| `whisper-gpu` | [whisper](../../engines/stt/whisper/) large-v3 on a GPU box, at `LAB_STT_GPU_URL` |
+| `piper`, `silero` | [our engines](../../engines/tts/) on this machine, under the `engines` profile: WAV, their own voices (listed), Russian and English |
+| `voxcpm` | [VoxCPM2](../../engines/tts/voxcpm/) on a GPU box, at `LAB_VOXCPM_URL`: WAV at 48 kHz, cloned voices (listed) |
+| `local` | gpt-oss:20b on the GPU box's Ollama, at `LAB_OLLAMA_URL` |
 | `tts` | Gemini 3.8 flash-lite TTS: WAV only, Gemini's voices (OpenAI's names map to some); to try, not to run on |
 | `fake-realtime` | [`fake_realtime`](fake_realtime/) behind OpenAI's Realtime API: hears by loudness, answers from a script with a tone, in the event flow Gemini Live sent through LiteLLM |
 | `fake-realtime-full` | the same, in the schema's whole set (`speech_started`, a cancelled answer, `truncated`) |
@@ -83,7 +90,9 @@ the answer carries what only the file holds; the picker offers the chat
 groups with `fake` chosen, and picking `fake-text` is what answers the next
 run, `fake` again the one after (`E2E_ONLY=model`); a new chat in the
 sidebar starts empty and runs as a thread of its own, and the first is all
-there when switched back to (`E2E_ONLY=threads`); the mic (the browser's fake
+there when switched back to (`E2E_ONLY=threads`); the second fake ear,
+mouth and one of its voices picked in the sidebar are what answer
+(`E2E_ONLY=sound`); the mic (the browser's fake
 one) puts what the fake ear heard into the composer and an answer is read
 aloud to the end; on the mind recreated to ask
 `fake-text`, a picture is refused and the page says the model takes none
@@ -123,8 +132,10 @@ three seconds, so the second answer is interrupted by the next.
 | `LAB_LLM_KEY` | LiteLLM's master key; the mind sends it |
 | `LAB_LLM_MODEL` | the model the mind asks for when the page picks none, chosen first in its picker: `fake`, `chat`, `lite` |
 | `LAB_LLM_CONFIG` | another model list than `./litellm/models.yaml` |
-| `LAB_STT_MODEL`, `LAB_TTS_MODEL` | the models the mind asks to transcribe and to speak: `fake-stt`/`stt`, `fake-tts`/`tts`; empty, the page has no mic or read-aloud |
-| `LAB_TTS_VOICE` | the voice when the page names none; OpenAI's speech wants one |
+| `LAB_STT_MODEL`, `LAB_TTS_MODEL` | the models the mind asks to transcribe and to speak when the page picks none, chosen first in its pickers: `fake-stt`/`stt`/`whisper-gpu`, `fake-tts`/`tts`/`piper`/`silero`/`voxcpm`; empty, the page has no mic or read-aloud |
+| `LAB_TTS_VOICE` | `LAB_TTS_MODEL`'s voice when the page names none; OpenAI's speech wants one |
+| `LAB_STT_GPU_URL`, `LAB_VOXCPM_URL`, `LAB_OLLAMA_URL` | the GPU engines, each with `/v1` (Ollama without); empty, their models fail when asked |
+| `LAB_SILERO_ACCEL` | silero's image: `xpu` (falls back to CPU), `cuda` |
 | `LAB_REALTIME_MODEL` | the model a call goes to: `fake-realtime`, `fake-realtime-full`; empty, the page has no call button |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_KEY`, `ZAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` | the providers' keys |
 | `LAB_SYSTEM_PROMPT` | first in every prompt the mind sends |
