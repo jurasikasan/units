@@ -3,7 +3,7 @@
 
 unit: faces/web_chat
 kind: face
-summary: A chat page that speaks AG-UI to whatever answers at /api/run, a model picked among those at /api/v1/models, with a mic and read-aloud through OpenAI's audio API at /api/v1/audio and a call through its Realtime API at /api/v1/realtime; static files, no server, the conversation kept in the page.
+summary: A chat page that speaks AG-UI to whatever answers at /api/run, its chats in a sidebar (kept in the page), a model picked among those at /api/v1/models, with a mic and read-aloud through OpenAI's audio API at /api/v1/audio and a call through its Realtime API at /api/v1/realtime; static files, no server, the conversation kept in the page.
 contract: README.md
 maturity: probe
 

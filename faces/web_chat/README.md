@@ -15,6 +15,7 @@ its registry. React, Vite, Tailwind.
 | | |
 |---|---|
 | `src/App.tsx`, `src/main.tsx`, `index.html` | ours: the runtime wired to `/api/run`, the theme |
+| `src/Sidebar.tsx`, `src/threads.ts` | ours: the sidebar (upstream's thread list, the selectors below it) and the chats it lists, kept in memory |
 | `src/upstream/` | **generated**: what assistant-ui's registry gives today (the thread, its parts, shadcn's base components, the stylesheet). Never edited by hand |
 | `patches/` | our changes to upstream, each with why; applied on top of it |
 | `upstream.sh` | `src/upstream` again from the registry, patches on top |
@@ -44,9 +45,22 @@ is about the UI's edge, not to learn the face.
 A `401` from `/api/run` reloads the page: whatever door stands in front gets
 to ask the person to log in. The face knows no door of its own.
 
+## Chats
+
+A sidebar lists the page's chats, as assistant-ui's `threadlist-sidebar`
+does (shadcn's sidebar and upstream's thread list, put together in
+`src/Sidebar.tsx` without that element's own branding): a new one, search,
+switching, rename, archive, delete. Each chat is an AG-UI thread: its id is
+the `threadId` of its runs, and only its own messages go with them. They
+live in the page's memory (`src/threads.ts`, through the AG-UI runtime's
+`threadList` adapter) and are gone on reload, until a store holds them.
+Below the chats sit the selectors; those settings move to the subject's
+page once there is one. Collapsed by the button at the top left, a sheet
+on a phone.
+
 ## Which model
 
-A picker in the composer's row offers the models `GET /api/v1/models`
+A picker in the sidebar offers the models `GET /api/v1/models`
 lists (for the lab's mind, LiteLLM's groups: `fake`, `chat`, `lite`, …),
 the first chosen (`src/Models.tsx`). It is assistant-ui's own
 `model-selector`: the pick goes into the runtime's model context, which the
