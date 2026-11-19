@@ -21,7 +21,11 @@ browser → nginx + gate ─ /      → face (static files)
 
 ## Models
 
-`litellm/models.yaml` names them; the mind asks for `LAB_LLM_MODEL`.
+`litellm/models.yaml` names them; the mind asks for `LAB_LLM_MODEL` unless
+the person picks another in the page: the picker in the composer offers the
+chat groups (`fake`, `fake-text`, `chat`, `lite`; not the sound or realtime
+ones), `LAB_LLM_MODEL` chosen, and the pick holds until the page is
+reloaded. A group whose key is empty is offered too and fails when asked.
 
 | model | |
 |---|---|
@@ -75,7 +79,9 @@ adds two numbers; the model's reasoning is shown apart from its answer, and
 the thought signatures a model left go back to it with the tool call and,
 a run later, from the page; a file over the page's limit is refused there
 and nothing is sent, then a picture and a text file go with a question and
-the answer carries what only the file holds; the mic (the browser's fake
+the answer carries what only the file holds; the picker offers the chat
+groups with `fake` chosen, and picking `fake-text` is what answers the next
+run, `fake` again the one after (`E2E_ONLY=model`); the mic (the browser's fake
 one) puts what the fake ear heard into the composer and an answer is read
 aloud to the end; on the mind recreated to ask
 `fake-text`, a picture is refused and the page says the model takes none
@@ -113,7 +119,7 @@ three seconds, so the second answer is interrupted by the next.
 | `COMPOSE_PROFILES` | `mailpit` runs Mailpit locally; a deployment leaves it empty |
 | `LAB_SMTP_*` | where mail goes; with a relay, `LAB_SMTP_SKIP_VERIFY=false` |
 | `LAB_LLM_KEY` | LiteLLM's master key; the mind sends it |
-| `LAB_LLM_MODEL` | the model the mind asks for: `fake`, `chat`, `lite` |
+| `LAB_LLM_MODEL` | the model the mind asks for when the page picks none, chosen first in its picker: `fake`, `chat`, `lite` |
 | `LAB_LLM_CONFIG` | another model list than `./litellm/models.yaml` |
 | `LAB_STT_MODEL`, `LAB_TTS_MODEL` | the models the mind asks to transcribe and to speak: `fake-stt`/`stt`, `fake-tts`/`tts`; empty, the page has no mic or read-aloud |
 | `LAB_TTS_VOICE` | the voice when the page names none; OpenAI's speech wants one |

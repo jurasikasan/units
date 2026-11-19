@@ -270,6 +270,35 @@ async function callRound() {
   step('hung up', `${await user.count()} heard, ${await assistant.count()} answered in the thread`)
 }
 
+// modelRound: the picker offers the lab's chat groups, the mind's default
+// chosen; a pick is the group that answers, and picking back the default
+// goes back to it. In a conversation of its own (a reload: the page keeps
+// it in memory), since a picture said before would be refused by fake-text.
+async function modelRound() {
+  await page.reload()
+  await page.getByRole('textbox', { name: 'Message input' }).waitFor()
+  const picker = page.getByRole('combobox', { name: /^Model:/ })
+  const chosen = await picker.getAttribute('aria-label')
+  await picker.click()
+  const offered = await page.getByRole('option').allInnerTexts()
+  step('offered, chosen', `${offered.join(' ')}; ${chosen}`)
+  if (chosen !== 'Model: fake' || !offered.includes('fake') || !offered.includes('fake-text') || offered.some((m) => m.includes('stt') || m.includes('realtime'))) {
+    step('FAIL', 'not the chat groups, or not fake chosen')
+    failed = true
+  }
+  await page.getByRole('option', { name: 'fake-text', exact: true }).click()
+  const picked = await say('Which model are you? #which_model')
+  step('picked fake-text, answered', JSON.stringify(picked))
+  await picker.click()
+  await page.getByRole('option', { name: 'fake', exact: true }).click()
+  const back = await say('And now? #which_model')
+  step('picked fake again, answered', JSON.stringify(back))
+  if (!picked.includes('fake-text-1') || !back.includes('fake-1') || back.includes('fake-text')) {
+    step('FAIL', 'the pick did not decide which group answered')
+    failed = true
+  }
+}
+
 // refusedRound: a picture to a model that takes none; the page says so.
 async function refusedRound() {
   await attach(dot)
@@ -368,8 +397,10 @@ try {
   if (only === 'refused') await refusedRound()
   else if (only === 'voice') await voiceRound()
   else if (only === 'call') await callRound()
+  else if (only === 'model') await modelRound()
   else {
     await fullRound()
+    if (fake) await modelRound()
     await voiceRound()
     if (realtime) await callRound()
   }
