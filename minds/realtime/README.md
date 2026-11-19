@@ -7,6 +7,11 @@ cascade, self-hosted, with a medium latency (STT, then the model's first
 sentence, then its synthesis), behind the same `/v1/realtime` a realtime model
 answers — so the same clients call it, and a router lists it beside them.
 
+Its parts are the session's: the client names the ear
+(`audio.input.transcription.model`), the voice (`audio.output.voice`,
+`<engine>_<voice>`) and the chat model (`chat_model`, ours), each falling
+back to this mind's config.
+
 It sends the schema's whole set, which a real provider through LiteLLM was
 seen not to (contracts/edges.md, Probed): `speech_started` and `speech_stopped`,
 the caller's transcript, the answer's sound and transcript, a `response.done`

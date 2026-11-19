@@ -1,6 +1,7 @@
 # minds/realtime — contract
 
-Revision 1 (UNIT-47).
+Revision 2 (UNIT-49): the ear, its prompt and language, the turn timings
+and the chat model come from the session. Revision 1 (UNIT-47).
 
 ## 1. What it is
 
@@ -34,16 +35,21 @@ later; here the mind takes every call for it.
 `GET /v1/realtime[?model=…]`, upgraded to a WebSocket. `model` is shown in the
 session; the chat model asked is `LLM_MODEL`. Over `MAX_CALLS` → `503`.
 
-On connect the call is taken: a hearing session is opened (its `audio_in` is
-where the caller's sound goes), and `session.created` follows. If hearing
-cannot be reached or refuses, an `error` and a close `1011`. speaking's session
-is opened for the first answer, with the session's voice at that moment.
+On connect `session.created`. The call is taken at the client's first
+`session.update`, or at its first sound if that comes first: a hearing session
+is opened with the ear and timings the session asked for (its `audio_in` is
+where the caller's sound goes; sound that came before waits and goes first).
+If hearing cannot be reached or refuses, an `error` and a close `1011`.
+speaking's session is opened for the first answer, with the session's voice at
+that moment. What the ear and voice were opened with holds for the call; asked
+for later, it is kept and logged, as the schema does with a voice once audio
+has gone out.
 
 ### Client events
 
 | event | what happens |
 |---|---|
-| `session.update` | `instructions`; `audio.output.voice` when it is `<engine>_<voice>` and no answer has been said; `audio.input.turn_detection`'s `create_response` and `interrupt_response` (both `true` by default; `null` makes both `false`). Answered with `session.updated` |
+| `session.update` | `instructions`; `chat_model` (ours: the chat model that answers, which the schema has no field for, its `model` being the realtime model); `audio.input.transcription` `{model, language, prompt}` → hearing's `stt_model`, `speech_language`, `stt_prompt`; `audio.input.turn_detection` `{silence_duration_ms, prefix_padding_ms}` → hearing's `merge_window_ms`, `preroll_ms`, and its `create_response` and `interrupt_response` (both `true` by default; `null` makes both `false`); `audio.output.voice` when it is `<engine>_<voice>` and no answer has been said. Answered with `session.updated` |
 | `input_audio_buffer.append` | PCM16, 24 kHz, little-endian: sent to hearing as RTP (L16, 48 kHz, 20 ms) as it comes |
 | `conversation.item.create` | a `message` item (its text parts) joins the conversation |
 | `conversation.item.truncate` | the answer becomes what was heard up to `audio_end_ms`; one still being said is stopped first (speaking `stop`) and cut when speaking has reported; `conversation.item.truncated` |
@@ -120,8 +126,10 @@ share of letters, a word more than half heard counting. UNIT-51 makes it exact.
 | `MAX_CALLS` | calls at once | `4` |
 | `PORT` | the WebSocket and `GET /health` | `8080` |
 
-The ear (hearing's `STT_MODEL`) and the turn timings are hearing's own config,
-one per deployment, until hearing takes them per session (UNIT-49).
+Whatever the session does not name is the deployment's: `LLM_MODEL`, `VOICE`,
+`SPEECH_LANGUAGE` here, the ear and timings hearing's own. With no language
+named, STT finds it in each utterance. Who picks (a person in a page today, a
+subject's preset later) is the client's business.
 
 ## 5. Open
 

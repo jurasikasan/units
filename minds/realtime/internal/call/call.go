@@ -76,7 +76,9 @@ type response struct {
 type (
 	wsMessage struct{ raw []byte }
 	closed    struct{ err error }
-	wrote     struct {
+	// heardFirst: sound came before any session.update; time to take the call
+	heardFirst struct{}
+	wrote      struct {
 		resp string
 		text string
 	}
@@ -99,13 +101,24 @@ type Call struct {
 	instructions    string
 	voice, language string
 	llmModel        string
-	createResponse  bool
-	interrupt       bool
+	// the ear and the turn timings asked for, given to hearing at open;
+	// zero: hearing's own
+	sttModel, sttPrompt string
+	mergeMs             int
+	prerollMs           *int
+	createResponse      bool
+	interrupt           bool
 
 	hearing  string // hearing's session
 	speaking string // speaking's session, opened for the first answer
-	sender   *audio.Sender
 	receiver *audio.Receiver
+
+	// soundMu guards sender and early: sound that came before hearing was
+	// open waits in early, in order, and goes first.
+	soundMu sync.Mutex
+	sender  *audio.Sender
+	early   [][]byte
+	asked   bool // heardFirst sent
 
 	firstSound   time.Time // the first sound sent to hearing
 	firstSoundMu sync.Mutex
@@ -128,17 +141,25 @@ func Serve(ctx context.Context, o *Organs, d Defaults, ws *websocket.Conn, model
 	c.log = log.With("call", c.id)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	defer c.hangUp()
+	c.send(ctx, map[string]any{"type": "session.created", "session": c.session()})
+	// The ear opens once the client has said how it wants to be heard: at
+	// its first session.update, or at its first sound if none came before.
+	go c.read(ctx)
+	c.run(ctx)
+}
+
+// takeOnce takes the call the first time it is asked; a failure ends it.
+func (c *Call) takeOnce(ctx context.Context) {
+	if c.hearing != "" || c.stopped {
+		return
+	}
 	if err := c.take(ctx); err != nil {
 		c.log.Error("call not taken", "err", err)
 		c.send(ctx, errorEvent("server_error", "", err.Error()))
-		_ = ws.Close(websocket.StatusInternalError, "the organs are not there")
-		c.hangUp()
-		return
+		_ = c.ws.Close(websocket.StatusInternalError, "the organs are not there")
+		c.stopped = true
 	}
-	defer c.hangUp()
-	c.send(ctx, map[string]any{"type": "session.created", "session": c.session()})
-	go c.read(ctx)
-	c.run(ctx)
 }
 
 // take answers the call. Here the mind takes every call that comes in; the
@@ -149,6 +170,18 @@ func (c *Call) take(ctx context.Context) error {
 	args := map[string]any{}
 	if c.language != "" {
 		args["speech_language"] = c.language
+	}
+	if c.sttModel != "" {
+		args["stt_model"] = c.sttModel
+	}
+	if c.sttPrompt != "" {
+		args["stt_prompt"] = c.sttPrompt
+	}
+	if c.mergeMs > 0 {
+		args["merge_window_ms"] = c.mergeMs
+	}
+	if c.prerollMs != nil {
+		args["preroll_ms"] = *c.prerollMs
 	}
 	var opened struct {
 		SessionID string `json:"session_id"`
@@ -165,8 +198,17 @@ func (c *Call) take(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("hearing's audio_in %q: %w", opened.AudioIn, err)
 	}
+	c.soundMu.Lock()
 	c.sender = s
-	c.log.Info("call taken", "model", c.model, "hearing", c.hearing, "audio_in", opened.AudioIn)
+	for _, pcm := range c.early {
+		if err := s.SendPCM24(pcm); err != nil {
+			c.log.Warn("sound not sent to hearing", "err", err)
+		}
+	}
+	c.early = nil
+	c.soundMu.Unlock()
+	c.log.Info("call taken", "model", c.model, "hearing", c.hearing, "audio_in", opened.AudioIn,
+		"ear", c.sttModel, "merge_window_ms", c.mergeMs, "language", c.language)
 	return nil
 }
 
@@ -231,9 +273,11 @@ func (c *Call) hangUp() {
 			c.log.Warn("speaking not closed", "err", err)
 		}
 	}
+	c.soundMu.Lock()
 	if c.sender != nil {
 		_ = c.sender.Close()
 	}
+	c.soundMu.Unlock()
 	if c.receiver != nil {
 		c.receiver.Close()
 	}
@@ -267,9 +311,7 @@ func (c *Call) read(ctx context.Context) {
 				c.firstSound = time.Now()
 			}
 			c.firstSoundMu.Unlock()
-			if err := c.sender.SendPCM24(pcm); err != nil {
-				c.log.Warn("sound not sent to hearing", "err", err)
-			}
+			c.hear(ctx, pcm)
 			appended++
 			continue
 		}
@@ -277,6 +319,30 @@ func (c *Call) read(ctx context.Context) {
 		case c.in <- wsMessage{raw}:
 		case <-ctx.Done():
 			return
+		}
+	}
+}
+
+// hear sends the caller's sound to hearing, or keeps it until hearing is
+// open (and asks for the call to be taken).
+func (c *Call) hear(ctx context.Context, pcm []byte) {
+	c.soundMu.Lock()
+	if c.sender != nil {
+		err := c.sender.SendPCM24(pcm)
+		c.soundMu.Unlock()
+		if err != nil {
+			c.log.Warn("sound not sent to hearing", "err", err)
+		}
+		return
+	}
+	c.early = append(c.early, pcm)
+	ask := !c.asked
+	c.asked = true
+	c.soundMu.Unlock()
+	if ask {
+		select {
+		case c.in <- heardFirst{}:
+		case <-ctx.Done():
 		}
 	}
 }
@@ -299,6 +365,8 @@ func (c *Call) run(ctx context.Context) {
 				c.log.Info("call closed", "err", m.err)
 			}
 			return
+		case heardFirst:
+			c.takeOnce(ctx)
 		case wsMessage:
 			c.client(ctx, m.raw)
 		case organs.Event:
@@ -336,7 +404,10 @@ func (c *Call) client(ctx context.Context, raw []byte) {
 	switch ev.Type {
 	case "session.update":
 		c.update(ev.Session)
-		c.send(ctx, map[string]any{"type": "session.updated", "session": c.session()})
+		c.takeOnce(ctx)
+		if !c.stopped {
+			c.send(ctx, map[string]any{"type": "session.updated", "session": c.session()})
+		}
 	case "conversation.item.create":
 		c.create(ctx, ev.Item, ev.EventID)
 	case "conversation.item.truncate":
@@ -379,8 +450,16 @@ func (c *Call) client(ctx context.Context, raw []byte) {
 func (c *Call) update(raw json.RawMessage) {
 	var s struct {
 		Instructions *string `json:"instructions"`
-		Audio        struct {
+		// ours: the chat model that answers, which the schema has no field
+		// for (its model is the realtime model itself)
+		ChatModel string `json:"chat_model"`
+		Audio     struct {
 			Input struct {
+				Transcription *struct {
+					Model    string `json:"model"`
+					Language string `json:"language"`
+					Prompt   string `json:"prompt"`
+				} `json:"transcription"`
 				TurnDetection json.RawMessage `json:"turn_detection"`
 			} `json:"input"`
 			Output struct {
@@ -393,6 +472,21 @@ func (c *Call) update(raw json.RawMessage) {
 	}
 	if s.Instructions != nil {
 		c.instructions = *s.Instructions
+	}
+	if s.ChatModel != "" {
+		c.llmModel = s.ChatModel
+	}
+	// The ear is hearing's session's: what is asked once it is open is kept
+	// for nothing, and said so.
+	if t := s.Audio.Input.Transcription; t != nil {
+		if c.hearing == "" {
+			c.sttModel, c.sttPrompt = t.Model, t.Prompt
+			if t.Language != "" {
+				c.language = t.Language
+			}
+		} else if t.Model != c.sttModel || t.Prompt != c.sttPrompt {
+			c.log.Info("ear asked for once the call was taken, kept", "asked", t.Model, "ear", c.sttModel)
+		}
 	}
 	if v := s.Audio.Output.Voice; v != "" && c.speaking == "" {
 		if strings.Contains(v, "_") {
@@ -409,10 +503,15 @@ func (c *Call) update(raw json.RawMessage) {
 		var t struct {
 			CreateResponse    *bool `json:"create_response"`
 			InterruptResponse *bool `json:"interrupt_response"`
+			SilenceMs         int   `json:"silence_duration_ms"`
+			PrefixPaddingMs   *int  `json:"prefix_padding_ms"`
 		}
 		if json.Unmarshal(td, &t) == nil {
 			c.createResponse = t.CreateResponse == nil || *t.CreateResponse
 			c.interrupt = t.InterruptResponse == nil || *t.InterruptResponse
+			if c.hearing == "" {
+				c.mergeMs, c.prerollMs = t.SilenceMs, t.PrefixPaddingMs
+			}
 		}
 	}
 }
@@ -425,9 +524,9 @@ func (c *Call) session() map[string]any {
 	pcm := map[string]any{"type": "audio/pcm", "rate": audio.Rate}
 	return map[string]any{
 		"type": "realtime", "id": c.id, "model": c.model,
-		"output_modalities": []string{"audio"}, "instructions": c.instructions,
+		"output_modalities": []string{"audio"}, "instructions": c.instructions, "chat_model": c.llmModel,
 		"audio": map[string]any{
-			"input":  map[string]any{"format": pcm, "transcription": map[string]any{"language": c.language}, "turn_detection": td},
+			"input":  map[string]any{"format": pcm, "transcription": map[string]any{"model": c.sttModel, "language": c.language, "prompt": c.sttPrompt}, "turn_detection": td},
 			"output": map[string]any{"format": pcm, "voice": c.voice},
 		},
 	}
