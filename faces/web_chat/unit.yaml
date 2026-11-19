@@ -3,7 +3,7 @@
 
 unit: faces/web_chat
 kind: face
-summary: A chat page that speaks AG-UI to whatever answers at /api/run, with a mic and read-aloud through OpenAI's audio API at /api/v1/audio and a call through its Realtime API at /api/v1/realtime; static files, no server, the conversation kept in the page.
+summary: A chat page that speaks AG-UI to whatever answers at /api/run, a model picked among those at /api/v1/models, with a mic and read-aloud through OpenAI's audio API at /api/v1/audio and a call through its Realtime API at /api/v1/realtime; static files, no server, the conversation kept in the page.
 contract: README.md
 maturity: probe
 
@@ -12,9 +12,10 @@ provides:
     port: 80            # nginx serving the built files; any static host will do
 
 consumes:
-  agui: POST /api/run   # any AG-UI agent, on the same origin
-  http:                 # OpenAI's audio API, on the same origin; each shows only when answered (HEAD not 404)
-    - POST /api/v1/audio/transcriptions   # the mic: a recording (WebM/Opus, Ogg or MP4, as the browser makes) in, {text} out
+  agui: POST /api/run   # any AG-UI agent, on the same origin; the picked model in forwardedProps.modelName
+  http:                 # OpenAI's API, on the same origin; each shows only when answered
+    - GET /api/v1/models                  # the model picker: OpenAI's list, the first chosen
+    - POST /api/v1/audio/transcriptions   # the mic (HEAD not 404): a recording (WebM/Opus, Ogg or MP4, as the browser makes) in, {text} out
     - POST /api/v1/audio/speech           # read aloud: {input} in, a sound the browser plays out
     - GET /api/v1/realtime                # a call: OpenAI's Realtime schema over a WebSocket, PCM16 24 kHz both ways
 

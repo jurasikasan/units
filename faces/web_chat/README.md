@@ -36,12 +36,23 @@ is about the UI's edge, not to learn the face.
 | | |
 |---|---|
 | `POST /api/run` | an AG-UI agent: `RunAgentInput` in, events out as SSE; text messages are what it shows now |
+| `GET /api/v1/models` | OpenAI's list of models, the one a run without a pick goes to first. The picker shows only when this answers |
 | `POST /api/v1/audio/transcriptions` | OpenAI's: a recording in, `{text}` out. The mic shows only when this is answered |
 | `POST /api/v1/audio/speech` | OpenAI's: `{input}` in, a sound out. Read-aloud shows only when this is answered |
 | `GET /api/v1/realtime` | OpenAI's Realtime API, a WebSocket: a call. The call button shows only when this is answered |
 
 A `401` from `/api/run` reloads the page: whatever door stands in front gets
 to ask the person to log in. The face knows no door of its own.
+
+## Which model
+
+A picker in the composer's row offers the models `GET /api/v1/models`
+lists (for the lab's mind, LiteLLM's groups: `fake`, `chat`, `lite`, …),
+the first chosen (`src/Models.tsx`). It is assistant-ui's own
+`model-selector`: the pick goes into the runtime's model context, which the
+AG-UI runtime sends with each run as `forwardedProps.modelName`. The pick
+holds while the page is open; a reload is the first one again. Nothing
+answers there: no picker, and the agent's own default.
 
 ## Attachments
 
