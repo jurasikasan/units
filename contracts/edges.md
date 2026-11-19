@@ -38,7 +38,7 @@ people ──AG-UI 1.0──▶ faces/web_chat ──AG-UI──▶ minds/assist
 | documents in | ✓ user parts | ✓ | ✓ | ✓ resources | – | artifact_store keeps bytes; threads has no block; face and mind: a PDF, text files (UNIT-25) |
 | audio as a part | ✓ in only | ✓ in and out | in ✓, out *(unverified)* | ✓ result content | — | engines ✓ (OpenAI audio API); threads `audio`; mind: in, WAV and MP3 |
 | what a model takes | – | ext (LiteLLM `/v1/model/info`, `supports_vision` …) | – | – | – | mind: a part the model does not take, or nothing carries, ends the run with `RUN_ERROR` (UNIT-33) |
-| speech to text, text to speech | – | – (the audio API beside it) | – | – | ✓ (transcripts, voice out) | engines ✓; mind: the audio API handed on to LiteLLM, its model, logged (UNIT-45); face: mic into the composer, read-aloud |
+| speech to text, text to speech | – | – (the audio API beside it) | – | – | ✓ (transcripts, voice out) | engines ✓, models in the lab's LiteLLM (UNIT-46); mind: the audio API handed on to LiteLLM, the picked model or its own, logged (UNIT-45, UNIT-46); face: mic into the composer, read-aloud, ear, mouth and voice picked in the sidebar |
 | live voice | – | – | – | – | ✓ | face: a call in the schema (mic, voice out, mute, hang up, transcripts in the thread, truncate); mind: relays it to LiteLLM, each event logged (UNIT-40); hearing, speaking, web_audio_call, sip_phone: RTP and MRCP-shaped tools, not this schema (UNIT-41, UNIT-47) |
 | tool calls | ✓ | ✓ | ✓, + hosted and remote MCP | ✓ | ✓, + MCP | MCP servers on go-sdk v1.1.0 (web_audio_call v1.8.0); threads `tool_call`/`tool_result`; mind: none |
 | reasoning shown | ✓ | ext (`reasoning_content`) | ✓ summary | – | config only | mind ✓ as AG-UI reasoning; threads has no block |
@@ -81,7 +81,14 @@ and its messages a `SpeechSynthesisAdapter` (`speak(text)`, an utterance
 that starts, runs and ends); its own are the browser's Web Speech, which
 sends the sound to the browser's maker, so the face has its own on the
 audio API, and the mind is the door to it (UNIT-45): the face never holds
-LiteLLM's key and names no model.
+LiteLLM's key. Which ear, mouth and voice is the person's pick among what
+the mind offers (UNIT-46), sent in the audio API's own `model` and `voice`;
+the offer is OpenAI's `GET /v1/models` with two fields of ours on each
+entry, `mode` (LiteLLM's word: `audio_transcription`, `audio_speech`) and a
+speech model's `voices`, since OpenAI's list says neither what a model is
+for nor which voices it has. The chat model is picked the same way and
+travels in AG-UI as `forwardedProps.modelName`, where assistant-ui's model
+selector puts it (UNIT-42); AG-UI names no field for it.
 
 **Live voice.** Not in AG-UI. assistant-ui runs voice as a separate session
 straight to a realtime provider (`RealtimeVoiceAdapter`: connect, mute,
@@ -161,6 +168,7 @@ exists only as a child thread.
 | job_runner's own long-running verbs | unit, later | Tasks extension once go-sdk has it |
 | live voice is not the Realtime schema | our own view, partly | below; our own realtime from hearing and speaking is UNIT-47 |
 | a real model's flow lacks half the schema | the provider's and LiteLLM's | no `speech_started`, an interruption as an early `response.done`, `truncate` dropped (Probed, a call); the face takes both signs, ours should send the whole set |
+| OpenAI's audio API has no voice list, and its model list no mode | the standard's | our engines serve `GET /v1/audio/voices`, LiteLLM carries it only as a pass-through we configure per model (`/audio/voices/<model>`); the mind adds `mode` and `voices` to its `/v1/models` entries |
 | threads: no document or reasoning block, no branch per entry | unit | when the mind first writes to threads |
 | usage not shown | face | small; assistant-ui does not read it |
 | who speaks, in many-party threads | our own view | what the model reads is built by the mind from threads and subjects, not passed through |
@@ -257,7 +265,7 @@ and the keys we hold, the mind in between:
   `TTS_VOICE` fills it.
 - **LiteLLM sends no `x-litellm-model-name`** on the audio calls: which
   deployment answered is not seen by the mind.
-- **Not usable from here, and why**: Groq's speech (`canopylabs/orpheus-v1-english`,
+- **Not usable from here, and why** (before UNIT-46): Groq's speech (`canopylabs/orpheus-v1-english`,
   English and Arabic only) wants its terms accepted by the org's admin in
   Groq's console; Cloudflare's OpenAI door has no audio routes ("No route
   for that URI"), its whisper, Deepgram nova-3/flux and aura/melotts are only
@@ -325,6 +333,26 @@ are in the fake's script and README.
   barge-in` is what `truncate` and a cancelled `response.done` say;
   web_audio_call is the line (WebRTC and Opus where this is a WebSocket
   and PCM16). The mapping event by event is UNIT-41.
+
+Our engines as models (UNIT-46), on 2026-11-19, LiteLLM v1.108.0, bot's GPU
+box reached over the VPN:
+
+- **voxcpm** (VoxCPM2, CUDA) speaks through LiteLLM as `openai/voxcpm` with
+  `api_base` at the engine: WAV at 48 kHz, its own voice ids (cloned ones
+  and `design_*`, 50 on that box), Russian well.
+- **whisper large-v3** (CUDA) transcribes through LiteLLM as
+  `openai/whisper`: voxcpm's «Привет.» came back as «Привет!», with the
+  language and duration in `verbose_json`'s fields.
+- **No voice list in the standard**: our engines answer `GET
+  /v1/audio/voices` (`{"voices":[{"id","gender","langs"}]}`), OpenAI and
+  LiteLLM have no such call. LiteLLM's `pass_through_endpoints` (open
+  source, behind the master key: no key, 401) puts it at a path of our
+  choosing, `/audio/voices/<model>`, one entry per model; the target takes
+  `os.environ/`, the path does not, so a URL from `.env` needs its own
+  variable (compose builds it).
+- **`model` is not read by our engines**: one engine is one model, the
+  router picks it. A `voice` an engine does not have is its 400 in its own
+  words; the mind does not check it against the list.
 
 ## Not verified
 
