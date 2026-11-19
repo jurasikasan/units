@@ -39,7 +39,8 @@
 // (truncate); muted, nothing goes out; hung up, the call closes. On
 // fake-realtime the interruption is seen as the answer done before its
 // sound (what Gemini sent), on fake-realtime-full as speech_started.
-// E2E_ONLY=call runs this alone.
+// E2E_ONLY=call runs this alone. Last, the sidebar's foot shows who is
+// logged in, and its log-out ends the session (E2E_ONLY=me).
 //
 // E2E_ONLY=refused is another round, on a mind asking a model that takes no
 // pictures (fake-text): a picture sent ends the run with the mind's error,
@@ -334,6 +335,30 @@ async function threadsRound() {
   }
 }
 
+// meRound: who is logged in, at the sidebar's foot, from gate's userinfo;
+// its log-out ends the session and lands on the login page. Last, since
+// it logs out. E2E_SHOT names a file for a picture of the page before.
+async function meRound() {
+  const foot = page.getByRole('contentinfo', { name: 'Who is logged in' }).or(page.getByLabel('Who is logged in'))
+  await foot.first().waitFor()
+  const shown = (await foot.first().innerText()).replace(/\s+/g, ' ').trim()
+  step('the sidebar foot', JSON.stringify(shown))
+  if (process.env.E2E_SHOT) await page.screenshot({ path: process.env.E2E_SHOT })
+  if (!shown.includes(user)) {
+    step('FAIL', `${user} is not shown`)
+    failed = true
+  }
+  await page.getByRole('button', { name: 'Log out' }).click()
+  await page.locator('#username-textfield').waitFor()
+  step('log out: the login page', new URL(page.url()).pathname)
+  const after = await page.request.get(url + '/api/v1/userinfo')
+  step('userinfo after', after.status())
+  if (after.status() !== 401) {
+    step('FAIL', 'the session outlived log out')
+    failed = true
+  }
+}
+
 // choose picks name in the sidebar's picker called label and returns what
 // it offered.
 async function choose(label, name) {
@@ -480,6 +505,7 @@ try {
   else if (only === 'model') await modelRound()
   else if (only === 'threads') await threadsRound()
   else if (only === 'sound') await soundPickRound()
+  else if (only === 'me') await meRound()
   else {
     await fullRound()
     if (fake) await modelRound()
@@ -487,6 +513,7 @@ try {
     await voiceRound()
     if (fakeEar) await soundPickRound()
     if (realtime) await callRound()
+    await meRound()
   }
 } catch (e) {
   console.log(`  FAIL ${e.message.split('\n')[0]}`)

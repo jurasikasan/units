@@ -8,7 +8,8 @@
 # (cascade: hearing, the fake model, speaking), every event in the mind's log; and a model answering
 # 429 or 500 ends one with the mind's error on the page;
 # on a model declared to take words only, a picture is refused in words;
-# the chat is closed to nobody, a person gets mail; gate, mind and face are
+# the foot of the sidebar shows who is logged in and its log-out ends the
+# session; the chat is closed to nobody, a person gets mail; gate, mind and face are
 # recreated on new addresses and the site still reaches them without touching
 # nginx; a second account is added, a backup is taken,
 # everything is deleted, the backup restored, and the second account logs in.
@@ -51,7 +52,7 @@ restore() { ./restore.sh "$(cat "$work/archive")"; }
 
 run "build"          docker compose --profile e2e build -q
 run "up"             docker compose up -d --wait
-run "e2e: a conversation goes through whole, stopped, failed, a model picked, chats apart"  docker compose run --rm e2e "$first_user" "$first_password"
+run "e2e: a conversation goes through whole, stopped, failed, a model picked, chats apart, who is logged in, logged out"  docker compose run --rm e2e "$first_user" "$first_password"
 run "the mind saw Stop as a cancel"  bash -c 'docker compose logs mind | grep -q "run cancelled"'
 run "the mind logged the call, each event"  bash -c 'docker compose logs mind | grep -q "dir=in .*type=conversation.item.truncate" && docker compose logs mind | grep -q "dir=out .*type=response.output_audio.delta" && docker compose logs mind | grep -q "realtime call closed .*by=client code=1000"'
 run "mind on the whole Realtime set"  env LAB_REALTIME_MODEL=fake-realtime-full docker compose up -d --wait mind

@@ -11,8 +11,13 @@ names, none by default. MCP's own reference server, `everything`, runs under
 its compose profile for the checks or to try a tool. The lab is no unit but a consumer of units:
 its own check is its showcase.
 
+Who is logged in is gate's to say: `/api/v1/userinfo` is its
+`userinfo.conf`, and the face shows it at the foot of the sidebar with a
+log-out that goes to gate's own `/auth/logout`.
+
 ```
 browser → nginx + gate ─ /      → face (static files)
+                       ├ /api/v1/userinfo → gate itself: who is logged in, where to log out
                        └ /api/  → mind ─┬→ LiteLLM ─┬→ fake_llm (answers from files)
                                         │           ├→ fake_realtime (a call, from a script)
                                         │           ├→ realtime (a call: hearing → a chat model → speaking)
