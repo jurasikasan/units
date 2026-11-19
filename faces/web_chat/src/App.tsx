@@ -11,6 +11,7 @@ import { RealtimeCallAdapter } from '@/realtime'
 import { Call } from '@/Call'
 import { Models, useModels, type SoundPick } from '@/Models'
 import { ChatSidebar } from '@/Sidebar'
+import { Me, useMe } from '@/Me'
 import { useThreads } from '@/threads'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/upstream/components/ui/sidebar'
 
@@ -72,7 +73,7 @@ function useVoice(sound: SoundPick) {
 // run to whatever answers AG-UI at /api/run, attachments included, with the
 // model picked among those offered at /api/v1/models (src/Models.tsx); the
 // page's chats and the pickers sit in a sidebar (src/Sidebar.tsx,
-// src/threads.ts). Sound
+// src/threads.ts), who is logged in at its foot (src/Me.tsx). Sound
 // goes to OpenAI's audio API on the same origin (src/voice.ts), and a call
 // to its Realtime API there (src/realtime.ts).
 export default function App() {
@@ -80,6 +81,7 @@ export default function App() {
   const sound = useMemo<SoundPick>(() => ({}), [])
   const { dictation, speech, call } = useVoice(sound)
   const offers = useModels(fetchOrLogIn)
+  const me = useMe(fetchOrLogIn)
   const threads = useThreads(agent)
   const runtime = useAgUiRuntime({ agent, adapters: { attachments, dictation, speech, voice: call, threadList: threads.adapter } })
   const { bind } = threads
@@ -89,7 +91,7 @@ export default function App() {
     <AssistantRuntimeProvider runtime={runtime}>
       <TooltipProvider>
         <SidebarProvider>
-          <ChatSidebar settings={<Models offers={offers} sound={sound} />} />
+          <ChatSidebar settings={<Models offers={offers} sound={sound} />} me={me && <Me me={me} />} />
           <SidebarInset className="h-dvh">
             <SidebarTrigger className="absolute top-2 left-2 z-10" />
             <Thread components={call ? { ComposerExtra: Call } : undefined} />

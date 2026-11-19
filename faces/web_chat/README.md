@@ -41,9 +41,20 @@ is about the UI's edge, not to learn the face.
 | `POST /api/v1/audio/transcriptions` | OpenAI's: a recording in, `{text}` out. The mic shows only when this is answered |
 | `POST /api/v1/audio/speech` | OpenAI's: `{input}` in, a sound out. Read-aloud shows only when this is answered |
 | `GET /api/v1/realtime` | OpenAI's Realtime API, a WebSocket: a call. The call button shows only when this is answered |
+| `GET /api/v1/userinfo` | OpenID Connect's UserInfo claims (`sub`, `preferred_username`, `name`, `email`), and `end_session_endpoint` beside them: who is logged in, and where to log out. Shown only when this is answered |
 
 A `401` from `/api/run` reloads the page: whatever door stands in front gets
 to ask the person to log in. The face knows no door of its own.
+
+## Who is logged in
+
+At the very foot of the sidebar (`src/Me.tsx`), as shadcn's sidebar blocks
+have it: an avatar with initials, the name and the email, and a log-out
+button that goes to `end_session_endpoint`. All of it comes from
+`GET /api/v1/userinfo`, asked once when the page opens; whatever door
+stands in front answers there (`gate` does, with its `userinfo.conf`),
+and where nothing does, nothing is shown. assistant-ui has no element for
+this; shadcn's sidebar menu and avatar, which upstream brings, make it.
 
 ## Chats
 
@@ -153,7 +164,5 @@ Light or dark follows the system's setting, and changes with it.
 
 - One conversation, kept in the page: a reload forgets it. A list of threads
   comes when there is somewhere to keep them.
-- No log-out button, no name of who is logged in: those are the door's, and
-  the page does not know which door it stands behind.
 - The bundle is 1.6 MB (460 KB gzipped), mostly what assistant-ui brings for
   markdown, attachments and tools.
