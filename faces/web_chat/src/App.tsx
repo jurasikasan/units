@@ -52,7 +52,13 @@ function useVoice(sound: SoundPick) {
       setVoice({
         dictation: ear && TranscriptionDictationAdapter.isSupported() ? new TranscriptionDictationAdapter(TRANSCRIBE, () => ({ model: sound.stt })) : undefined,
         speech: mouth ? new SpeechEndpointAdapter(SPEAK, () => ({ model: sound.tts, voice: sound.voice })) : undefined,
-        call: line && RealtimeCallAdapter.isSupported() ? new RealtimeCallAdapter(CALL) : undefined,
+        call: line && RealtimeCallAdapter.isSupported()
+          ? new RealtimeCallAdapter(CALL, () => ({
+              chat: sound.chat,
+              stt: sound.stt,
+              voice: sound.tts && sound.voice ? `${sound.tts}_${sound.voice}` : undefined,
+            }))
+          : undefined,
       })
     })
     return () => {

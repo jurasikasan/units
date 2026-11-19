@@ -112,7 +112,12 @@ own session; its own adapters go to a provider with a key in the page). The
 mic goes out as PCM16 at 24 kHz every 100 ms, echo cancelled by the
 browser; the answer's sound plays as it comes. The page asks for the
 session's formats, the model's own turn detection and a transcript of what
-was said; it names no model and no voice. What each side said lands in the
+was said, and names what is picked in the sidebar when the call starts:
+the ear as `audio.input.transcription.model`, the voice as
+`audio.output.voice` (`<mouth>_<voice>`, `piper_irina`), the chat model as
+`chat_model` (ours: the schema's model is the realtime model itself). A
+realtime model built of parts (`minds/realtime`) answers with those; one
+that is a single model ignores them. What each side said lands in the
 thread as a voice conversation, the answer word by word. While the call
 goes: mute (nothing is sent), hang up. An interruption is taken from
 `input_audio_buffer.speech_started` while an answer plays, or from the

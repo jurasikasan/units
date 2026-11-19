@@ -9,9 +9,9 @@ const MODELS = '/api/v1/models'
 // not said).
 export type Offer = { id: string; mode: string; voices: string[] }
 
-// What the person picked for sound; the voice adapters read it at each
-// call. Empty: the agent's own.
-export type SoundPick = { stt?: string; tts?: string; voice?: string }
+// What the person picked for sound, and the chat model for a call; the
+// voice adapters read it at each call. Empty: the agent's own.
+export type SoundPick = { chat?: string; stt?: string; tts?: string; voice?: string }
 
 // useModels is what the agent offers; [] when nothing answers there, and
 // then nothing is picked.
@@ -74,11 +74,17 @@ export function Models({ offers, sound }: { offers: Offer[]; sound: SoundPick })
   const ears = of('audio_transcription').map((o) => o.id)
   const mouths = of('audio_speech')
   const mouth = mouths.find((o) => o.id === sound.tts) ?? mouths[0]
+  // What is shown is what is used: a call (src/realtime.ts) names each
+  // part, and a list's first is the one shown when nothing was picked.
+  sound.chat ??= chat[0]?.id
+  sound.stt ??= ears[0]
+  sound.tts ??= mouth?.id
+  sound.voice ??= mouth?.voices[0]
   return (
     <div className="flex flex-col gap-1">
       {chat.length > 0 && (
         <Row label="Model">
-          <ModelSelector models={chat} defaultValue={chat[0].id} variant="ghost" size="sm" />
+          <ModelSelector models={chat} defaultValue={chat[0].id} onValueChange={(c) => set({ chat: c })} variant="ghost" size="sm" />
         </Row>
       )}
       <Pick label="Speech to text" ids={ears} value={sound.stt} onChange={(stt) => set({ stt })} />

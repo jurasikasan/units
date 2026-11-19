@@ -70,11 +70,21 @@ type Answer = {
   cut: boolean
 }
 
+// What the person picked, read when a call starts: the chat model, the ear
+// and the voice (<mouth>_<voice>). They go in the session's own fields
+// (audio.input.transcription.model, audio.output.voice), the chat model in
+// chat_model, ours: the schema has none, its model being the realtime
+// model. A realtime model that is one model ignores them; ours, built of
+// parts, takes them. Empty: the agent's own.
+export type CallPick = { chat?: string; stt?: string; voice?: string }
+
 export class RealtimeCallAdapter implements RealtimeVoiceAdapter {
   private path: string
+  private pick: () => CallPick
 
-  constructor(path = '/api/v1/realtime') {
+  constructor(path = '/api/v1/realtime', pick: () => CallPick = () => ({})) {
     this.path = path
+    this.pick = pick
   }
 
   static isSupported() {
@@ -83,6 +93,7 @@ export class RealtimeCallAdapter implements RealtimeVoiceAdapter {
 
   connect(options: { abortSignal?: AbortSignal }): RealtimeVoiceAdapter.Session {
     const path = this.path
+    const pick = this.pick()
     return createVoiceSession(options, async (h) => {
       const url = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${path}`
       let muted = false
@@ -252,9 +263,14 @@ export class RealtimeCallAdapter implements RealtimeVoiceAdapter {
           session: {
             type: 'realtime',
             output_modalities: ['audio'],
+            ...(pick.chat ? { chat_model: pick.chat } : {}),
             audio: {
-              input: { format: { type: 'audio/pcm', rate: RATE }, transcription: {}, turn_detection: { type: 'server_vad' } },
-              output: { format: { type: 'audio/pcm', rate: RATE } },
+              input: {
+                format: { type: 'audio/pcm', rate: RATE },
+                transcription: pick.stt ? { model: pick.stt } : {},
+                turn_detection: { type: 'server_vad' },
+              },
+              output: { format: { type: 'audio/pcm', rate: RATE }, ...(pick.voice ? { voice: pick.voice } : {}) },
             },
           },
         })
