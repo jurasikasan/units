@@ -27,7 +27,8 @@ import (
 	"github.com/openai/openai-go/v3/packages/param"
 )
 
-// Assistant answers runs with one model.
+// Assistant answers runs with its model, or the one a run picks of those
+// it offers.
 type Assistant struct {
 	client   openai.Client
 	info     time.Duration // how long a run waits to learn what the model takes
@@ -266,7 +267,8 @@ func answered(text string, calls []call, thought *opaque) openai.ChatCompletionM
 	return openai.ChatCompletionMessageParamUnion{OfAssistant: m}
 }
 
-// Run answers one run, sending its events to emit. The model is asked; when
+// Run answers one run, sending its events to emit. The model is the run's
+// pick (forwardedProps.modelName, models.go), else the configured one; when
 // it calls tools, they are called (all of one turn at once), what they say
 // goes back to it, and it is asked again, until it answers in words or the
 // steps run out. Each time it is asked as the model that answered last: the
@@ -284,18 +286,22 @@ func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversat
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	group, refused := a.modelFor(ctx, in.RunID, in.ForwardedProps)
+	if refused != nil {
+		return emit(refused)
+	}
 	var k *kit
 	if len(a.servers) > 0 {
 		k = openKit(ctx, a.mcp, a.servers)
 		defer k.close()
 	}
-	if refusal := a.check(ctx, in.RunID, p); refusal != nil {
+	if refusal := a.check(ctx, in.RunID, group, p); refusal != nil {
 		return emit(refusal)
 	}
 	model := p.lastModel()
 	var used tally
 	for step := 0; step < a.maxSteps; step++ {
-		s, err := a.turn(ctx, in, p.For(model), k, &used, emit)
+		s, err := a.turn(ctx, in, group, p.For(model), k, &used, emit)
 		if err != nil || ctx.Err() != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -329,9 +335,9 @@ func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversat
 // keeps it with this turn. It returns what the model said, its thought
 // always naming who answered; nil when the model failed and RUN_ERROR has
 // been sent.
-func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, msgs []openai.ChatCompletionMessageParamUnion, k *kit, used *tally, emit func(events.Event) error) (*said, error) {
+func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, group string, msgs []openai.ChatCompletionMessageParamUnion, k *kit, used *tally, emit func(events.Event) error) (*said, error) {
 	params := openai.ChatCompletionNewParams{
-		Model:         a.model,
+		Model:         group,
 		Messages:      msgs,
 		StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: openai.Bool(true)},
 	}
@@ -437,13 +443,13 @@ func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, msgs []ope
 	}
 	if err := stream.Err(); err != nil {
 		code, message := failure(callCtx, err, resp != nil, a.idle)
-		slog.Warn("model call failed", "run", in.RunID, "model", a.model, "code", code, "err", message)
+		slog.Warn("model call failed", "run", in.RunID, "model", group, "code", code, "err", message)
 		return nil, emit(events.NewRunErrorEvent(message, events.WithErrorCode(code), events.WithRunID(in.RunID), events.WithErrorUsage(*used)))
 	}
 	if err := stopThinking(); err != nil {
 		return nil, err
 	}
-	s.thought.Model = answeredBy(resp, chunkModel, a.model)
+	s.thought.Model = answeredBy(resp, chunkModel, group)
 	s.usage = callUsage(usage, usageSeen, s.thought.Model)
 	used.add(s.usage)
 	if u := s.usage; u != nil {

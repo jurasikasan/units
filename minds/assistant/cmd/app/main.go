@@ -57,6 +57,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /run", a)
+	mux.HandleFunc("GET /v1/models", a.Models)
 	stt, tts := env("STT_MODEL", ""), env("TTS_MODEL", "")
 	assistant.NewAudio(mustEnv("LLM_URL"), env("LLM_API_KEY", ""), stt, tts, env("TTS_VOICE", "")).Routes(mux)
 	if stt != "" || tts != "" {

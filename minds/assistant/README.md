@@ -16,7 +16,10 @@ tokens (the context as the model read it) is kept, logged and sent with
 the run's end in AG-UI's own `usage`. A run the client drops stops the
 model's and the tools' calls under way; a model that fails or goes silent
 ends the run with an error that says which, in the endpoint's own words.
-OpenAI's audio API (a sound to text, words to a sound) is served too and
+The model is `LLM_MODEL`, or the one a run picks
+(`forwardedProps.modelName`) among those the mind offers at `GET /v1/models`,
+OpenAI's list: the endpoint's chat models the key may use, for LiteLLM its
+groups. OpenAI's audio API (a sound to text, words to a sound) is served too and
 handed on to the same endpoint, with the mind's model: the client never
 holds the endpoint's key, and every call is logged. OpenAI's Realtime API
 (a call: sound both ways, live, over a WebSocket) is relayed the same way,
@@ -46,7 +49,7 @@ shows that a request with nobody named is refused. A real model: change
 | variable | |
 |---|---|
 | `LLM_URL` | an OpenAI-shaped endpoint without `/v1`, e.g. `http://litellm:4000` |
-| `LLM_MODEL` | the model name to ask |
+| `LLM_MODEL` | the model name to ask when a run picks none; offered first |
 | `LLM_API_KEY` | sent as a Bearer token, when the endpoint asks for one |
 | `SYSTEM_PROMPT` | first in every prompt |
 | `MCP_SERVERS` | MCP servers whose tools the model may call: `name=url,name=url`, Streamable HTTP endpoints; none by default |

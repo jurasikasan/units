@@ -14,14 +14,14 @@ either that the code no longer fits shows up as a build or test failure here.
 
 ## Who is asking
 
-`POST /run`, the audio calls and a call read `X-Principal-Id`, set by the door in
+`POST /run`, `GET /v1/models`, the audio calls and a call read `X-Principal-Id`, set by the door in
 front (`gate`). No header: 401, before anything else is read.
 
 ## A run
 
 `POST /run`, the body is AG-UI's `RunAgentInput`. Of it are read `threadId`,
-`runId` and `messages`; `tools`, `state`, `context` and `forwardedProps` are
-accepted and not read.
+`runId`, `messages` and `forwardedProps.modelName` (see Which model); `tools`,
+`state`, `context` and the rest of `forwardedProps` are accepted and not read.
 
 - The **last message** must be the user's and say or carry something (words,
   a picture, a document), else 400. A run is at most 16 MB, attachments
@@ -76,6 +76,33 @@ event):
    calls to the model weighed, summed, one AG-UI `TokenUsage` per provider
    and model (`provider`, `model`, `inputTokens`, `outputTokens`,
    `totalTokens`, `reasoningTokens`, `cachedInputTokens` when told).
+
+## Which model
+
+A model here is what the endpoint answers to by name: for LiteLLM a group
+(`chat`, `lite`, …, one or more deployments behind each), not a provider's
+model.
+
+`GET /v1/models` is OpenAI's: `{"object":"list","data":[{"id","object":
+"model","created","owned_by"}]}`, the models a person may pick, `LLM_MODEL`
+first. Offered is what the endpoint's own `GET /v1/models` lists (LiteLLM:
+the groups the key may use, so a virtual key narrows it) less those whose
+`mode` in LiteLLM's `GET /v1/model/info` is set and not `chat` (sound,
+realtime, embeddings). When the endpoint does not answer, only `LLM_MODEL`
+is offered; when `/v1/model/info` does not, nothing is left out.
+
+A run picks one in `forwardedProps.modelName`, where assistant-ui's model
+selector puts it (assistant-ui sends its ModelContext `config` as
+`forwardedProps`; AG-UI itself names no field for a model). No pick, an
+empty one, or `forwardedProps` not an object: `LLM_MODEL`. A pick that is
+offered is the model asked, for every call of the run, and what its parts
+are checked against. A pick that is not offered (asked of the endpoint
+then) ends the run with `RUN_ERROR`, `code: model_not_offered`, e.g. `The
+model nope is not one this assistant offers.`, before a model or tool is
+asked. A pick wins over the history: the opaque part of reasoning still
+goes only to the provider model that made it (see Reasoning), so after a
+change of pick it is left out. `reasoningEffort`, which the selector may
+send beside it, is not read.
 
 ## Weight
 
@@ -256,3 +283,5 @@ model generated. Neither is built yet; nothing here is shaped against them.
 - The face's own tools (`RunAgentInput.tools`) are not offered to the model.
 - An MCP server that asks back mid-call (`input_required`) is not answered.
 - Two runs at once in one thread are not prevented.
+- The list of models is asked of the endpoint on each request for it and
+  on each run with a pick other than `LLM_MODEL`; nothing is cached.

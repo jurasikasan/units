@@ -39,9 +39,9 @@ var field = map[kind]string{
 
 var plural = map[kind]string{kindImage: "pictures", kindPDF: "PDFs", kindAudio: "sounds"}
 
-// check is the RUN_ERROR a run ends with before the model is asked, nil when
+// check is the RUN_ERROR a run ends with before group is asked, nil when
 // everything in the conversation may go.
-func (a *Assistant) check(ctx context.Context, runID string, p Conversation) events.Event {
+func (a *Assistant) check(ctx context.Context, runID, group string, p Conversation) events.Event {
 	var notCarried []string
 	byKind := map[kind][]string{}
 	for _, e := range p {
@@ -59,7 +59,7 @@ func (a *Assistant) check(ctx context.Context, runID string, p Conversation) eve
 	if len(byKind) == 0 {
 		return nil
 	}
-	takes := a.takes(ctx)
+	takes := a.takes(ctx, group)
 	var refused []string
 	for _, k := range []kind{kindImage, kindPDF, kindAudio} {
 		if names := byKind[k]; len(names) > 0 && takes[k] != nil && !*takes[k] {
@@ -69,12 +69,12 @@ func (a *Assistant) check(ctx context.Context, runID string, p Conversation) eve
 	if len(refused) == 0 {
 		return nil
 	}
-	return events.NewRunErrorEvent(fmt.Sprintf("The model %s does not take %s.", a.model, strings.Join(refused, " or ")), events.WithErrorCode(CodeNotAccepted), events.WithRunID(runID))
+	return events.NewRunErrorEvent(fmt.Sprintf("The model %s does not take %s.", group, strings.Join(refused, " or ")), events.WithErrorCode(CodeNotAccepted), events.WithRunID(runID))
 }
 
 // takes is what the model takes, kind by kind, as LiteLLM tells: true,
 // false, or nil for not known.
-func (a *Assistant) takes(ctx context.Context) map[kind]*bool {
+func (a *Assistant) takes(ctx context.Context, group string) map[kind]*bool {
 	ctx, cancel := context.WithTimeout(ctx, a.info)
 	defer cancel()
 	var info struct {
@@ -84,7 +84,7 @@ func (a *Assistant) takes(ctx context.Context) map[kind]*bool {
 		} `json:"data"`
 	}
 	if err := a.client.Get(ctx, "model/info", nil, &info); err != nil {
-		slog.Info("what the model takes is not known", "model", a.model, "err", err)
+		slog.Info("what the model takes is not known", "model", group, "err", err)
 		return nil
 	}
 	out := map[kind]*bool{}
@@ -92,7 +92,7 @@ func (a *Assistant) takes(ctx context.Context) map[kind]*bool {
 		seen, all := 0, true
 		var no bool
 		for _, d := range info.Data {
-			if d.ModelName != a.model {
+			if d.ModelName != group {
 				continue
 			}
 			seen++

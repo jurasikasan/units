@@ -41,6 +41,8 @@ type fakeModel struct {
 	asked  []msg
 	raw    []json.RawMessage // the same messages as they came: content may be parts
 	info   string            // the answer to GET /v1/model/info, LiteLLM's; none: 404
+	models string            // the answer to GET /v1/models; none: 404
+	model  string            // the model the last chat call asked for
 }
 
 func (f *fakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -53,10 +55,21 @@ func (f *fakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, f.info)
 		return
 	}
+	if r.URL.Path == "/v1/models" {
+		if f.models == "" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, f.models)
+		return
+	}
 	var body struct {
+		Model    string            `json:"model"`
 		Messages []json.RawMessage `json:"messages"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
+	f.model = body.Model
 	f.raw = body.Messages
 	f.asked = nil
 	for _, m := range body.Messages {
