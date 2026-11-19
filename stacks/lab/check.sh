@@ -59,7 +59,7 @@ run "e2e: a call, interrupted by speech_started"  env LAB_REALTIME_MODEL=fake-re
 run "the model was told what was heard"  bash -c 'docker compose logs mind | grep -q "dir=out .*type=conversation.item.truncated"'
 run "mind on our own realtime"  env LAB_REALTIME_MODEL=cascade docker compose up -d --wait mind
 run "e2e: a call on cascade, hearing and speaking"  env LAB_REALTIME_MODEL=cascade E2E_ONLY=call docker compose run --rm e2e "$first_user" "$first_password"
-run "cascade: heard, answered, talked over, truncated"  bash -c 'l=$(docker compose logs realtime); for w in "type=speechrecog.recognition-complete" "msg=answered" "reason=turn_detected" "answer truncated" "type=conversation.item.truncated"; do echo "$l" | grep -q "$w" || { echo "no $w"; exit 1; }; done'
+run "cascade: the page's ear and voice, heard, answered, talked over, truncated"  bash -c 'l=$(docker compose logs realtime); for w in "ear=fake-stt-b" "voice=fake-tts-b_irina" "type=speechrecog.recognition-complete" "msg=answered" "reason=turn_detected" "answer truncated" "type=conversation.item.truncated"; do echo "$l" | grep -q "$w" || { echo "no $w"; exit 1; }; done'
 run "mind on a text-only model"  env LAB_LLM_MODEL=fake-text docker compose up -d --wait mind
 # The same LAB_LLM_MODEL, or compose puts the mind back on fake on the way.
 run "e2e: a picture to it is refused, said"  env LAB_LLM_MODEL=fake-text E2E_ONLY=refused docker compose run --rm e2e "$first_user" "$first_password"

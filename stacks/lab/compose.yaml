@@ -206,7 +206,9 @@ services:
   # schema made of organs — hearing finds the caller's utterances and their
   # words, a chat model through LiteLLM answers, speaking says it. LiteLLM
   # reaches it as `cascade` (litellm/models.yaml); the organs' events go on
-  # a Redis of their own (bus). Its ear, model and voice: LAB_CASCADE_*.
+  # a Redis of their own (bus). Its ear, chat model and voice are what the
+  # page picks in the sidebar; LAB_CASCADE_* when it names none. The
+  # language is found by STT in each utterance.
   realtime:
     build: ../../minds/realtime
     image: units-minds-realtime:local
@@ -216,7 +218,6 @@ services:
       LLM_KEY: ${LAB_LLM_KEY}
       LLM_MODEL: ${LAB_CASCADE_LLM_MODEL:-fake}
       VOICE: ${LAB_CASCADE_VOICE:-fake-tts_alloy}
-      SPEECH_LANGUAGE: ${LAB_CASCADE_LANGUAGE:-}
       SYSTEM_PROMPT: ${LAB_CASCADE_PROMPT:-}
       REDIS_ADDR: bus:6379
       AUDIO_IN_HOST: realtime

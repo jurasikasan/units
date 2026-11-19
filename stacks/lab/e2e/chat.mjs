@@ -225,6 +225,14 @@ async function callRound() {
   }
   const count = (list, type) => list.filter((e) => e.type === type).length
 
+  // Ours is made of parts, and they are the ones picked in the sidebar:
+  // the second fake ear, the second fake mouth in its voice irina.
+  if (realtime === 'cascade') {
+    await choose('Speech to text', 'fake-stt-b')
+    await choose('Text to speech', 'fake-tts-b')
+    await choose('Voice', 'irina')
+    step('picked for the call', 'fake-stt-b, fake-tts-b irina')
+  }
   await page.getByRole('button', { name: 'Start a call' }).click()
   await page.getByRole('button', { name: 'Hang up' }).waitFor()
   await until('session', () => count(got, 'session.created') > 0)
@@ -241,8 +249,8 @@ async function callRound() {
   const sound = count(got, 'response.output_audio.delta')
   step('sound out, sound back', `${count(sent, 'input_audio_buffer.append')} chunks out, ${sound} back`)
   // The scripted fakes answer from their script; ours (cascade) is the
-  // fake ear's words and the fake model's answer, through hearing and speaking.
-  const [ear, mouth] = realtime === 'cascade' ? ['fake ear heard', 'fake LLM'] : ['capital of France', 'Paris']
+  // picked ear's words and the fake model's answer, through hearing and speaking.
+  const [ear, mouth] = realtime === 'cascade' ? ['second fake ear heard', 'fake LLM'] : ['capital of France', 'Paris']
   if (!heard.includes(ear) || !answered.includes(mouth) || !sound) {
     step('FAIL', 'the call did not carry both sides')
     failed = true

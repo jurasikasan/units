@@ -46,7 +46,7 @@ fails when asked.
 | `tts` | Gemini 3.8 flash-lite TTS: WAV only, Gemini's voices (OpenAI's names map to some); to try, not to run on |
 | `fake-realtime` | [`fake_realtime`](fake_realtime/) behind OpenAI's Realtime API: hears by loudness, answers from a script with a tone, in the event flow Gemini Live sent through LiteLLM |
 | `fake-realtime-full` | the same, in the schema's whole set (`speech_started`, a cancelled answer, `truncated`) |
-| `cascade` | our own: [`minds/realtime`](../../minds/realtime/) made of [`senses/hearing`](../../senses/hearing/) (ear `LAB_CASCADE_STT_MODEL`), a chat model (`LAB_CASCADE_LLM_MODEL`) and [`abilities/speaking`](../../abilities/speaking/) (voice `LAB_CASCADE_VOICE`), all through this LiteLLM; the whole set, truncate honoured. On the defaults the fake ear, the fake model and the fake mouth's beep |
+| `cascade` | our own: [`minds/realtime`](../../minds/realtime/) made of [`senses/hearing`](../../senses/hearing/), a chat model and [`abilities/speaking`](../../abilities/speaking/), all through this LiteLLM, each the one picked in the sidebar (model, speech to text, text to speech and voice), `LAB_CASCADE_*` when none is; the language found in each utterance; the whole set, truncate honoured |
 
 The mind serves OpenAI's audio API at `/api/v1/audio/…` and hands it on with
 `LAB_STT_MODEL` and `LAB_TTS_MODEL`: the page's mic puts what was said into
@@ -127,9 +127,9 @@ LAB_REALTIME_MODEL=cascade docker compose up -d --wait mind
 LAB_REALTIME_MODEL=cascade E2E_ONLY=call docker compose run --rm e2e alice alice-lab
 ```
 
-With real parts, in `.env`: `LAB_CASCADE_STT_MODEL=whisper-gpu`,
-`LAB_CASCADE_LLM_MODEL=chat` (or `local`), `LAB_CASCADE_VOICE=piper_irina`
-(the `engines` profile) or `voxcpm_<voice>`, `LAB_CASCADE_LANGUAGE=ru`.
+With real parts: pick them in the sidebar before the call (a mouth whose
+voices are listed: `piper`, `silero`, `voxcpm`); what is picked holds for
+the call.
 
 
 ## .env
@@ -150,7 +150,7 @@ With real parts, in `.env`: `LAB_CASCADE_STT_MODEL=whisper-gpu`,
 | `LAB_STT_GPU_URL`, `LAB_VOXCPM_URL`, `LAB_OLLAMA_URL` | the GPU engines, each with `/v1` (Ollama without); empty, their models fail when asked |
 | `LAB_SILERO_ACCEL` | silero's image: `xpu` (falls back to CPU), `cuda` |
 | `LAB_REALTIME_MODEL` | the model a call goes to: `fake-realtime`, `fake-realtime-full`, `cascade`; empty, the page has no call button |
-| `LAB_CASCADE_STT_MODEL`, `LAB_CASCADE_LLM_MODEL`, `LAB_CASCADE_VOICE`, `LAB_CASCADE_LANGUAGE`, `LAB_CASCADE_PROMPT`, `LAB_CASCADE_VAD` | `cascade`'s parts: hearing's ear (a model here), the chat model, speaking's `<model>_<voice>`, hearing's language hint, the instructions, `energy` or `silero` |
+| `LAB_CASCADE_STT_MODEL`, `LAB_CASCADE_LLM_MODEL`, `LAB_CASCADE_VOICE`, `LAB_CASCADE_PROMPT`, `LAB_CASCADE_VAD` | `cascade`'s parts when the page names none: hearing's ear (a model here), the chat model, speaking's `<model>_<voice>`; the instructions; `energy` or `silero` |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_KEY`, `ZAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` | the providers' keys |
 | `LAB_SYSTEM_PROMPT` | first in every prompt the mind sends |
 | `LAB_MCP_SERVERS` | the MCP servers whose tools the model may call, `name=url,…`; none when empty. `everything=http://everything:3001/mcp` with `everything` in `COMPOSE_PROFILES` gives the model MCP's reference server, as `check.sh` does |
