@@ -8,7 +8,7 @@ words is someone else's job.
 ## What it does
 
 - Serves two MCP tools over streamable HTTP on `PORT` (default **8080**):
-  - `open(recognize?, speech_language?)` → `{"session_id": "hr-…", "audio_in": "host:port"}`.
+  - `open(recognize?, speech_language?, stt_model?, stt_prompt?, onset_ms?, merge_window_ms?, preroll_ms?)` → `{"session_id": "hr-…", "audio_in": "host:port"}`; the ear and the timings default to the deployment's, a session may have its own (CONTRACT §2.1).
     `audio_in` is a **string** `host:port` the caller sends RTP/UDP to.
     `recognize` is a list; the only supported value is `"speech"` (also the
     default). Over the session limit → tool error `capacity…`; an unknown
@@ -92,7 +92,7 @@ Then `GET :8080/health` returns `{"status":"ok"}` and MCP speaks on
 | `REDIS_ADDR` | — | Redis for `hearing_events` (required; boot fails without it) |
 | `STT_URL` | `http://litellm:4000/v1` | an OpenAI-shaped audio base: `POST /audio/transcriptions` (multipart `file`, WAV, `model`, `language`) |
 | `STT_KEY` | — | the router's bearer; empty for an engine |
-| `STT_MODEL` | `stt` | OpenAI's `model`: the router's group, or the engine's name |
+| `STT_MODEL` | `stt` | OpenAI's `model`: the router's group, or the engine's name; a session's `stt_model` instead |
 | `HEARING_VAD` | `silero` | `silero` or `energy` |
 | `VAD_URL` | `http://vad:8096` | `POST/DELETE /vad/{id}` (silero only) |
 | `HEARING_ENERGY_THRESHOLD` | `500` | RMS cutoff for the energy VAD |

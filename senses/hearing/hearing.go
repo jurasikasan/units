@@ -186,6 +186,42 @@ func NewService(cfg Config) *Service {
 // (RFC 6787 §9.4.24, ISO 639-1): a hint STT gets with every utterance; empty
 // leaves STT to guess. What goes in it is the opener's business.
 func (s *Service) Open(ctx context.Context, recognize []string, language, traceparent string) (string, string, error) {
+	return s.OpenWith(ctx, Options{Recognize: recognize, Language: language}, traceparent)
+}
+
+// Options is what an open may ask for beyond the deployment's config: the
+// language, the ear (STT model and prompt) and the turn timings. Zero
+// values keep the deployment's; PreRoll is a pointer, since none (0) is a
+// value of its own.
+type Options struct {
+	Recognize   []string
+	Language    string
+	STTModel    string
+	STTPrompt   string
+	Onset       time.Duration
+	MergeWindow time.Duration
+	PreRoll     *time.Duration
+}
+
+// OpenWith is Open with the session's own ear and timings (C5 §2.1).
+func (s *Service) OpenWith(ctx context.Context, o Options, traceparent string) (string, string, error) {
+	recognize, language := o.Recognize, o.Language
+	if o.Onset < 0 || o.MergeWindow < 0 || o.PreRoll != nil && *o.PreRoll < 0 {
+		return "", "", fmt.Errorf("bad_argument: a timing below zero")
+	}
+	cfg := s.cfg
+	if o.STTModel != "" {
+		cfg.STTModel = o.STTModel
+	}
+	if o.Onset > 0 {
+		cfg.Onset = o.Onset
+	}
+	if o.MergeWindow > 0 {
+		cfg.MergeWindow = o.MergeWindow
+	}
+	if o.PreRoll != nil {
+		cfg.PreRoll = *o.PreRoll
+	}
 	if len(recognize) == 0 {
 		recognize = []string{RecognizerSpeech}
 	}
@@ -217,6 +253,8 @@ func (s *Service) Open(ctx context.Context, recognize []string, language, tracep
 		in:          in,
 		det:         s.newDetector(ctx, id),
 		created:     time.Now(),
+		cfg:         cfg,
+		prompt:      o.STTPrompt,
 		language:    language,
 		traceparent: traceparent,
 		out:         make(chan func(), 64),
@@ -297,6 +335,11 @@ type session struct {
 
 	// language is the session's Speech-Language, passed to STT; "" = guess.
 	language string
+	// cfg is the service's config with what the open asked for: the ear
+	// and the turn timings are the session's own.
+	cfg Config
+	// prompt is passed to STT with every utterance; "" = none.
+	prompt string
 
 	closeMu     sync.Mutex
 	closing     bool
@@ -334,8 +377,8 @@ func (se *session) transcribe(ctx context.Context, audio []int16) *transcription
 	go func() {
 		defer close(tr.done)
 		defer cancel()
-		tr.res, tr.err = stt.Transcribe(ctx, stt.Door{URL: se.svc.cfg.STTURL, Key: se.svc.cfg.STTKey,
-			Model: se.svc.cfg.STTModel}, se.svc.cfg.HTTPClient, audio, se.language)
+		tr.res, tr.err = stt.Transcribe(ctx, stt.Door{URL: se.cfg.STTURL, Key: se.cfg.STTKey,
+			Model: se.cfg.STTModel, Prompt: se.prompt}, se.cfg.HTTPClient, audio, se.language)
 	}()
 	return tr
 }
@@ -397,7 +440,7 @@ func (se *session) worker(ctx context.Context) {
 			if lp := se.in.LastPacket(); !lp.IsZero() {
 				ref = lp
 			}
-			if time.Since(ref) >= se.svc.cfg.IdleTimeout {
+			if time.Since(ref) >= se.cfg.IdleTimeout {
 				se.beginClose("idle")
 			}
 		}
@@ -411,7 +454,7 @@ func (se *session) processWindow(ctx context.Context, win []int16, winStart, win
 	if err != nil {
 		speech = false
 	}
-	cfg := se.svc.cfg
+	cfg := se.cfg
 	if speech {
 		if se.cand != nil &&
 			!winStart.Before(se.cand.lastSpeechEnd.Add(cfg.MergeWindow)) {
@@ -498,7 +541,7 @@ func (se *session) processWindow(ctx context.Context, win []int16, winStart, win
 // reports nothing: it may have been a cough. Under ShortDrop, nothing; its
 // audio is kept as the next candidate's pre-roll.
 func (se *session) closeShort(ctx context.Context, u *utterance) {
-	if se.svc.cfg.ShortWords != ShortTranscribe {
+	if se.cfg.ShortWords != ShortTranscribe {
 		se.keepPreroll(u.audio)
 		return
 	}
@@ -508,14 +551,14 @@ func (se *session) closeShort(ctx context.Context, u *utterance) {
 		if tr.err != nil || strings.TrimSpace(tr.res.Text) == "" {
 			return
 		}
-		if !plausibleShort(tr.res.Text, se.svc.cfg.Onset) {
+		if !plausibleShort(tr.res.Text, se.cfg.Onset) {
 			log.Printf("hearing: session %s: a burst under the onset came back as %q, too long to be what was said; dropped",
 				se.id, tr.res.Text)
 			return
 		}
 		emit := func(typ string, data map[string]any) {
 			data["session_id"] = se.id
-			se.svc.cfg.Sink.Emit(ctx, Event{Type: typ, Subject: se.id, Data: data, Traceparent: se.traceparent})
+			se.cfg.Sink.Emit(ctx, Event{Type: typ, Subject: se.id, Data: data, Traceparent: se.traceparent})
 		}
 		emit(TypeStartOfInput, map[string]any{
 			"request_id": u.id,
@@ -535,7 +578,7 @@ func (se *session) closeShort(ctx context.Context, u *utterance) {
 
 // keepPreroll appends samples to the pre-roll and keeps its last PreRoll.
 func (se *session) keepPreroll(samples []int16) {
-	limit := int(se.svc.cfg.PreRoll / (time.Second / 16000))
+	limit := int(se.cfg.PreRoll / (time.Second / 16000))
 	if limit <= 0 {
 		return
 	}
@@ -632,7 +675,7 @@ func (se *session) queue(ctx context.Context, typ string, data map[string]any, b
 		if before != nil {
 			before()
 		}
-		se.svc.cfg.Sink.Emit(ctx, Event{Type: typ, Subject: se.id, Data: data, Traceparent: se.traceparent})
+		se.cfg.Sink.Emit(ctx, Event{Type: typ, Subject: se.id, Data: data, Traceparent: se.traceparent})
 	}
 }
 

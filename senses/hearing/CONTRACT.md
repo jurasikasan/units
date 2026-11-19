@@ -1,6 +1,7 @@
 # hearing — contract (C5)
 
-Revision 2: MRCPv2's recognizer vocabulary (§7) — `speechrecog.*` events, `request_id`,
+Revision 3 (UNIT-49): the ear and the turn timings may be the session's own, asked for
+at `open` (§2.1). Revision 2: MRCPv2's recognizer vocabulary (§7) — `speechrecog.*` events, `request_id`,
 a completion cause instead of `ok`.
 
 ## 1. What it is
@@ -48,12 +49,23 @@ send; a line sends, so it is told (phone `listen`, revision 3).
 
 Errors are MCP tool errors whose text starts with a code from §2.3.
 
-### 2.1 `open(recognize?, speech_language?)` → `session_id`, `audio_in`
+### 2.1 `open(recognize?, speech_language?, stt_model?, stt_prompt?, onset_ms?, merge_window_ms?, preroll_ms?)` → `session_id`, `audio_in`
 
 | Argument | Required | Meaning |
 |---|---|---|
 | `recognize` | no | what to recognise in the sound: a list; default and only value in this step `["speech"]` |
 | `speech_language` | no | the session's language, ISO 639-1 (`ru`) — MRCP Speech-Language (§9.4.24). Passed to STT with every utterance as a hint; empty lets STT guess. What goes in it is the opener's business: the number called, the subject, a constant |
+| `stt_model` | no | the ear: OpenAI's `model` for this session's transcriptions (a router's group, an engine's name); default `STT_MODEL` |
+| `stt_prompt` | no | OpenAI's `prompt`, sent with every utterance: words to expect, a style; default none |
+| `onset_ms` | no | this session's `HEARING_ONSET` (§3); default the deployment's |
+| `merge_window_ms` | no | this session's `HEARING_MERGE_WINDOW`: the pause that ends an utterance; default the deployment's |
+| `preroll_ms` | no | this session's `HEARING_PREROLL`; `0` is none; default the deployment's |
+
+Who picked the ear and the timings — a person in a page, a subject's preferences, a
+call's protocol (OpenAI Realtime's `audio.input.transcription` and `turn_detection`) — is
+the opener's business; hearing only holds each session to its own. A timing below zero
+is `bad_argument`; zero (or absent) keeps the deployment's, except `preroll_ms`, where `0`
+means none.
 
 ```json
 {"recognize": ["speech"], "speech_language": "ru"}
@@ -81,6 +93,7 @@ A session that receives no packets for `HEARING_IDLE_TIMEOUT` closes by itself (
 | `capacity` | the session limit is reached, or no port in the `audio_in` range is free |
 | `unsupported_recognizer` | `recognize` names something hearing cannot recognise |
 | `unknown_session` | no such session (`close` of an id hearing never gave) |
+| `bad_argument` | a timing below zero |
 
 ## 3. Events
 
@@ -170,13 +183,13 @@ Inside, everything is brought to 16 kHz mono for the detector and for STT.
 |---|---|---|
 | `STT_URL` | an OpenAI-shaped audio base | `http://litellm:4000/v1` |
 | `STT_KEY` | its bearer (a router's key); empty for an engine | — |
-| `STT_MODEL` | OpenAI's `model`: the router's group, or the engine's name | `stt` |
+| `STT_MODEL` | OpenAI's `model`: the router's group, or the engine's name; a session's `stt_model` instead | `stt` |
 | `HEARING_VAD` | `silero` (through `VAD_URL`) or `energy` | `silero` |
 | `VAD_URL` | the VAD engine | `http://vad:8096` |
-| `HEARING_ONSET` | speech shorter than this is not reported | `200ms` |
-| `HEARING_MERGE_WINDOW` | a pause this long ends an utterance | `400ms` |
+| `HEARING_ONSET` | speech shorter than this is not reported; a session's `onset_ms` instead | `200ms` |
+| `HEARING_MERGE_WINDOW` | a pause this long ends an utterance; a session's `merge_window_ms` instead | `400ms` |
 | `HEARING_SHORT` | a burst under the onset: `transcribe` (reported if STT finds words) or `drop` | `transcribe` |
-| `HEARING_PREROLL` | audio before the first speech window that goes to STT; `0` for none | `300ms` |
+| `HEARING_PREROLL` | audio before the first speech window that goes to STT; `0` for none; a session's `preroll_ms` instead | `300ms` |
 | `HEARING_MAX_UTTERANCE` | an utterance is cut at this length | `25s` |
 | `HEARING_MAX_SESSIONS` | sessions at once | `4` |
 | `HEARING_IDLE_TIMEOUT` | no packets this long closes a session | `2m` |

@@ -24,6 +24,8 @@ type Result struct {
 // (a router's key; empty for an engine) and the model to ask for.
 type Door struct {
 	URL, Key, Model string
+	// Prompt is OpenAI's prompt: words to expect, a style; "" = none.
+	Prompt string
 }
 
 // Transcribe POSTs the samples as a 16 kHz 16-bit mono WAV file to
@@ -43,6 +45,9 @@ func Transcribe(ctx context.Context, d Door, httpClient *http.Client, pcm16k []i
 	fields := [][2]string{{"model", d.Model}, {"response_format", "verbose_json"}}
 	if language != "" {
 		fields = append(fields, [2]string{"language", language})
+	}
+	if d.Prompt != "" {
+		fields = append(fields, [2]string{"prompt", d.Prompt})
 	}
 	for _, f := range fields {
 		if err := mw.WriteField(f[0], f[1]); err != nil {

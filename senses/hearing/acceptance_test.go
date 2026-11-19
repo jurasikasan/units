@@ -34,6 +34,8 @@ type sttFake struct {
 	wavLens []int
 	wavs    [][]byte
 	asked   []string // the language field of each request
+	models  []string // the model field of each request
+	prompts []string // the prompt field of each request
 }
 
 func newSTTFake() *sttFake {
@@ -58,6 +60,8 @@ func newSTTFake() *sttFake {
 		f.wavLens = append(f.wavLens, len(raw))
 		f.wavs = append(f.wavs, raw)
 		f.asked = append(f.asked, r.FormValue("language"))
+		f.models = append(f.models, r.FormValue("model"))
+		f.prompts = append(f.prompts, r.FormValue("prompt"))
 		failed := f.fail
 		text, lang := f.text, f.lang
 		delay, byLen := f.delay, f.byLen
@@ -1413,5 +1417,60 @@ func TestPlausibleShort(t *testing.T) {
 	}
 	if !plausibleShort("Продолжение следует...", time.Second) {
 		t.Errorf("a 1 s onset should allow 19 letters")
+	}
+}
+
+// --- UNIT-49: the ear and the turn timings are the session's own ---
+
+// Two sessions of one hearing, the same sound (a second, 600 ms of quiet, a
+// second): the one opened with its own ear, prompt and an 800 ms merge
+// window hears one utterance through that ear; the other, on the
+// deployment's 400 ms and model, hears two.
+func TestSessionsHaveTheirOwnEarAndMergeWindow(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.STTModel = "deployment-ear" })
+	say := func(o Options) (asked []string, prompts []string, heard int) {
+		t.Helper()
+		before := len(h.events("speechrecog.recognition-complete"))
+		id, addr, err := h.svc.OpenWith(context.Background(), o, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := newSender(t, addr, 0xA11CE)
+		s.tone(0, 8000, 0, 1.0)
+		s.silence(0, 1.0, 0.6)
+		s.tone(0, 8000, 1.6, 1.0)
+		s.silence(0, 2.6, 1.2)
+		h.waitType(t, "speechrecog.recognition-complete", before+1, 5*time.Second)
+		h.waitNoType(t, "speechrecog.recognition-complete", 500*time.Millisecond)
+		if err := h.svc.Close(id); err != nil {
+			t.Fatal(err)
+		}
+		h.stt.mu.Lock()
+		asked, prompts = h.stt.models, h.stt.prompts
+		h.stt.models, h.stt.prompts = nil, nil
+		h.stt.mu.Unlock()
+		return asked, prompts, len(h.events("speechrecog.recognition-complete")) - before
+	}
+	none := time.Duration(0)
+	models, prompts, heard := say(Options{STTModel: "picked-ear", STTPrompt: "Paris", MergeWindow: 800 * time.Millisecond, PreRoll: &none})
+	if heard != 1 {
+		t.Fatalf("own merge window: heard %d utterances, want 1", heard)
+	}
+	for i := range models {
+		if models[i] != "picked-ear" || prompts[i] != "Paris" {
+			t.Fatalf("own ear: STT asked model %q prompt %q", models[i], prompts[i])
+		}
+	}
+	models, prompts, heard = say(Options{})
+	if heard != 2 {
+		t.Fatalf("deployment's merge window: heard %d utterances, want 2", heard)
+	}
+	for i := range models {
+		if models[i] != "deployment-ear" || prompts[i] != "" {
+			t.Fatalf("deployment's ear: STT asked model %q prompt %q", models[i], prompts[i])
+		}
+	}
+	if _, _, err := h.svc.OpenWith(context.Background(), Options{MergeWindow: -time.Second}, ""); err == nil || !strings.HasPrefix(err.Error(), "bad_argument") {
+		t.Fatalf("a negative timing: %v, want bad_argument", err)
 	}
 }

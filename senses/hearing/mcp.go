@@ -2,6 +2,7 @@ package hearing
 
 import (
 	"context"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -12,7 +13,7 @@ func NewMCPServer(svc *Service) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "hearing", Version: "0.1.0"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "open",
-		Description: "Open a hearing session and get its audio_in address (\"host:port\", RTP/UDP). Optional argument recognize: list of recognizers to enable; the only value this step supports is \"speech\" (the default). Optional speech_language: the session's language (ISO 639-1, e.g. \"ru\", MRCP Speech-Language), a hint passed to STT with every utterance; empty lets STT guess.",
+		Description: "Open a hearing session and get its audio_in address (\"host:port\", RTP/UDP). Optional argument recognize: list of recognizers to enable; the only value this step supports is \"speech\" (the default). Optional speech_language: the session's language (ISO 639-1, e.g. \"ru\", MRCP Speech-Language), a hint passed to STT with every utterance; empty lets STT guess. Optional, the session's own instead of the deployment's: stt_model (OpenAI's model, e.g. the router's group), stt_prompt (OpenAI's prompt), onset_ms, merge_window_ms, preroll_ms (0 is none).",
 	}, openTool(svc))
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "close",
@@ -24,6 +25,11 @@ func NewMCPServer(svc *Service) *mcp.Server {
 type openIn struct {
 	Recognize      []string `json:"recognize,omitempty"`
 	SpeechLanguage string   `json:"speech_language,omitempty"`
+	STTModel       string   `json:"stt_model,omitempty"`
+	STTPrompt      string   `json:"stt_prompt,omitempty"`
+	OnsetMS        int      `json:"onset_ms,omitempty"`
+	MergeWindowMS  int      `json:"merge_window_ms,omitempty"`
+	PrerollMS      *int     `json:"preroll_ms,omitempty"`
 }
 
 type openOut struct {
@@ -41,13 +47,21 @@ type closeOut struct {
 
 func openTool(svc *Service) mcp.ToolHandlerFor[openIn, openOut] {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in openIn) (*mcp.CallToolResult, openOut, error) {
-		sessionID, audioIn, err := svc.Open(ctx, in.Recognize, in.SpeechLanguage, traceparent(req))
+		o := Options{Recognize: in.Recognize, Language: in.SpeechLanguage, STTModel: in.STTModel, STTPrompt: in.STTPrompt,
+			Onset: ms(in.OnsetMS), MergeWindow: ms(in.MergeWindowMS)}
+		if in.PrerollMS != nil {
+			p := ms(*in.PrerollMS)
+			o.PreRoll = &p
+		}
+		sessionID, audioIn, err := svc.OpenWith(ctx, o, traceparent(req))
 		if err != nil {
 			return nil, openOut{}, err
 		}
 		return nil, openOut{SessionID: sessionID, AudioIn: audioIn}, nil
 	}
 }
+
+func ms(n int) time.Duration { return time.Duration(n) * time.Millisecond }
 
 // traceparent reads the W3C traceparent of the MCP call from its _meta
 // (contracts/events.md); an absent or non-string value is an empty string.
