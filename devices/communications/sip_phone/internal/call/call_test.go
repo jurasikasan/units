@@ -3,6 +3,7 @@ package call
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -62,12 +63,12 @@ func types(es []events.Event) []string {
 
 func newPhone(t *testing.T, fe *farend.FarEnd, mod func(*Config)) (*Manager, *recorder) {
 	t.Helper()
-	conn, port := farend.ListenUDP(t)
+	conn, _ := farend.ListenUDP(t)
 	ua, err := sipgo.NewUA(sipgo.WithUserAgent("phone-test"))
 	require.NoError(t, err)
 	srv, err := sipgo.NewServer(ua)
 	require.NoError(t, err)
-	cli, err := sipgo.NewClient(ua, sipgo.WithClientHostname("127.0.0.1"), sipgo.WithClientPort(port))
+	cli, port, err := NewClient(ua, conn, "127.0.0.1")
 	require.NoError(t, err)
 
 	cfg := Config{
@@ -85,13 +86,32 @@ func newPhone(t *testing.T, fe *farend.FarEnd, mod func(*Config)) (*Manager, *re
 	srv.OnAck(m.OnAck)
 	srv.OnOptions(m.OnOptions)
 	srv.OnUpdate(m.OnUpdate)
-	go srv.ServeUDP(conn) //nolint:errcheck
+	_, err = Serve(srv, conn)
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		m.Wait()
 		_ = ua.Close()
 		_ = conn.Close()
 	})
 	return m, rec
+}
+
+// UNIT-12: an outbound INVITE leaves from the socket phone listens on, and
+// its Via and Contact name that port — not an ephemeral one that works only
+// while the trunk answers to the source (rport).
+func TestOutboundLeavesFromTheListenPort(t *testing.T) {
+	fe := farend.Start(t)
+	var port int
+	m, rec := newPhone(t, fe, func(c *Config) { port = c.SIPPort })
+	id, err := m.Dial(DialRequest{To: farend.AnswerThenBye})
+	require.NoError(t, err)
+	rec.until(t, id)
+
+	seen := fe.LastInvite.Load()
+	require.NotNil(t, seen, "the far end must have seen the INVITE")
+	assert.Equal(t, "127.0.0.1:"+strconv.Itoa(port), seen.Source, "INVITE source")
+	assert.Equal(t, port, seen.ViaPort, "Via sent-by port")
+	assert.Equal(t, port, seen.ContactPort, "Contact port")
 }
 
 func ended(t *testing.T, es []events.Event) map[string]any {

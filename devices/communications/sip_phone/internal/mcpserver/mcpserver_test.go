@@ -42,12 +42,12 @@ func (p pub) waitFor(t *testing.T, typ string) events.Event {
 func connect(t *testing.T) (*mcp.ClientSession, pub) {
 	t.Helper()
 	fe := farend.Start(t)
-	conn, port := farend.ListenUDP(t)
+	conn, _ := farend.ListenUDP(t)
 	ua, err := sipgo.NewUA()
 	require.NoError(t, err)
 	srv, err := sipgo.NewServer(ua)
 	require.NoError(t, err)
-	cli, err := sipgo.NewClient(ua, sipgo.WithClientHostname("127.0.0.1"), sipgo.WithClientPort(port))
+	cli, port, err := call.NewClient(ua, conn, "127.0.0.1")
 	require.NoError(t, err)
 	p := pub{ch: make(chan events.Event, 64)}
 	m := call.NewManager(call.Config{
@@ -56,7 +56,8 @@ func connect(t *testing.T) (*mcp.ClientSession, pub) {
 		AudioInHost: "127.0.0.1", AudioInPortMin: 43000, AudioInPortMax: 43199,
 	}, cli, p)
 	srv.OnBye(m.OnBye)
-	go srv.ServeUDP(conn) //nolint:errcheck
+	_, err = call.Serve(srv, conn)
+	require.NoError(t, err)
 
 	ct, st := mcp.NewInMemoryTransports()
 	ctx := context.Background()

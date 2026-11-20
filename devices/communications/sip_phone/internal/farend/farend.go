@@ -47,6 +47,14 @@ const DefaultAnswerMediaPort = 40000
 // AnswerPayloadType is the G.711 the far end answers with and sends in SendRTP.
 const AnswerPayloadType = uint8(8) // PCMA
 
+// InviteSeen is the source address of an INVITE as it arrived and the ports
+// its Via and Contact name.
+type InviteSeen struct {
+	Source      string
+	ViaPort     int
+	ContactPort int
+}
+
 type FarEnd struct {
 	Addr      string
 	Invites   atomic.Int32
@@ -56,6 +64,8 @@ type FarEnd struct {
 	// Media is the media address of the last offer seen: where the far end's
 	// half of the call's audio (SendRTP) goes.
 	Media atomic.Pointer[net.UDPAddr]
+	// LastInvite is what the last INVITE said about where it came from.
+	LastInvite atomic.Pointer[InviteSeen]
 	// AnswerMediaPort is the media port the far end answers with; 0 is
 	// DefaultAnswerMediaPort.
 	AnswerMediaPort atomic.Int32
@@ -99,6 +109,14 @@ func Start(t *testing.T) *FarEnd {
 	})
 	srv.OnInvite(func(req *sip.Request, tx sip.ServerTransaction) {
 		fe.Invites.Add(1)
+		seen := &InviteSeen{Source: req.Source()}
+		if v := req.Via(); v != nil {
+			seen.ViaPort = v.Port
+		}
+		if c := req.Contact(); c != nil {
+			seen.ContactPort = c.Address.Port
+		}
+		fe.LastInvite.Store(seen)
 		tx.OnCancel(func(*sip.Request) { fe.Cancelled.Store(true) })
 
 		// The real trunk refuses an unlabelled body the same way.

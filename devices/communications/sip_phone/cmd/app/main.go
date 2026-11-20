@@ -47,10 +47,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("phone: SIP server: %v", err)
 	}
-	cli, err := sipgo.NewClient(ua, sipgo.WithClientHostname(cfg.AdvertiseHost), sipgo.WithClientPort(cfg.SIPPort))
+	// One socket for both directions: the server reads from it and the
+	// client sends through it, so requests leave from the port Via and
+	// Contact name.
+	conn, err := net.ListenPacket("udp", listen)
+	if err != nil {
+		log.Fatalf("phone: SIP listen: %v", err)
+	}
+	cli, port, err := call.NewClient(ua, conn, cfg.AdvertiseHost)
 	if err != nil {
 		log.Fatalf("phone: SIP client: %v", err)
 	}
+	cfg.SIPPort = port
 
 	rdb := sharedredis.GetRedisClient(ctx)
 	pub := events.Redis(rdb)
@@ -69,14 +77,22 @@ func main() {
 	})
 	mux.Handle("/", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return tools }, nil))
 	httpSrv := &http.Server{Addr: ":" + env("PORT", "8080"), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+
+	log.Printf("phone %s: SIP on %s, trunk %s, advertising %s:%d, up to %d calls", version, listen, cfg.Trunk, cfg.AdvertiseHost, cfg.SIPPort, cfg.MaxCalls)
+	served, err := call.Serve(srv, conn)
+	if err != nil {
+		log.Fatalf("phone: SIP listen: %v", err)
+	}
 	go func() {
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("phone: HTTP: %v", err)
 		}
 	}()
-
-	log.Printf("phone %s: SIP on %s, trunk %s, advertising %s:%d, up to %d calls", version, listen, cfg.Trunk, cfg.AdvertiseHost, cfg.SIPPort, cfg.MaxCalls)
-	if err := srv.ListenAndServe(ctx, "udp", listen); err != nil && ctx.Err() == nil {
+	go func() {
+		<-ctx.Done()
+		_ = conn.Close()
+	}()
+	if err := <-served; err != nil && ctx.Err() == nil {
 		log.Fatalf("phone: SIP listen: %v", err)
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)

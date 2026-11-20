@@ -28,7 +28,7 @@ consumes:
   outside: [sip-trunk]  # SIP, UDP: SIP_TRUNK for dial, SIP_INBOUND_ALLOW for who rings
 
 wire:                   # what the box must open to the world
-  - 5070/udp            # SIP
+  - 5070/udp            # SIP, both ways: calls are sent from this port too
   - 42000-42199/udp     # RTP (trunk-facing leg)
   # audio_in (AUDIO_IN_PORT_MIN..MAX, default 43000-43199) is box-internal:
   # reached on the box network at AUDIO_IN_HOST, never published by the box.

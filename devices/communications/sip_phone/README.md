@@ -55,7 +55,7 @@ by the box and needs no environment variable of its own.
 | Variable | Default | Meaning |
 |---|---|---|
 | `SIP_TRUNK` | empty | `host:port` every call goes to; empty = the line only takes calls, `dial` ends `failed` |
-| `SIP_LISTEN` | `0.0.0.0:5070` | where SIP is received; its port goes into Contact |
+| `SIP_LISTEN` | `0.0.0.0:5070` | the one SIP socket: calls are received on it and sent from it; its port goes into Via and Contact |
 | `SIP_ADVERTISE_ADDR` | the local address toward the trunk | IP in Contact and SDP; set it by hand behind NAT |
 | `SIP_USERNAME`, `SIP_PASSWORD` | empty | answer a 401/407 digest challenge |
 | `SIP_DEFAULT_FROM` | empty | caller ID when `dial` gives none; empty leaves it to the trunk |

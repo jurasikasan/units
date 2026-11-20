@@ -69,12 +69,12 @@ func newDevice(t *testing.T, media *net.UDPConn) (*Device, *recorder) {
 	t.Helper()
 	fe := farend.Start(t)
 	fe.AnswerMediaPort.Store(int32(media.LocalAddr().(*net.UDPAddr).Port))
-	conn, port := farend.ListenUDP(t)
+	conn, _ := farend.ListenUDP(t)
 	ua, err := sipgo.NewUA()
 	require.NoError(t, err)
 	srv, err := sipgo.NewServer(ua)
 	require.NoError(t, err)
-	cli, err := sipgo.NewClient(ua, sipgo.WithClientHostname("127.0.0.1"), sipgo.WithClientPort(port))
+	cli, port, err := call.NewClient(ua, conn, "127.0.0.1")
 	require.NoError(t, err)
 
 	rec := &recorder{ch: make(chan events.Event, 64)}
@@ -90,7 +90,8 @@ func newDevice(t *testing.T, media *net.UDPConn) (*Device, *recorder) {
 		AudioInPortMax: 43199,
 	}, cli, rec)
 	srv.OnBye(m.OnBye)
-	go srv.ServeUDP(conn) //nolint:errcheck
+	_, err = call.Serve(srv, conn)
+	require.NoError(t, err)
 	t.Cleanup(func() { m.Wait(); _ = ua.Close(); _ = conn.Close() })
 	return New(m), rec
 }
