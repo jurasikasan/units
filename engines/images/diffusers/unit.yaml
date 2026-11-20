@@ -20,7 +20,9 @@ wire: []
 
 config:
   optional:
-    IMAGES_MODEL_DIR: "/models/model"   # a diffusers model directory (model_index.json)
+    IMAGES_MODEL_DIR: "/models/model"   # a diffusers model directory, or a hub id found in HF_HUB_CACHE
+    IMAGES_VAE_TILING: "off"            # on: the VAE decodes in tiles, a lower memory peak at big sizes
+    IMAGES_PROMPT_UPSAMPLER: "off"      # on: keep a modular pipeline's prompt upsampler (FLUX.3's own LLM)
     IMAGES_MODEL_NAME: ""               # what /health calls it; the directory's name when empty
     IMAGES_DEVICE: "auto"               # auto: xpu, then cuda, then cpu
     IMAGES_DTYPE: "bfloat16"

@@ -17,7 +17,7 @@ import time
 from contextlib import asynccontextmanager
 
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import DiffusionPipeline, ModularPipeline
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from PIL import Image
@@ -30,12 +30,14 @@ MODEL_NAME = os.environ.get("IMAGES_MODEL_NAME", os.path.basename(MODEL_DIR.rstr
 DEVICE = os.environ.get("IMAGES_DEVICE", "auto")
 DTYPE = os.environ.get("IMAGES_DTYPE", "bfloat16")
 OFFLOAD = os.environ.get("IMAGES_OFFLOAD", "none")  # none | model | sequential
+UPSAMPLER = os.environ.get("IMAGES_PROMPT_UPSAMPLER", "off") == "on"
+VAE_TILING = os.environ.get("IMAGES_VAE_TILING", "off") == "on"
 DEFAULTS = {
     "steps": rules.parse_steps(os.environ.get("IMAGES_STEPS")),
     "guidance": rules.parse_guidance(os.environ.get("IMAGES_GUIDANCE")),
 }
 
-state = {"pipe": None, "accepts": set(), "device": None, "loading": True, "error": None}
+state = {"pipe": None, "accepts": set(), "device": None, "modular": False, "loading": True, "error": None}
 _turn = threading.Lock()
 
 
@@ -49,18 +51,66 @@ def _device():
     return "cpu"
 
 
+def _is_modular():
+    """A modular pipeline (FLUX.3) has modular_model_index.json and no
+    model_index.json; MODEL_DIR is a directory or a hub id in the cache."""
+    if os.path.isdir(MODEL_DIR):
+        return not os.path.exists(os.path.join(MODEL_DIR, "model_index.json")) and \
+            os.path.exists(os.path.join(MODEL_DIR, "modular_model_index.json"))
+    from huggingface_hub import try_to_load_from_cache
+    return isinstance(try_to_load_from_cache(MODEL_DIR, "modular_model_index.json"), str)
+
+
+def _modular(dtype):
+    """Its blocks, the prompt upsampler (an LLM of its own that rewrites the
+    prompt) taken out unless IMAGES_PROMPT_UPSAMPLER=on; then only the
+    components the remaining blocks use are loaded. A modular index names
+    its components by hub id, and resolving an id asks the hub for its
+    revision even when the files are cached; so a hub id is turned into its
+    cached snapshot first, and the components are read from there."""
+    path = MODEL_DIR
+    if not os.path.isdir(path):
+        from huggingface_hub import snapshot_download
+        path = snapshot_download(MODEL_DIR, local_files_only=True)
+    blocks = ModularPipeline.from_pretrained(path).blocks
+    if not UPSAMPLER and "prompt_upsampler" in blocks.sub_blocks:
+        blocks.sub_blocks.pop("prompt_upsampler")
+    pipe = blocks.init_pipeline(path)
+    names = [c.name for c in blocks.expected_components if c.default_creation_method == "from_pretrained"]
+    own = [n for n in names if not n.startswith("prompt_upsampler")]
+    pipe.load_components(names=own, torch_dtype=dtype, pretrained_model_name_or_path=path)
+    if len(own) < len(names):
+        pipe.load_components(names=[n for n in names if n not in own], torch_dtype=dtype)
+    # load_components logs a component it fails to load and goes on; a
+    # pipeline without its transformer is no pipeline.
+    missing = [n for n in names if getattr(pipe, n, None) is None]
+    if missing:
+        raise RuntimeError(f"components not loaded: {', '.join(missing)} (see the log above)")
+    return pipe, set(blocks.input_names)
+
+
 def _load():
     try:
         t = time.time()
         dev = _device()
-        pipe = DiffusionPipeline.from_pretrained(MODEL_DIR, torch_dtype=getattr(torch, DTYPE))
-        if OFFLOAD == "model":
+        dtype = getattr(torch, DTYPE)
+        if _is_modular():
+            pipe, accepts = _modular(dtype)
+            state["modular"] = True
+        else:
+            pipe = DiffusionPipeline.from_pretrained(MODEL_DIR, torch_dtype=dtype)
+            accepts = set(inspect.signature(pipe.__call__).parameters)
+        if state["modular"]:
+            pipe.to(dev)
+        elif OFFLOAD == "model":
             pipe.enable_model_cpu_offload(device=dev)
         elif OFFLOAD == "sequential":
             pipe.enable_sequential_cpu_offload(device=dev)
         else:
             pipe.to(dev)
-        state["accepts"] = set(inspect.signature(pipe.__call__).parameters)
+        if VAE_TILING and hasattr(getattr(pipe, "vae", None), "enable_tiling"):
+            pipe.vae.enable_tiling()  # decode in tiles: a lower peak at big sizes
+        state["accepts"] = accepts
         state.update(pipe=pipe, device=dev, loading=False)
         print(f"[images] {type(pipe).__name__} from {MODEL_DIR} on {dev} ({DTYPE}, offload {OFFLOAD}) "
               f"in {time.time() - t:.1f} s", flush=True)
@@ -89,7 +139,7 @@ def _draw(kw, seed, fmt):
         # A CPU generator: the same seed draws the same picture on any device.
         kw["generator"] = torch.Generator("cpu").manual_seed(seed)
     with _turn, torch.inference_mode():
-        images = pipe(**kw).images
+        images = pipe(**kw, output="images") if state["modular"] else pipe(**kw).images
         if dev == "xpu":
             torch.xpu.synchronize()
     out = []

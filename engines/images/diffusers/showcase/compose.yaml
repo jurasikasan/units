@@ -3,6 +3,10 @@ name: images-diffusers-showcase
 # A model directory in diffusers' layout on the host (model_index.json in it),
 # e.g. black-forest-labs/FLUX.2-klein-4B fetched with `hf download`:
 #   IMAGES_MODEL=/path/to/FLUX.2-klein-4B docker compose up --build --exit-code-from demo
+# Or a hub id out of a Hugging Face cache, which a modular pipeline (FLUX.3)
+# needs, its components being named by id:
+#   IMAGES_HF_CACHE=/path/to/hf-cache IMAGES_MODEL_ID=black-forest-labs/flux-3-image-klein \
+#   IMAGES_STEPS=16 docker compose up --build --exit-code-from demo
 # Intel GPU by default (/dev/dri); ACCEL=cuda with an NVIDIA one (see README).
 # Pictures land in ./out. The engine sees no network: weights are all it has.
 
@@ -14,11 +18,14 @@ services:
     devices: ["/dev/dri:/dev/dri"]
     networks: [inner]
     environment:
+      IMAGES_MODEL_DIR: "${IMAGES_MODEL_ID:-/models/model}"
+      HF_HUB_CACHE: /models/hf-cache
       IMAGES_STEPS: "${IMAGES_STEPS:-4}"
       IMAGES_GUIDANCE: "${IMAGES_GUIDANCE:-1.0}"
       UR_L0_ENABLE_RELAXED_ALLOCATION_LIMITS: "1"   # Intel: allocations over 4 GB
     volumes:
-      - ${IMAGES_MODEL:?set IMAGES_MODEL to a diffusers model directory}:/models/model:ro
+      - ${IMAGES_MODEL:-./no-model}:/models/model:ro
+      - ${IMAGES_HF_CACHE:-./no-cache}:/models/hf-cache:ro
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 5s

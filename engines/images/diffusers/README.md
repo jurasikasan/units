@@ -6,7 +6,9 @@ it alone. Any OpenAI client, or a router such as LiteLLM, asks it for a
 picture.
 
 Which pipeline is whatever the directory's `model_index.json` names —
-FLUX.2 klein, SDXL, Qwen-Image, any classic diffusers pipeline — loaded
+FLUX.2 klein, SDXL, Qwen-Image, any classic diffusers pipeline — or, with
+`modular_model_index.json` instead, a modular one (FLUX.3 Image Klein),
+loaded
 once at start on the first device there is: Intel XPU, CUDA, then CPU. The
 call is built from the pipeline's own signature, so a model that takes no
 image refuses an edit, and one without a negative prompt refuses that,
@@ -49,7 +51,9 @@ A size too big for the device's memory is a 507.
 | `IMAGES_DEVICE` | `auto` | `xpu`, `cuda`, `cpu`, or the first of them there is |
 | `IMAGES_DTYPE` | `bfloat16` | |
 | `IMAGES_OFFLOAD` | `none` | `model` or `sequential`: diffusers' CPU offload, for a model bigger than the GPU's memory (on an iGPU, which shares RAM, it saves nothing) |
-| `IMAGES_STEPS`, `IMAGES_GUIDANCE` | the pipeline's own | FLUX.2 klein is distilled: 4 and 1.0 |
+| `IMAGES_STEPS`, `IMAGES_GUIDANCE` | the pipeline's own | FLUX.2 klein is distilled: 4 and 1.0; FLUX.3 Klein: 16, no guidance |
+| `IMAGES_VAE_TILING` | `off` | `on`: the VAE decodes in tiles, a lower memory peak at big sizes |
+| `IMAGES_PROMPT_UPSAMPLER` | `off` | a modular pipeline's own prompt rewriter (FLUX.3's is a Qwen3.5 LLM, another model to load); off, the prompt goes in as given |
 
 Intel's GPU needs `/dev/dri` passed in and, for allocations over 4 GB,
 `UR_L0_ENABLE_RELAXED_ALLOCATION_LIMITS=1`. An NVIDIA one: build with
@@ -65,6 +69,19 @@ hf download black-forest-labs/FLUX.2-klein-4B --local-dir FLUX.2-klein-4B --excl
 (~16 GB: the root `flux-2-klein-4b.safetensors` is the same transformer in
 another layout.)
 
+FLUX.3 Image Klein (FLUX Kommunity licence: accept it on the model's page,
+then a token) is a modular pipeline whose index names its parts by hub id,
+so it is served from a Hugging Face cache, `IMAGES_MODEL_DIR` being the id
+and `HF_HUB_CACHE` the mounted cache; the engine reads the cached snapshot
+and never asks the hub:
+
+```bash
+HF_HUB_CACHE=/path/to/hf-cache hf download black-forest-labs/flux-3-image-klein --exclude "variants/*" "model.safetensors"
+```
+
+(~20 GB: transformer 11.1, Qwen3-VL-4B text encoder 8.9; `variants/` holds
+FP8 and NVFP4 builds for NVIDIA cards.)
+
 ## Measured
 
 FLUX.2 klein 4B, bf16, 4 steps, guidance 1.0, the whole pipeline resident:
@@ -73,6 +90,13 @@ FLUX.2 klein 4B, bf16, 4 steps, guidance 1.0, the whole pipeline resident:
 |---|---|---|---|---|---|
 | Intel Arc iGPU (Core Ultra 7 155H, 32 GB shared) | 19 s | 21 s | 64 s | 36 s | ~20 GB of RAM |
 | RTX 3090 | — | — | — | — | not yet measured |
+
+FLUX.3 Image Klein, bf16, 16 steps, on the same iGPU: loaded in 25 s, 512²
+in 65 s with the sign's text right where klein2 misspells it; at 1024² the
+16 steps took 8.5 min (~31 s each) and the VAE decode then ran the 32 GB
+machine into swap (~25 GB held). On a 3090 (24 GB) it wants
+`IMAGES_OFFLOAD=model` or the FP8 variant; `IMAGES_VAE_TILING=on` is the
+lever for the decode.
 
 On the same iGPU, stable-diffusion.cpp over Vulkan took 61 s at 512² and
 hung the GPU or drew garbage at 1024² (UNIT-63): diffusers is this
