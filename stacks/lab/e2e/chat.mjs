@@ -1,27 +1,32 @@
 // chat.mjs <user> <password> — a person in a real browser: logs in through
-// the gate, says something, then asks what they said first. The answer has
-// to carry the first message back, which it can only do if the whole
-// conversation went page → AG-UI → mind → LiteLLM → model.
+// the gate, says something, then asks what they said first. The page writes
+// into threads through reins as the person's avatar; the driver holding
+// <user>-assistant's reins is woken, reads the thread back, has the mind
+// answer (through LiteLLM, the model) and says the answer in the thread;
+// its pieces come to the page on reins' stream as they are written. The
+// answer has to carry the first message back, which it can only do if the
+// conversation went page → reins → threads → driver → mind → model.
 //
 // On the fake model the question's #first_message tag makes the answer
-// exactly the first message; a real model reads the same question in words.
-// Then a sum the model has a tool do: on the fake model #tool_sum makes it
-// call everything's get-sum with 2 and 3, and the answer carries the tool's
-// words back. Then the model thinks before it answers: the page shows its
-// reasoning apart from the answer (#think_glm on the fake, in GLM's shape).
-// Last, a sum in Gemini's shape (#think_gemini): reasoning, a tool call with
-// thought signatures; the fake answers that the signatures came back with
-// the call only if they did, and on the next run that both came back again
-// from the page, which kept them as the reasoning's encrypted value. A real
-// model is only asked to think and add; the signatures are the fake's check.
-// Then attachments: a file over the face's limit is refused on the page and
-// never sent; a picture and a text file go with a question (#attached), and
-// the answer has to carry what only the file holds. Last, the run stopped
-// and failed: Stop pressed while the model says nothing yet (#hang) ends
-// the run, and its late words never show; a model answering 429 or 500
-// (#fail_429, #fail_500, after LiteLLM's retry) ends the run with the mind's
-// error, which the page shows. Fake model only: a real one does not fail on
-// cue. That the mind saw the stop as a cancel is check.sh's, from its log.
+// the first user message ("<user>: …", who said it in the words); a real
+// model reads the same question in words. Then a sum the model has a tool
+// do (#tool_sum: everything's get-sum with 2 and 3). Then the model thinks
+// before it answers (#think_glm): the reasoning is shown while written, the
+// reply said is the answer alone. A sum in Gemini's shape (#think_gemini):
+// the signatures go back with the tool call within the run; a run later
+// they are gone, not being what was said. Then attachments: a file over
+// the face's limit is refused on the page and nothing is written; a picture
+// and a text file go with a question (#attached), as threads' blocks, and
+// the answer has to carry what only the file holds. Last, a model answering
+// 429 or 500 (#fail_429, #fail_500): the driver says so while writing, the
+// page shows it, and a reload shows it gone: never journaled. Fake model
+// only: a real one does not fail on cue.
+//
+// The chats are threads: a new one is opened on its first words, the first
+// is all there when switched back to, and a reload keeps the conversation
+// (E2E_ONLY=threads). Two browsers, one as <user> and one as
+// <user>-assistant, each see the other's words without a reload
+// (E2E_ONLY=two).
 //
 // Sound, turn by turn: the mic records what the browser's fake mic plays
 // (a tone, or E2E_VOICE_FILE, a WAV) and the transcript lands in the
@@ -33,7 +38,8 @@
 // A call, sound both ways (when LAB_REALTIME_MODEL is set): the page calls
 // the mind's /api/v1/realtime; the fake mic's sound goes out as PCM16, the
 // fake model (fake-realtime) hears it as an utterance and answers from its
-// script; both transcripts land in the thread as a voice conversation, the
+// script; both transcripts show in the chat as a voice conversation (for
+// as long as the page is open: a call is not journaled yet, UNIT-52), the
 // answer's sound comes and plays; the next tone while a longer answer plays
 // is an interruption, and the page tells the model how much was heard
 // (truncate); muted, nothing goes out; hung up, the call closes. On
@@ -42,17 +48,16 @@
 // E2E_ONLY=call runs this alone. Last, the sidebar's foot shows who is
 // logged in, and its log-out ends the session (E2E_ONLY=me).
 //
-// The model that thinks is the run's brain, picked in the composer, and
-// it is the group that answers (E2E_ONLY=model). An ear, a mouth and a
+// The model that thinks is the driver's, not the page's (E2E_ONLY=model). An ear, a mouth and a
 // voice are an avatar's body, the same fields on every avatar, set in the
 // settings opened from the sidebar's foot (kept in subjects, through
 // reins): the page wires the classic chat for now — alice's ear hears,
 // the other avatar's mouth and voice speak (E2E_ONLY=sound), and on
 // cascade they are the parts of a call.
 //
-// E2E_ONLY=refused is another round, on a mind asking a model that takes no
-// pictures (fake-text): a picture sent ends the run with the mind's error,
-// and the page shows it.
+// E2E_ONLY=refused is another round, on a driver holding the assistant with
+// a model that takes no pictures (fake-text): a picture sent ends the reply
+// with the mind's error, said while writing, and the page shows it.
 import { chromium } from 'playwright'
 import { writeFileSync } from 'node:fs'
 
@@ -64,7 +69,6 @@ const question = 'What was my very first message in this chat? Repeat it word fo
 const sum = 'Use the get-sum tool to add 2 and 3, and tell me what it said. #tool_sum'
 const think = 'Think it over first: is 1001 a prime number? #think_glm'
 const signed = 'Think, then use the get-sum tool to add 2 and 3. #think_gemini'
-const back = 'Did my signatures come back? #signatures_back'
 const attached = 'What does the attached note say? Quote its code. #attached'
 const secret = 'ZEBRA-7'
 const note = { name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.from(`The code is ${secret}.\n`) }
@@ -103,25 +107,33 @@ page.setDefaultTimeout(timeout)
 let failed = false
 const step = (label, value) => console.log(`  ${label.padEnd(36)} ${value}`)
 
-// say writes text and waits for the run to end; the answer is what the
-// assistant said since, which may be more than one message: a turn with a
-// tool call is shown apart from the words that follow its result.
+// say writes text and waits for the other side's answer: the driver holding
+// the assistant's reins writes it (its pieces come as they are written,
+// "… is writing" beside the composer) and says it in the thread. The answer
+// is what the other side showed since: the said entry, or a failure said
+// while writing.
 async function say(text) {
   const before = await page.locator('[data-role="assistant"]').count()
   await page.getByRole('textbox', { name: 'Message input' }).fill(text)
   await page.keyboard.press('Enter')
   await page.locator('[data-role="assistant"]').nth(before).waitFor()
-  await page.getByRole('button', { name: 'Send message' }).waitFor()
-  // The page types an answer out smoothly, behind the stream: the run is
-  // over before the words are all on screen. Read once they stand still.
+  // The page types words out smoothly, behind the stream. Read once nobody
+  // writes and the words stand still.
   let last = null
   for (;;) {
+    const writing = await page.getByRole('status', { name: 'Writing' }).count()
     const all = await page.locator('[data-role="assistant"]').allInnerTexts()
     const now = all.slice(before).join('\n').trim()
-    if (now === last) return now
+    if (!writing && now === last) return now
     last = now
-    await page.waitForTimeout(500)
+    await page.waitForTimeout(700)
   }
+}
+
+// fresh opens a new chat: nothing said there yet.
+async function fresh() {
+  await page.getByRole('button', { name: 'New Thread' }).click()
+  await page.locator('[data-role="user"]').first().waitFor({ state: 'detached' })
 }
 
 // attach puts files on the message being written, through the page's own
@@ -132,32 +144,10 @@ async function attach(...files) {
   await (await chooser).setFiles(files)
 }
 
-// reasoned is how many reasoning blocks the page shows, and the words of the
-// latest when opened.
-async function reasoned() {
-  const triggers = page.locator('[data-slot="reasoning-trigger"]')
-  const n = await triggers.count()
-  if (n === 0) return { n, text: '' }
-  await triggers.nth(n - 1).click()
-  const content = page.locator('[data-slot="reasoning-content"]').last()
-  await content.waitFor()
-  return { n, text: (await content.innerText()).trim() }
-}
-
-// stoppedAndFailed: Stop mid-run, then a model that fails, twice.
-async function stoppedAndFailed() {
-  const before = await page.locator('[data-role="assistant"]').count()
-  await page.getByRole('textbox', { name: 'Message input' }).fill('Take your time. #hang')
-  await page.keyboard.press('Enter')
-  await page.getByRole('button', { name: 'Stop generating' }).click()
-  await page.getByRole('button', { name: 'Send message' }).waitFor()
-  await page.waitForTimeout(5000) // past when the late answer would have come
-  const late = (await page.locator('[data-role="assistant"]').allInnerTexts()).slice(before).join('\n')
-  step('stopped while the model was silent', JSON.stringify(late.slice(0, 60)))
-  if (late.includes('arrived late')) {
-    step('FAIL', 'the answer came after Stop')
-    failed = true
-  }
+// failedRound: a model that fails, twice. The driver says so while writing,
+// never in the journal: after a reload it is gone, and the person's words
+// are still there. Nothing stops a reply being written yet.
+async function failedRound() {
   for (const [tag, status] of [['#fail_429', '429'], ['#fail_500', '500']]) {
     const said = await say(`Say anything. ${tag}`)
     step(`a model answering ${status}`, JSON.stringify(said.slice(0, 80)))
@@ -165,6 +155,14 @@ async function stoppedAndFailed() {
       step('FAIL', `the page does not say the model answered ${status}`)
       failed = true
     }
+  }
+  await page.reload()
+  await page.getByText('Say anything. #fail_500').first().waitFor()
+  const kept = (await page.locator('[data-role="assistant"]').allInnerTexts()).join('\n')
+  step('after a reload, the failure', kept.includes('answered 500') ? 'still there' : 'gone, never journaled')
+  if (kept.includes('answered 500')) {
+    step('FAIL', 'a failure was journaled')
+    failed = true
   }
 }
 
@@ -288,33 +286,31 @@ async function callRound() {
 
   await page.getByRole('button', { name: 'Hang up' }).click()
   await page.getByRole('button', { name: 'Start a call' }).waitFor()
-  step('hung up', `${await saidBy.count()} heard, ${await answeredBy.count()} answered in the thread`)
-}
-
-// modelRound: which model thinks is the run's brain, picked in the
-// composer, not any avatar's: the picker offers the lab's chat groups, the
-// mind's default shown first; fake-text picked answers, fake picked back
-// answers again. An avatar's profile is the settings': a name set there is
-// still there after a reload. In a conversation of its own (a reload: the
-// page keeps it in memory), since a picture said before would be refused
-// by fake-text.
-async function modelRound() {
-  await page.reload()
-  await page.getByRole('textbox', { name: 'Message input' }).waitFor()
-  const shown = await page.getByRole('combobox', { name: /^Chat model:/ }).getAttribute('aria-label')
-  const offered = await choose('Chat model', 'fake-text')
-  step('offered in the composer, shown', `${offered.join(' ')}; ${shown}`)
-  if (shown !== 'Chat model: fake' || !offered.includes('fake') || !offered.includes('fake-text') || offered.some((m) => m.includes('stt') || m.includes('realtime'))) {
-    step('FAIL', 'not the chat groups, or not fake shown')
+  const kept = [await saidBy.count(), await answeredBy.count()]
+  step('hung up', `${kept[0]} heard, ${kept[1]} answered in the chat`)
+  if (!kept[0] || !kept[1]) {
+    step('FAIL', 'what was said in the call left the chat at hang-up')
     failed = true
   }
-  const picked = await say('Which model are you? #which_model')
-  step('picked fake-text, answered', JSON.stringify(picked))
-  await choose('Chat model', 'fake')
-  const back = await say('And now? #which_model')
-  step('picked fake again, answered', JSON.stringify(back))
-  if (!picked.includes('fake-text-1') || !back.includes('fake-1') || back.includes('fake-text')) {
-    step('FAIL', 'the pick did not decide which group answered')
+  // A call's transcripts are not journaled yet (UNIT-52): a reload loses them.
+  await page.reload()
+  await page.getByRole('textbox', { name: 'Message input' }).waitFor()
+  await page.waitForTimeout(1500)
+  step('after a reload, the call', `${await saidBy.count()} heard: not journaled yet (UNIT-52)`)
+}
+
+// modelRound: which model thinks is the brain holding the reins, the
+// driver's (LAB_LLM_MODEL), not the page's: the composer offers no pick,
+// and the answer says which group answered. An avatar's profile is the
+// settings': a name set there is still there after a reload, and every
+// avatar offers the same, none a chat model.
+async function modelRound() {
+  await fresh()
+  const pickers = await page.getByRole('combobox', { name: /^Chat model:/ }).count()
+  const which = await say('Which model are you? #which_model')
+  step('no pick in the composer; answered', `${pickers} pickers; ${JSON.stringify(which)}`)
+  if (pickers !== 0 || !which.includes('fake-1') || which.includes('fake-text')) {
+    step('FAIL', 'a model picked in the page, or not the driver\'s answered')
     failed = true
   }
   const bodies = await settings(assistant, {}, { Name: 'Lab helper' })
@@ -352,26 +348,36 @@ async function settingsLabels(nicks) {
   return out
 }
 
-// threadsRound: the sidebar's chats. A new one starts empty and runs as a
-// thread of its own; the first is all there when switched back to.
+// threadsRound: the sidebar's chats are threads. A new one starts empty
+// and is opened as a thread of its own on its first words; the first is
+// all there when switched back to; a reload keeps the conversation, answer
+// and all, and shows the newest chat.
 async function threadsRound() {
-  await page.reload()
-  await page.getByRole('textbox', { name: 'Message input' }).waitFor()
-  const user = page.locator('[data-role="user"]')
+  const userSaid = page.locator('[data-role="user"]')
+  const opened = []
+  page.on('request', (r) => { if (r.method() === 'POST' && r.url().endsWith('/api/reins/me/threads')) opened.push(r.url()) })
+  await fresh()
   await say('the first chat')
-  const ids = []
-  page.on('request', (r) => { if (r.url().endsWith('/api/run')) ids.push(JSON.parse(r.postData() ?? '{}').threadId) })
-  await page.getByRole('button', { name: 'New Thread' }).click()
-  const empty = await user.count()
-  await say('the second chat')
-  const second = await user.allInnerTexts()
+  await fresh()
+  const empty = await userSaid.count()
+  const answer = await say('the second chat')
+  const second = await userSaid.allInnerTexts()
   await page.getByText('the first chat', { exact: true }).first().click()
   await page.getByText('the second chat').first().waitFor({ state: 'detached' }).catch(() => {})
-  const first = await user.allInnerTexts()
-  await say('back in the first')
+  const first = await userSaid.allInnerTexts()
   step('a new chat, then back', `${empty} messages in the new one; then ${JSON.stringify(first)}`)
-  if (empty !== 0 || second.join() !== 'the second chat' || first.join() !== 'the first chat' || ids.length !== 2 || ids[0] === ids[1]) {
-    step('FAIL', `chats not apart: ${JSON.stringify({ empty, second, first, ids })}`)
+  if (empty !== 0 || second.join().trim() !== 'the second chat' || first.join().trim() !== 'the first chat' || opened.length !== 2) {
+    step('FAIL', `chats not apart: ${JSON.stringify({ empty, second, first, opened: opened.length })}`)
+    failed = true
+  }
+  await say('back in the first')
+  await page.reload()
+  await page.getByText('back in the first').first().waitFor()
+  const kept = await userSaid.allInnerTexts()
+  const answered = await page.locator('[data-role="assistant"]').count()
+  step('after a reload', `${JSON.stringify(kept.map((t) => t.trim()))}, ${answered} answers`)
+  if (kept.map((t) => t.trim()).join() !== 'the first chat,back in the first' || answered !== 2 || !answer) {
+    step('FAIL', 'the reload did not keep the conversation')
     failed = true
   }
 }
@@ -528,11 +534,14 @@ async function soundPickRound() {
 }
 
 // refusedRound: a picture to a model that takes none; the page says so.
+// The journal's image block carries no file name, so the mind names the
+// picture its own way.
 async function refusedRound() {
+  await fresh()
   await attach(dot)
   const said = await say('What is in the picture?')
   step('a picture to a text-only model', JSON.stringify(said.slice(0, 80)))
-  if (!said.includes('does not take pictures (dot.png)')) {
+  if (!said.includes('does not take pictures')) {
     step('FAIL', 'the page does not say the model takes no pictures')
     failed = true
   }
@@ -540,8 +549,18 @@ async function refusedRound() {
 
 // fullRound: the conversation, tools, reasoning, attachments.
 async function fullRound() {
+  await fresh()
+  // The answer streams: while the driver writes it, the page shows it
+  // growing and says who is writing, before the entry is said.
+  const writing = page.getByRole('status', { name: 'Writing' }).waitFor().then(() => page.getByRole('status', { name: 'Writing' }).innerText(), () => '')
   const a1 = await say(first)
+  const seen = await writing
   step('an answer', JSON.stringify(a1.slice(0, 40)))
+  step('while written', JSON.stringify(seen))
+  if (!seen.includes('is writing')) {
+    step('FAIL', 'the answer did not stream: nobody was seen writing')
+    failed = true
+  }
   const a2 = await say(question)
   step('the first message, asked back', JSON.stringify(a2.slice(0, 80)))
   if (!a2.toLowerCase().includes(first.toLowerCase())) {
@@ -555,36 +574,29 @@ async function fullRound() {
     failed = true
   }
 
-  const before = (await reasoned()).n
+  // Reasoning is shown while the reply is written, and is not journaled:
+  // the reply said is the answer alone.
   const a4 = await say(think)
-  const r = await reasoned()
-  step('thinks, then answers', `${r.n - before} reasoning, ${JSON.stringify(r.text.slice(0, 40))}`)
-  if (r.n <= before || !r.text) {
-    step('FAIL', 'no reasoning shown before the answer')
-    failed = true
-  }
-  if (fake && (!a4.includes('Thought it over.') || r.text.includes('Thought it over.'))) {
+  step('thinks, then answers', JSON.stringify(a4.slice(-60)))
+  if (!a4 || (fake && (!a4.includes('Thought it over.') || a4.includes('So I think')))) {
     step('FAIL', `reasoning and answer not apart: ${JSON.stringify(a4.slice(-80))}`)
     failed = true
   }
 
+  // Within one run the mind gives the signatures back with the tool call.
+  // A run later they are gone: the opaque part is not what was said, so
+  // the journal does not keep it (#signatures_back is not asked).
   const a5 = await say(signed)
   step('a sum, thought out, by a tool', JSON.stringify(a5.slice(-60)))
-  const a6 = await say(back)
-  step('the signatures, a run later', JSON.stringify(a6.slice(-60)))
   if (fake && !a5.includes('its signature came back')) {
     step('FAIL', 'the thought signatures did not go back with the tool call')
-    failed = true
-  }
-  if (fake && !a6.includes('Both signatures came back')) {
-    step('FAIL', 'the thought signatures did not come back from the page')
     failed = true
   }
 
   // Over the limit: the page says why when the person points at the file,
   // and pressing send sends nothing while it is there.
   let runs = 0
-  page.on('request', (r) => { if (r.url().endsWith('/api/run')) runs++ })
+  page.on('request', (r) => { if (r.method() === 'POST' && /\/api\/reins\/(threads\/[^/]+\/entries|me\/threads)$/.test(r.url())) runs++ })
   await attach(huge)
   await page.getByLabel('Document attachment huge.txt, upload failed').hover({ position: { x: 12, y: 44 } })
   const refused = page.getByText(/Too large: 11\.0 MB/).first()
@@ -594,7 +606,7 @@ async function fullRound() {
   await page.getByRole('textbox', { name: 'Message input' }).fill('this goes nowhere')
   await page.keyboard.press('Enter')
   await page.waitForTimeout(2000)
-  step('sent with it', `${runs - sent} runs`)
+  step('sent with it', `${runs - sent} entries`)
   if (runs !== sent) {
     step('FAIL', 'a message went out with a file over the limit')
     failed = true
@@ -610,7 +622,7 @@ async function fullRound() {
     failed = true
   }
 
-  if (fake) await stoppedAndFailed()
+  if (fake) await failedRound()
 }
 
 try {
@@ -627,6 +639,7 @@ try {
   else if (only === 'sound') await soundPickRound()
   else if (only === 'me') await meRound()
   else if (only === 'two') await twoRound()
+  else if (only === 'failed') await failedRound()
   else {
     await fullRound()
     if (fake) await modelRound()

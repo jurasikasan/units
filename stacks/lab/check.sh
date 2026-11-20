@@ -1,8 +1,10 @@
 #!/bin/bash
 # The lab from .env.example, on free ports, the whole round: up; in a real
 # browser a person logs in, says something and asks what they said first,
-# and the answer carries it back (the fake model, through mind and LiteLLM);
-# Stop ends a run, which the mind logs as cancelled; a call goes through the
+# and the answer carries it back (the fake model: the page writes into
+# threads through reins, the driver holding <login>-assistant answers there
+# through mind and LiteLLM, its pieces streamed); two browsers see each
+# other's words without a reload; a reload keeps the conversation; a call goes through the
 # mind to the fake realtime model and back, interrupted, muted and hung up,
 # in the flow Gemini sent, in the schema's whole set, and on our own
 # (cascade: hearing, the fake model, speaking), every event in the mind's log; and a model answering
@@ -59,9 +61,10 @@ same_steered() { [ "$(steered)" = "$(cat "$work/steered")" ] || { echo "before:"
 
 run "build"          docker compose --profile e2e build -q
 run "up"             docker compose up -d --wait
-run "e2e: a conversation goes through whole, stopped, failed, a model picked in the composer, avatars alike, chats apart, who is logged in, logged out"  docker compose run --rm e2e "$first_user" "$first_password"
+run "e2e: a conversation goes through threads and the driver whole, streamed, failed, the driver's model, avatars alike, chats apart and kept on reload, who is logged in, logged out"  docker compose run --rm e2e "$first_user" "$first_password"
 run "e2e: two browsers, $first_user and $first_user-assistant, each sees the other's words without a reload"  env E2E_ONLY=two docker compose run --rm e2e "$first_user" "$first_password"
-run "the mind saw Stop as a cancel"  bash -c 'docker compose logs mind | grep -q "run cancelled"'
+run "the driver said the answers as $first_user-assistant, and the failures only on the bus"  bash -c 'l=$(docker compose logs driver); echo "$l" | grep -q "msg=replied subject=$0-assistant" && echo "$l" | grep -q "msg=\"reply failed\".*code=model_rate_limited"' "$first_user"
+run "the stream carried the reply as it was written"  bash -c '[ "$(docker compose exec -T bus redis-cli XLEN driver_events)" -gt 20 ]'
 run "the mind logged the call, each event"  bash -c 'docker compose logs mind | grep -q "dir=in .*type=conversation.item.truncate" && docker compose logs mind | grep -q "dir=out .*type=response.output_audio.delta" && docker compose logs mind | grep -q "realtime call closed .*by=client code=1000"'
 run "mind on the whole Realtime set"  env LAB_REALTIME_MODEL=fake-realtime-full docker compose up -d --wait mind
 run "e2e: a call, interrupted by speech_started"  env LAB_REALTIME_MODEL=fake-realtime-full E2E_ONLY=call docker compose run --rm e2e "$first_user" "$first_password"
@@ -69,10 +72,10 @@ run "the model was told what was heard"  bash -c 'docker compose logs mind | gre
 run "mind on our own realtime"  env LAB_REALTIME_MODEL=cascade docker compose up -d --wait mind
 run "e2e: a call on cascade, hearing and speaking"  env LAB_REALTIME_MODEL=cascade E2E_ONLY=call docker compose run --rm e2e "$first_user" "$first_password"
 run "cascade: the page's ear and voice, heard, answered, talked over, truncated"  bash -c 'l=$(docker compose logs realtime); for w in "ear=fake-stt-b" "voice=fake-tts-b_irina" "type=speechrecog.recognition-complete" "msg=answered" "reason=turn_detected" "answer truncated" "type=conversation.item.truncated"; do echo "$l" | grep -q "$w" || { echo "no $w"; exit 1; }; done'
-run "mind on a text-only model"  env LAB_LLM_MODEL=fake-text docker compose up -d --wait mind
-# The same LAB_LLM_MODEL, or compose puts the mind back on fake on the way.
+run "the driver on a text-only model"  env LAB_LLM_MODEL=fake-text docker compose up -d --wait driver
+# The same LAB_LLM_MODEL, or compose puts the driver back on fake on the way.
 run "e2e: a picture to it is refused, said"  env LAB_LLM_MODEL=fake-text E2E_ONLY=refused docker compose run --rm e2e "$first_user" "$first_password"
-run "mind back on fake"  docker compose up -d --wait mind
+run "the driver back on fake"  docker compose up -d --wait driver
 run "first account: its subjects after login, chat, mail"  docker compose run --rm demo "$first_user" "$first_password" mail
 run "reins keeps two subjects for it"  keep_steered
 run "gate, mind, face on new addresses"  ../../tools/move_address.sh gate mind face

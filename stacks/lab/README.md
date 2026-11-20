@@ -5,8 +5,11 @@ an application behind the site, mail, and the state kept and restored. A
 local run and a deployment are the same files; only `.env` differs.
 
 The application is a chat: [`faces/web_chat`](../../faces/web_chat/) at `/`,
-[`minds/assistant`](../../minds/assistant/) at `/api/`, and LiteLLM in front
-of the models; the model's tools come from the MCP servers `LAB_MCP_SERVERS`
+whose chats are threads written and followed through reins;
+[`drivers/model`](../../drivers/model/) holding the first account's
+assistant's reins with `LAB_LLM_MODEL` (`LAB_DRIVER_HOLDS` for others), which
+answers in those threads through [`minds/assistant`](../../minds/assistant/)
+(also at `/api/` for any AG-UI client), and LiteLLM in front of the models; the model's tools come from the MCP servers `LAB_MCP_SERVERS`
 names, none by default. MCP's own reference server, `everything`, runs under
 its compose profile for the checks or to try a tool. The lab is no unit but a consumer of units:
 its own check is its showcase.
@@ -33,7 +36,9 @@ log-out that goes to gate's own `/auth/logout`.
 ```
 browser → nginx + gate ─ /      → face (static files)
                        ├ /api/v1/userinfo → gate itself: who is logged in, where to log out
-                       ├ /api/reins/ → reins: the person's subjects, their settings → subjects
+                       ├ /api/reins/ → reins: the person's subjects → subjects; their threads → threads
+                       │          ↑ /me/stream follows the bus: threads_events, driver_events
+                       │  driver (holds <login>-assistant) ← threads_events; → threads, → mind
                        └ /api/  → mind ─┬→ LiteLLM ─┬→ fake_llm (answers from files)
                                         │           ├→ fake_realtime (a call, from a script)
                                         │           ├→ realtime (a call: hearing → a chat model → speaking)
@@ -43,9 +48,9 @@ browser → nginx + gate ─ /      → face (static files)
 
 ## Models
 
-`litellm/models.yaml` names them; the mind asks for `LAB_LLM_MODEL` unless
-the person picks another in the composer among the chat groups
-(`LAB_LLM_MODEL` shown first), for as long as the page is open. The
+`litellm/models.yaml` names them; the driver holds the assistant with
+`LAB_LLM_MODEL`: which model thinks is the brain holding its reins, not the
+page's (the composer has no pick). The
 avatars' bodies are set in the page's settings (opened from who is logged
 in, at the sidebar's foot), the same on each: an ear (`LAB_STT_MODEL` when
 none), a mouth (`LAB_TTS_MODEL`) and the mouth's voices, where its engine
@@ -70,11 +75,14 @@ fails when asked.
 | `tts` | Gemini 3.8 flash-lite TTS: WAV only, Gemini's voices (OpenAI's names map to some); to try, not to run on |
 | `fake-realtime` | [`fake_realtime`](fake_realtime/) behind OpenAI's Realtime API: hears by loudness, answers from a script with a tone, in the event flow Gemini Live sent through LiteLLM |
 | `fake-realtime-full` | the same, in the schema's whole set (`speech_started`, a cancelled answer, `truncated`) |
-| `cascade` | our own: [`minds/realtime`](../../minds/realtime/) made of [`senses/hearing`](../../senses/hearing/), a chat model and [`abilities/speaking`](../../abilities/speaking/), all through this LiteLLM, the ear and voice the avatars' bodies have in the page's settings, the chat model the composer's, `LAB_CASCADE_*` when none is; the language found in each utterance; the whole set, truncate honoured |
+| `cascade` | our own: [`minds/realtime`](../../minds/realtime/) made of [`senses/hearing`](../../senses/hearing/), a chat model and [`abilities/speaking`](../../abilities/speaking/), all through this LiteLLM, the ear and voice the avatars' bodies have in the page's settings, the chat model `LAB_CASCADE_LLM_MODEL`, `LAB_CASCADE_*` when the page names none; the language found in each utterance; the whole set, truncate honoured |
 
 The mind serves OpenAI's audio API at `/api/v1/audio/…` and hands it on with
 `LAB_STT_MODEL` and `LAB_TTS_MODEL`: the page's mic puts what was said into
-the composer, and an answer can be read aloud. A call goes to
+the composer, and an answer can be read aloud. A call's transcripts show
+in the chat for as long as the page is open: they are not journaled yet
+(UNIT-52), so nobody else sees them, the driver does not, and a reload
+loses them. A call goes to
 `/api/v1/realtime`, a WebSocket nginx keeps open (an hour without a
 message ends it), which the mind relays to LiteLLM's with
 `LAB_REALTIME_MODEL`; the call button shows only then. No realtime model
@@ -109,22 +117,27 @@ http://localhost:8025.
 `./check.sh` runs the whole round from `.env.example` on free ports: up; in a
 real browser (Playwright, `e2e/chat.mjs`) a person logs in, says something,
 asks what they said first and gets it back, which only happens when the
-whole conversation goes page → AG-UI → mind → LiteLLM → model; a tool
-adds two numbers; the model's reasoning is shown apart from its answer, and
-the thought signatures a model left go back to it with the tool call and,
-a run later, from the page; a file over the page's limit is refused there
-and nothing is sent, then a picture and a text file go with a question and
-the answer carries what only the file holds; the composer offers the chat
-groups with `fake` shown, `fake-text` picked there is what answers and
-`fake` again what answers next, an avatar's name set in the settings is
-still there after a reload, and every avatar offers the same fields
-(`E2E_ONLY=model`); a new chat in the
-sidebar starts empty and runs as a thread of its own, and the first is all
-there when switched back to (`E2E_ONLY=threads`); the second fake ear
+conversation goes page → reins → threads → driver → mind → LiteLLM → model,
+the reply streamed back on reins' stream as it is written; a tool adds two
+numbers; the reply said is the answer without its reasoning, and the
+thought signatures a model left go back to it with the tool call within the
+run (a run later they are gone: not what was said, so not journaled); a
+file over the page's limit is refused there and nothing is written, then a
+picture and a text file go with a question and the answer carries what only
+the file holds; a model answering 429 or 500 is said on the page while
+written and gone after a reload (never journaled); the composer offers no
+chat model and the driver's answers, an avatar's name set in the settings
+is still there after a reload, and every avatar offers the same fields
+(`E2E_ONLY=model`); a new chat in the sidebar starts empty and is a thread
+of its own, the first is all there when switched back to, and a reload
+keeps the conversation (`E2E_ONLY=threads`); two browsers, one as `alice`
+and one as `alice-assistant` (that one speaking through reins' route: the
+page acts only as the login's avatar), each see the other's words without a
+reload (`E2E_ONLY=two`); the second fake ear
 set on the person and the second fake mouth and one of its voices on the
 assistant, in the settings, are what answer (`E2E_ONLY=sound`); the mic (the browser's fake
 one) puts what the fake ear heard into the composer and an answer is read
-aloud to the end; on the mind recreated to ask
+aloud to the end; on the driver recreated to hold the assistant with
 `fake-text`, a picture is refused and the page says the model takes none
 (`E2E_ONLY=refused`); the chat
 refuses someone not logged in; after the first login the person steers
@@ -171,7 +184,8 @@ call.
 | `COMPOSE_PROFILES` | `mailpit` runs Mailpit locally; a deployment leaves it empty |
 | `LAB_SMTP_*` | where mail goes; with a relay, `LAB_SMTP_SKIP_VERIFY=false` |
 | `LAB_LLM_KEY` | LiteLLM's master key; the mind sends it |
-| `LAB_LLM_MODEL` | the model the mind asks for when the page names none, shown first in the settings: `fake`, `chat`, `lite` |
+| `LAB_LLM_MODEL` | the model the driver holds the first account's assistant with, and the mind's own: `fake`, `chat`, `lite` |
+| `LAB_DRIVER_HOLDS` | whom the driver holds, with which model, `<nick>=<model>,…`; empty, `<LAB_FIRST_USER>-assistant=<LAB_LLM_MODEL>` |
 | `LAB_LLM_CONFIG` | another model list than `./litellm/models.yaml` |
 | `LAB_STT_MODEL`, `LAB_TTS_MODEL` | the models the mind asks to transcribe and to speak when the page names none, shown first in the settings: `fake-stt`/`stt`/`whisper-gpu`, `fake-tts`/`tts`/`piper`/`silero`/`voxcpm`; empty, the page has no mic or read-aloud |
 | `LAB_TTS_VOICE` | `LAB_TTS_MODEL`'s voice when the page names none; OpenAI's speech wants one |

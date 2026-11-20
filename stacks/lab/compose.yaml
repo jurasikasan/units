@@ -31,6 +31,8 @@ services:
         condition: service_healthy
       reins:
         condition: service_healthy
+      driver:
+        condition: service_healthy
     ports:
       - ${LAB_BIND}:${LAB_PORT}:443
     environment:
@@ -146,6 +148,31 @@ services:
       everything:
         condition: service_healthy
         required: false
+
+  # A chat model holding the first account's assistant's reins: woken when
+  # someone else says something in a thread it is in, it has the mind
+  # answer with LAB_LLM_MODEL and says the answer there as the subject; the
+  # pieces go on the bus (driver_events) for reins to relay as they come.
+  # LAB_DRIVER_HOLDS names others: <nick>=<model>,…
+  driver:
+    build: ../../drivers/model
+    image: units-drivers-model:local
+    restart: unless-stopped
+    environment:
+      HOLDS: ${LAB_DRIVER_HOLDS:-${LAB_FIRST_USER}-assistant=${LAB_LLM_MODEL:-fake}}
+      REDIS_ADDR: bus:6379
+      THREADS_URL: http://threads:8085
+      SUBJECTS_URL: http://subjects:8083
+      MIND_URL: http://mind:8088/run
+    depends_on:
+      bus: {condition: service_healthy}
+      threads: {condition: service_healthy}
+      subjects: {condition: service_healthy}
+      mind: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8097/ready"]
+      interval: 1s
+      retries: 30
 
   # Who exists (subjects) and which of them a principal steers (reins,
   # behind /api/reins/): a principal first seen is given <login> and
