@@ -10,8 +10,8 @@ D=http://driver:8097
 id() { sed 's/.*"id":"\([^"]*\)".*/\1/' | head -c 36; }
 
 echo "== alice and her assistant"
-ALICE=$(curl -sf -X POST $S/subjects -d '{"nick":"alice","subject_type":"human"}' | id)
-HELPER=$(curl -sf -X POST $S/subjects -d '{"nick":"alice-assistant","subject_type":"assistant"}' | id)
+ALICE=$(curl -sf -X POST $S/subjects -d '{"nick":"alice"}' | id)
+HELPER=$(curl -sf -X POST $S/subjects -d '{"nick":"alice-assistant"}' | id)
 for _ in $(seq 30); do curl -sf $D/ready | grep -q alice-assistant && break; sleep 1; done
 curl -sf $D/ready; echo
 
