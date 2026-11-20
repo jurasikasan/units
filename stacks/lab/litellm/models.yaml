@@ -120,6 +120,17 @@ model_list:
     litellm_params: {model: openai/voxcpm, api_base: os.environ/VOXCPM_URL, api_key: none, timeout: 60}
     model_info: {mode: audio_speech}
 
+  # Pictures: OpenAI's Images API (generations, edits), our adapter to
+  # Cloudflare (engines/images/cloudflare) under the `engines` profile.
+  # images: FLUX.2 klein 4B, sized, takes reference images to edit;
+  # images-fast: FLUX.1 schnell, ~2 s, 1024x1024 whatever is asked.
+  - model_name: images
+    litellm_params: {model: openai/black-forest-labs/flux-2-klein-4b, api_base: http://images:8000/v1, api_key: none, timeout: 120}
+    model_info: {mode: image_generation}
+  - model_name: images-fast
+    litellm_params: {model: openai/black-forest-labs/flux-1-schnell, api_base: http://images:8000/v1, api_key: none, timeout: 60}
+    model_info: {mode: image_generation}
+
   # A chat model on the GPU box's Ollama, at LAB_OLLAMA_URL.
   - model_name: local
     litellm_params: {model: ollama_chat/gpt-oss:20b, api_base: os.environ/OLLAMA_URL, timeout: 300}

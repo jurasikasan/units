@@ -58,6 +58,7 @@ fails when asked.
 | `whisper-gpu` | [whisper](../../engines/stt/whisper/) large-v3 on a GPU box, at `LAB_STT_GPU_URL` |
 | `piper`, `silero` | [our engines](../../engines/tts/) on this machine, under the `engines` profile: WAV, their own voices (listed), Russian and English |
 | `voxcpm` | [VoxCPM2](../../engines/tts/voxcpm/) on a GPU box, at `LAB_VOXCPM_URL`: WAV at 48 kHz, cloned voices (listed) |
+| `images`, `images-fast` | [pictures](../../engines/images/cloudflare/) drawn at Cloudflare (FLUX.2 klein 4B, FLUX.1 schnell) through OpenAI's Images API, under the `engines` profile, on the Cloudflare account in `.env` |
 | `local` | gpt-oss:20b on the GPU box's Ollama, at `LAB_OLLAMA_URL` |
 | `tts` | Gemini 3.8 flash-lite TTS: WAV only, Gemini's voices (OpenAI's names map to some); to try, not to run on |
 | `fake-realtime` | [`fake_realtime`](fake_realtime/) behind OpenAI's Realtime API: hears by loudness, answers from a script with a tone, in the event flow Gemini Live sent through LiteLLM |

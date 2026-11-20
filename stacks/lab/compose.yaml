@@ -266,6 +266,16 @@ services:
     image: units-engines-tts-silero:local
     profiles: [engines]
     restart: unless-stopped
+  # Pictures, drawn at Cloudflare on the same account as the chat model:
+  # models images and images-fast in LiteLLM.
+  images:
+    build: ../../engines/images/cloudflare
+    image: units-engines-images-cloudflare:local
+    profiles: [engines]
+    restart: unless-stopped
+    environment:
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      CLOUDFLARE_API_KEY: ${CLOUDFLARE_API_KEY:-}
 
   # Our own realtime model (minds/realtime): a call in OpenAI's Realtime
   # schema made of organs — hearing finds the caller's utterances and their
