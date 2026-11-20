@@ -49,6 +49,19 @@ if [ -z "${THREADS_TEST_DATABASE_URL:-}" ] && command -v docker >/dev/null 2>&1;
 fi
 [ -n "${THREADS_TEST_DATABASE_URL:-}" ] || echo "  - no Postgres: the live repository tests will skip"
 
+# The announced event is read back off a real Redis stream
+# (internal/thread/announce_test.go), started the same way.
+RD=""
+if [ -z "${THREADS_TEST_REDIS_ADDR:-}" ] && command -v docker >/dev/null 2>&1; then
+  RD=$(docker run -d --rm -p 127.0.0.1::6379 redis:7-alpine 2>/dev/null || true)
+  if [ -n "$RD" ]; then
+    trap 'docker rm -f $PG $RD >/dev/null 2>&1' EXIT
+    for _ in $(seq 60); do docker exec "$RD" redis-cli ping >/dev/null 2>&1 && break; sleep 0.5; done
+    export THREADS_TEST_REDIS_ADDR="$(docker port "$RD" 6379 | head -1)"
+  fi
+fi
+[ -n "${THREADS_TEST_REDIS_ADDR:-}" ] || echo "  - no Redis: the live stream test will skip"
+
 run "test" go test -count=1 ./...
 
 swag_check() {

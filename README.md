@@ -12,7 +12,7 @@ own `go.mod`, and its own check script.
 | [`gate`](gate/) | the door in front of applications: Authelia's login page and nginx `auth_request`, no code of ours; the application behind sees only `X-Principal-Id` |
 | [`auth_service`](auth_service/) | login and sessions behind nginx `auth_request`; applications see only a principal id |
 | [`subjects`](subjects/) | who exists: identities with a permanent nick, a type and free-form preferences, on their own Postgres |
-| [`threads`](threads/) | what happened where: threads as append-only journals of entries — ActivityStreams kinds, typed content blocks, no roles — on their own Postgres |
+| [`threads`](threads/) | what happened where: threads as append-only journals of entries — ActivityStreams kinds, typed content blocks, no roles — on their own Postgres; each append announced on its Redis stream |
 | [`reins`](reins/) | where a principal holds the reins of its subjects: which subjects an account at the door may look into and take up, out of the world; a principal first seen is given `<login>` and `<login>-assistant` in `subjects`, and a steward changes their name, bio and preferences; on its own Postgres |
 | [`artifact_store`](artifact_store/) | named files in spaces: put, get, list, delete, read by sha256; identical bytes kept once, expiry per space; names in its own Postgres, bytes in MinIO or any S3 |
 | [`task_board`](task_board/) | tasks and their flow: per-project handles, statuses with the moves allowed between them, assignees by nick, dependencies and subtasks, on their own Postgres; every move published as an event. An agent connects from [AGENTS.md](task_board/AGENTS.md) |

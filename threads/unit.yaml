@@ -3,7 +3,7 @@
 
 unit: threads
 kind: service
-summary: The traces subjects leave in the world — threads as append-only journals of entries (ActivityStreams kinds, typed content blocks). Own database; each compose runs its own.
+summary: The traces subjects leave in the world — threads as append-only journals of entries (ActivityStreams kinds, typed content blocks). Own database; each compose runs its own. Announces each append on its Redis stream when given one.
 contract: CONTRACT.md
 maturity: probe
 
@@ -18,11 +18,20 @@ provides:
       - "DELETE /threads/{id}"
       - "POST /threads/{id}/entries"
       - "GET /threads/{id}/entries"
+  events:
+    stream: threads_events
+    envelope: cloudevents-1.0     # contracts/events.md
+    source: /threads
+    types:
+      - threads.entry.appended    # a wake-up; the entry is read back with after={seq}
   health: GET :8085/health
   ready: GET :8085/ready
 
 consumes:
   infra: [postgres]     # its own, on a network only it joins
+  # Redis is optional and not infra here: REDIS_ADDR names a stream to announce
+  # on, never waited for (not shared/redis's client, which blocks until it
+  # answers). Unset, threads announces nothing.
 
 wire: []
 
@@ -31,4 +40,5 @@ config:
     DATABASE_URL: its own Postgres; the schema is migrated on boot
   optional:
     PORT: "8085"
+    REDIS_ADDR: ""        # where threads_events goes; unset, threads announces nothing
   secrets: {}

@@ -88,7 +88,31 @@ follow its `Audio` / `Image` objects (`url`, `mediaType`).
 
 The full shapes are the swagger spec in `docs/`.
 
-## 3. Boundaries
+A `traceparent` header on an append is carried on to its event.
+
+## 3. Events
+
+Each append is announced by one event on the Redis stream `threads_events`, in
+the envelope of [`contracts/events.md`](../contracts/events.md), source
+`/threads`.
+
+| `type` | `subject` | `data` |
+|---|---|---|
+| `threads.entry.appended` | the thread id | `thread`, `seq`, `sender`, `kind` |
+
+An event only wakes a reader; it never carries the content. The reader reads
+the truth back with `GET /threads/{id}/entries?after={seq}` from the last seq
+it has seen, so a missed or duplicated event costs nothing.
+
+- The event follows the append, never precedes it: it names an entry already
+  stored.
+- A publish that fails does not fail the append: the journal is the truth. The
+  failure is logged, and the next event (or a reader's own catch-up by seq)
+  covers the gap.
+- Redis is optional: `REDIS_ADDR` names it, and threads never waits for it.
+  Without `REDIS_ADDR` threads works the same and publishes nothing.
+
+## 4. Boundaries
 
 - Its database is its own, on a network only it joins; nobody else opens a
   socket to it. The schema is migrated on boot.
@@ -98,4 +122,4 @@ The full shapes are the swagger spec in `docs/`.
   front of it decides who reaches it.
 - It does not check that a sender is a member, or that a `tool_result` answers
   a `tool_call`; both are the writer's.
-- It publishes no events and has no MCP.
+- It has no MCP. It consumes no events; what it publishes is section 3.

@@ -185,7 +185,7 @@ func (h *Handler) Append(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	e, err := h.service.Append(r.Context(), id, n)
+	e, err := h.service.Append(WithTraceparent(r.Context(), r.Header.Get("traceparent")), id, n)
 	if err != nil {
 		fail(w, err)
 		return

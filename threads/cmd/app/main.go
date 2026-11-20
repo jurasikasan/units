@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"github.com/jurasikasan/units/threads/internal/db"
+	"github.com/jurasikasan/units/threads/internal/events"
 	"github.com/jurasikasan/units/threads/internal/thread"
 
 	httpHelper "github.com/jurasikasan/units/shared/http"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -55,6 +57,9 @@ func main() {
 	log.Println("schema applied")
 
 	svc := thread.NewService(thread.NewPGXRepository(pool))
+	if pub := publisher(ctx); pub != nil {
+		svc.Announcing(pub)
+	}
 	r := newRouter(thread.NewHandler(svc), pool)
 
 	log.Printf("threads listening on :%s", port)
@@ -64,6 +69,25 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	log.Fatal(srv.ListenAndServe())
+}
+
+// publisher is the threads_events stream at REDIS_ADDR, or nil when it is not
+// set: then threads announces nothing. Redis is not waited for: it may come up
+// later or go away, and an append never waits on it to stand.
+func publisher(ctx context.Context) events.Publisher {
+	addr := os.Getenv("REDIS_ADDR")
+	if addr == "" {
+		log.Println("no REDIS_ADDR: appends are not announced")
+		return nil
+	}
+	client := redis.NewClient(&redis.Options{Addr: addr})
+	pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if err := client.Ping(pingCtx).Err(); err != nil {
+		log.Printf("redis at %s not answering yet (appends stand regardless): %v", addr, err)
+	}
+	log.Printf("announcing appends on %s at %s", events.Stream, addr)
+	return events.Redis(client)
 }
 
 // newRouter is the whole routing table, so that routes_documented_test.go

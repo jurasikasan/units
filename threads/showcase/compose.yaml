@@ -12,13 +12,23 @@ services:
       interval: 1s
       retries: 30
 
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      retries: 30
+
   threads:
     build: ..
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://threads:threads@postgres:5432/threads?sslmode=disable
+      REDIS_ADDR: redis:6379
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8085/ready"]
       interval: 1s
@@ -33,3 +43,14 @@ services:
     volumes:
       - ./demo.sh:/demo.sh:ro
     entrypoint: ["sh", "/demo.sh"]
+
+  # What the demo's appends put on threads_events, read once the demo is done.
+  events:
+    image: redis:7-alpine
+    depends_on:
+      demo:
+        condition: service_completed_successfully
+    restart: "no"
+    volumes:
+      - ./events.sh:/events.sh:ro
+    entrypoint: ["sh", "/events.sh"]

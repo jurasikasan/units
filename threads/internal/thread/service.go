@@ -3,8 +3,12 @@ package thread
 import (
 	"context"
 	"errors"
+	"log"
+	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/jurasikasan/units/threads/internal/events"
 )
 
 // Limits on one page of entries.
@@ -36,12 +40,24 @@ type PageQuery struct {
 // DefaultService is Service over a Repository.
 type DefaultService struct {
 	repo Repository
+	pub  events.Publisher
 }
 
-// NewService wraps a repository.
+// NewService wraps a repository; it announces nothing until given a publisher.
 func NewService(repo Repository) *DefaultService {
 	return &DefaultService{repo: repo}
 }
+
+// Announcing makes each append publish threads.entry.appended through pub;
+// nil leaves the service silent.
+func (s *DefaultService) Announcing(pub events.Publisher) *DefaultService {
+	s.pub = pub
+	return s
+}
+
+// publishTimeout bounds how long an append waits on a Redis that does not
+// answer; the entry is stored by then and the publish is only a wake-up.
+const publishTimeout = time.Second
 
 // Open mints the id and stores the thread.
 func (s *DefaultService) Open(ctx context.Context, n NewThread) (*Thread, error) {
@@ -80,7 +96,50 @@ func (s *DefaultService) Append(ctx context.Context, thread uuid.UUID, n NewEntr
 	if err := s.repo.Append(ctx, e); err != nil {
 		return nil, err
 	}
+	s.announce(ctx, e)
 	return e, nil
+}
+
+// announce publishes the append. A failure is logged and dropped: the journal
+// is the truth, and a reader that missed the event catches up by seq. The
+// publish outlives a caller that hung up, since the entry is stored already.
+func (s *DefaultService) announce(ctx context.Context, e *Entry) {
+	if s.pub == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), publishTimeout)
+	defer cancel()
+	err := s.pub.Publish(ctx, events.Event{
+		Type:    events.EntryAppended,
+		Subject: e.Thread.String(),
+		Data: map[string]any{
+			"thread": e.Thread.String(),
+			"seq":    e.Seq,
+			"sender": e.Sender.String(),
+			"kind":   e.Kind,
+		},
+		Traceparent: traceparent(ctx),
+		Time:        e.At,
+	})
+	if err != nil {
+		log.Printf("threads: entry %s seq %d appended, not announced: %v", e.Thread, e.Seq, err)
+	}
+}
+
+type traceKey struct{}
+
+// WithTraceparent carries the W3C traceparent of the request that caused an
+// append on to its event.
+func WithTraceparent(ctx context.Context, tp string) context.Context {
+	if tp == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, traceKey{}, tp)
+}
+
+func traceparent(ctx context.Context) string {
+	tp, _ := ctx.Value(traceKey{}).(string)
+	return tp
 }
 
 // Entries reads a page of a thread's entries.
