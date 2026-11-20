@@ -1,0 +1,55 @@
+# Manifest — what a reader outside drivers/model reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: drivers/model
+kind: service
+summary: A chat model holding subjects' reins - woken by threads' events when someone else says something in a thread its subject is in, it builds the prompt from the thread's tail (its subject's entries the assistant's, everyone else's the user's with who said it), has minds/assistant answer as an AG-UI run with the model it holds the subject with, streams the reply's pieces on its own stream and says the reply in the thread as the subject. Which subjects, with which models, is configuration. No database.
+contract: CONTRACT.md
+maturity: probe
+
+provides:
+  events:
+    stream: driver_events
+    envelope: cloudevents-1.0     # contracts/events.md
+    source: /drivers/model
+    types:
+      - driver.reply.delta        # a piece of a reply being written (part text or reasoning); ephemeral
+      - driver.reply.failed       # the reply ended with nothing said, and why
+      - driver.reply.finished     # the reply was said, at seq
+  health: GET :8097/health
+  ready: GET :8097/ready          # the bus answers; says whom it holds
+
+consumes:
+  units:
+    - unit: threads     # what woke it, read through its own consumer group
+      via: events
+      stream: threads_events
+      types: [threads.entry.appended]
+    - unit: threads     # the thread read back (members, tail), the reply said in it
+      via: http
+      env: THREADS_URL
+      calls: ["GET /threads", "GET /threads/{id}", "GET /threads/{id}/entries", "POST /threads/{id}/entries"]
+    - unit: subjects    # the held subjects found by nick, senders named in the prompt
+      via: http
+      env: SUBJECTS_URL
+      calls: ["GET /subjects", "GET /subjects/{id}"]
+    - unit: minds/assistant   # the answer: an AG-UI run, the held model in forwardedProps.modelName
+      via: http
+      env: MIND_URL
+      calls: ["POST /run"]
+  infra: [redis]        # the bus: threads_events in, driver_events out; waited for at boot
+
+wire: []
+
+config:
+  required:
+    HOLDS: "<subject nick or id>=<chat model>,... e.g. alice-assistant=fake: the subjects whose reins it holds, and with which model"
+    THREADS_URL: the threads service, e.g. http://threads:8085
+    SUBJECTS_URL: the subjects service, e.g. http://subjects:8083
+    MIND_URL: the mind's AG-UI run, e.g. http://mind:8088/run
+  optional:
+    TAIL: "50"              # how many of the thread's last entries the prompt is built from, 1..1000
+    GROUP: drivers-model    # its consumer group on threads_events
+    CATCHUP: 2m             # on taking a subject's reins, what was said to it this recently and is unanswered is answered
+    PORT: "8097"
+  secrets: {}

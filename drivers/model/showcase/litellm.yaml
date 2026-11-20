@@ -1,0 +1,7 @@
+# One model that needs no key: LiteLLM answers it itself, the same words each
+# time. The driver holds alice-assistant with it.
+model_list:
+  - model_name: mock
+    litellm_params:
+      model: openai/mock
+      mock_response: "Hello, alice. I am a mock model holding alice-assistant's reins."

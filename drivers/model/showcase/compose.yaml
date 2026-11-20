@@ -1,0 +1,89 @@
+name: driver-showcase
+
+# The driver holding alice-assistant's reins with a mock model: the journal
+# (threads) and the registry (subjects) on their own Postgres, the bus, the
+# mind it asks (minds/assistant) and LiteLLM answering for the model. The
+# demo plays alice straight into threads, as reins would write her words.
+x-pg: &pg
+  image: postgres:16-alpine
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+    interval: 1s
+    retries: 30
+
+services:
+  bus:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      retries: 30
+  subjects-db:
+    <<: *pg
+    environment: {POSTGRES_USER: subjects, POSTGRES_PASSWORD: subjects, POSTGRES_DB: subjects}
+  subjects:
+    build: ../../../subjects
+    environment:
+      DATABASE_URL: postgres://subjects:subjects@subjects-db:5432/subjects?sslmode=disable
+    depends_on: {subjects-db: {condition: service_healthy}}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/ready"]
+      interval: 1s
+      retries: 30
+  threads-db:
+    <<: *pg
+    environment: {POSTGRES_USER: threads, POSTGRES_PASSWORD: threads, POSTGRES_DB: threads}
+  threads:
+    build: ../../../threads
+    environment:
+      DATABASE_URL: postgres://threads:threads@threads-db:5432/threads?sslmode=disable
+      REDIS_ADDR: bus:6379
+    depends_on: {threads-db: {condition: service_healthy}, bus: {condition: service_healthy}}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/ready"]
+      interval: 1s
+      retries: 30
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.108.0
+    command: ["--config", "/config.yaml", "--port", "4000"]
+    environment:
+      LITELLM_MASTER_KEY: sk-driver-showcase   # a showcase key, nothing behind it
+    volumes:
+      - ./litellm.yaml:/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')"]
+      interval: 2s
+      retries: 90
+  mind:
+    build: ../../../minds/assistant
+    environment:
+      LLM_URL: http://litellm:4000
+      LLM_MODEL: mock
+      LLM_API_KEY: sk-driver-showcase
+    depends_on: {litellm: {condition: service_healthy}}
+  driver:
+    build: ..
+    environment:
+      REDIS_ADDR: bus:6379
+      THREADS_URL: http://threads:8085
+      SUBJECTS_URL: http://subjects:8083
+      MIND_URL: http://mind:8088/run
+      HOLDS: alice-assistant=mock
+    depends_on:
+      bus: {condition: service_healthy}
+      threads: {condition: service_healthy}
+      subjects: {condition: service_healthy}
+      mind: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8097/ready"]
+      interval: 1s
+      retries: 30
+
+  demo:
+    image: curlimages/curl:8.11.1
+    profiles: [demo]
+    depends_on:
+      driver: {condition: service_healthy}
+    volumes:
+      - ./demo.sh:/demo.sh:ro
+    entrypoint: ["sh", "/demo.sh"]
