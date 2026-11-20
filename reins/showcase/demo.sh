@@ -32,10 +32,10 @@ ASSISTANT=$(echo "$A1" | grep -o '{[^{}]*"nick":"alice-assistant"[^{}]*}' | sed 
 step "alice changes her assistant: name, bio, preferences merged"
 # Another reader's key, put straight into subjects, must survive her change.
 curl -s -o /dev/null -X PUT "$S/subjects/$ASSISTANT" -d '{"subject_type":"assistant","preferences":{"theirs":1,"voice":"denis"}}'
-C=$(as alice -X PATCH "$R/subjects/$ASSISTANT" -d '{"name":"Alice'"'"'s helper","bio":"Answers.","preferences":{"chat_model":"fake-text","voice":null}}'); echo "$C"
+C=$(as alice -X PATCH "$R/subjects/$ASSISTANT" -d '{"name":"Alice'"'"'s helper","bio":"Answers.","preferences":{"ear":"fake-stt-b","voice":null}}'); echo "$C"
 expect "her name" "$(echo "$C" | grep -o '"name":"[^"]*"')" '"name":"Alice'"'"'s helper"'
 # subjects keeps preferences as JSONB, in its own key order.
-expect "preferences merged, voice taken out" "$(echo "$C" | grep -o '"preferences":{[^}]*}' | tr -d ' ')" '"preferences":{"theirs":1,"chat_model":"fake-text"}'
+expect "preferences merged, voice taken out" "$(echo "$C" | grep -o '"preferences":{[^}]*}' | tr -d ' ')" '"preferences":{"theirs":1,"ear":"fake-stt-b"}'
 G=$(as alice "$R/subjects/$ASSISTANT"); echo "$G"
 expect "read back, the same" "$G" "$C"
 expect "in subjects, nick and type as stored" "$(curl -s $S/subjects/$ASSISTANT | grep -o '"nick":"[^"]*","bio":"[^"]*","subject_type":"[^"]*"')" '"nick":"alice-assistant","bio":"Answers.","subject_type":"assistant"'

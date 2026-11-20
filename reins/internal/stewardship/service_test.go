@@ -362,27 +362,27 @@ func TestChangeKeepsWhatItDoesNotTouch(t *testing.T) {
 	reg.extra[id] = map[string]json.RawMessage{"born": json.RawMessage(`"2026-11-20"`)}
 	s := reg.byID[id]
 	s.Bio = "was here first"
-	s.Preferences = json.RawMessage(`{"chat_model":"fake","theirs":{"x":1}}`)
+	s.Preferences = json.RawMessage(`{"ear":"fake","theirs":{"x":1}}`)
 	reg.byID[id] = s
 
 	name := "Alice's assistant"
 	got, err := svc.Change(ctx, "alice", id, Change{
 		Name:        &name,
-		Preferences: map[string]json.RawMessage{"chat_model": json.RawMessage(`"fake-text"`), "voice": json.RawMessage(`"irina"`)},
+		Preferences: map[string]json.RawMessage{"ear": json.RawMessage(`"fake-stt-b"`), "voice": json.RawMessage(`"irina"`)},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, name, got.Name)
 	assert.Equal(t, "alice-assistant", got.Nick)
 	assert.Equal(t, "was here first", got.Bio, "a bio left out is kept")
 	assert.Equal(t, TypeAssistant, got.SubjectType, "the type goes back as stored")
-	assert.JSONEq(t, `{"chat_model":"fake-text","voice":"irina","theirs":{"x":1}}`, string(got.Preferences),
+	assert.JSONEq(t, `{"ear":"fake-stt-b","voice":"irina","theirs":{"x":1}}`, string(got.Preferences),
 		"preferences are merged: another reader's key survives")
 	assert.JSONEq(t, `"2026-11-20"`, string(reg.put["born"]), "a field reins does not know goes back as it came")
 	assert.JSONEq(t, `"alice-assistant"`, string(reg.put["nick"]), "the nick goes back as stored")
 
 	got, err = svc.Change(ctx, "alice", id, Change{Preferences: map[string]json.RawMessage{"voice": json.RawMessage(`null`)}})
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"chat_model":"fake-text","theirs":{"x":1}}`, string(got.Preferences), "null takes a key out")
+	assert.JSONEq(t, `{"ear":"fake-stt-b","theirs":{"x":1}}`, string(got.Preferences), "null takes a key out")
 	assert.Equal(t, name, got.Name, "a name left out is kept")
 
 	_, err = svc.Change(ctx, "mallory", id, Change{Name: &name})

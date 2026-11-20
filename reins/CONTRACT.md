@@ -69,17 +69,20 @@ the `id` of a model the agent lists at OpenAI's `GET /v1/models` (a voice:
 one of that speech model's `voices`). A key left out means the agent's own
 choice.
 
-| Key | On whom | Read by | For |
-|---|---|---|---|
-| `chat_model` | an assistant | the face: a run's `forwardedProps.modelName`, a call's `chat_model` | the model it answers with |
-| `mouth` | an assistant | the face: read-aloud's `model`; a call's voice | the speech model it speaks with |
-| `voice` | an assistant | the face: read-aloud's `voice`; a call's `audio.output.voice` as `<mouth>_<voice>` | one of the mouth's voices |
-| `ear` | a person | the face: the mic's transcription `model`, a call's `audio.input.transcription.model` | the speech-to-text model its words are heard with |
+The same keys on every subject: they are its body, whoever is in it. Which
+model thinks for a subject is not among them: that is the brain holding its
+reins now (the page's pick, later a driver's), not a property of the body.
 
-Which avatar's preference feeds which request is the face's wiring for the
-classic chat, where `<login>` speaks and `<login>-assistant` answers, until
-the conversation is kept here and reins reads them itself. reins does not
-check the values: which models exist is the agent's to say.
+| Key | Read by | For |
+|---|---|---|
+| `ear` | the face: the mic's transcription `model`, a call's `audio.input.transcription.model` | the speech-to-text model its words are heard with |
+| `mouth` | the face: read-aloud's `model`; a call's voice | the speech model it speaks with |
+| `voice` | the face: read-aloud's `voice`; a call's `audio.output.voice` as `<mouth>_<voice>` | one of the mouth's voices |
+
+Which subject's body feeds which request is the face's wiring for the classic
+chat until the conversation is kept here: the person speaks as the subject
+named by its login and hears the other one. reins does not check the values:
+which models exist is the agent's to say.
 
 ## 3. Provisioning
 
