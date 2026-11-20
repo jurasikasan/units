@@ -62,20 +62,29 @@ services:
       interval: 2s
       retries: 60
 
-  # The first account, when there is none.
+  # The first account, when there is none; the program's, when it is missing.
   seed:
     <<: *gate
     environment:
       LAB_FIRST_USER: ${LAB_FIRST_USER:-}
       LAB_FIRST_EMAIL: ${LAB_FIRST_EMAIL:-}
       LAB_FIRST_PASSWORD: ${LAB_FIRST_PASSWORD:-}
+      LAB_PROGRAM: ${LAB_PROGRAM:-}
+      LAB_PROGRAM_PASSWORD: ${LAB_PROGRAM_PASSWORD:-}
+      LAB_DOMAIN: ${LAB_DOMAIN}
     entrypoint:
       - sh
       - -c
       - |
-        [ -s /data/users.yml ] && exit 0
-        [ -n "$$LAB_FIRST_PASSWORD" ] || { echo "no accounts and no LAB_FIRST_PASSWORD"; exit 1; }
-        printf '%s\n' "$$LAB_FIRST_PASSWORD" | gate-user add "$$LAB_FIRST_USER" "$$LAB_FIRST_EMAIL"
+        set -e
+        if [ ! -s /data/users.yml ]; then
+          [ -n "$$LAB_FIRST_PASSWORD" ] || { echo "no accounts and no LAB_FIRST_PASSWORD"; exit 1; }
+          printf '%s\n' "$$LAB_FIRST_PASSWORD" | gate-user add "$$LAB_FIRST_USER" "$$LAB_FIRST_EMAIL"
+        fi
+        [ -n "$$LAB_PROGRAM" ] || exit 0
+        grep -q "^  $$LAB_PROGRAM:\$$" /data/users.yml && exit 0
+        [ -n "$$LAB_PROGRAM_PASSWORD" ] || { echo "no LAB_PROGRAM_PASSWORD for $$LAB_PROGRAM"; exit 1; }
+        printf '%s\n' "$$LAB_PROGRAM_PASSWORD" | gate-user add "$$LAB_PROGRAM" "$$LAB_PROGRAM@$$LAB_DOMAIN"
     restart: "no"
 
   # A self-signed certificate when LAB_CERTS has none; a real one is left alone.

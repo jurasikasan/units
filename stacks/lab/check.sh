@@ -55,6 +55,21 @@ first_user=$(sed -n 's/^LAB_FIRST_USER=//p' .env.example)
 first_password=$(sed -n 's/^LAB_FIRST_PASSWORD=//p' .env.example)
 trap 'docker compose --profile "*" down -v --remove-orphans >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
 
+program=$(sed -n 's/^LAB_PROGRAM=//p' .env.example)
+program_password=$(sed -n 's/^LAB_PROGRAM_PASSWORD=//p' .env.example)
+# The program, with its password as HTTP Basic: its own subjects on the API,
+# no page.
+as_program() {
+  docker compose run --rm --no-deps --entrypoint sh demo -c '
+    hp=${LAB_URL#https://} who=$0:$1
+    c() { curl -sk --connect-to "$hp:nginx:443" -u "$who" "$@"; }
+    nicks=$(c "$LAB_URL/api/reins/me/subjects" | grep -o "\"nick\":\"[^\"]*\"" | sort | tr "\n" " ")
+    echo "steers: $nicks"
+    [ "$nicks" = "\"nick\":\"$0\" \"nick\":\"$0-assistant\" " ] || exit 1
+    page=$(c -o /dev/null -w "%{http_code}" "$LAB_URL/"); echo "page: $page"; [ "$page" = 302 ] || exit 1
+    bad=$(curl -sk --connect-to "$hp:nginx:443" -u "$0:wrong" -o /dev/null -w "%{http_code}" "$LAB_URL/api/reins/me/subjects"); echo "wrong password: $bad"; [ "$bad" = 401 ]
+  ' "$program" "$program_password"
+}
 add_carol() { echo carol-lab | docker compose run --rm --no-deps -T gate gate-user add carol carol@example.com Carol; }
 backup() { ./backup.sh "$work/backups" > "$work/archive"; }
 # The browsers are closed: past the grace (45 s here), no principal holds
@@ -90,6 +105,7 @@ run "e2e: a call on cascade, hearing and speaking"  env LAB_REALTIME_MODEL=casca
 run "cascade: the page's ear and voice, heard, answered, talked over, truncated"  bash -c 'l=$(docker compose logs realtime); for w in "ear=fake-stt-b" "voice=fake-tts-b_irina" "type=speechrecog.recognition-complete" "msg=answered" "reason=turn_detected" "answer truncated" "type=conversation.item.truncated"; do echo "$l" | grep -q "$w" || { echo "no $w"; exit 1; }; done'
 run "e2e: handed to a text-only profile, a picture is refused, said"  env E2E_ONLY=refused docker compose run --rm e2e "$first_user" "$first_password"
 run "the pages gone, what they held lapses: nobody holds $first_user"  lapsed
+run "the program $program steers its own subjects through /api/ with its password, no page"  as_program
 run "first account: its subjects after login, chat, mail"  docker compose run --rm demo "$first_user" "$first_password" mail
 run "reins keeps two subjects for it"  keep_steered
 run "gate, mind, face on new addresses"  ../../tools/move_address.sh gate mind face

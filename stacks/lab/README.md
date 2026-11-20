@@ -192,6 +192,7 @@ call.
 | `LAB_BIND`, `LAB_PORT` | where the https port is published: `127.0.0.1` locally, `0.0.0.0` to be reached |
 | `LAB_CERTS` | a directory with `fullchain.pem` and `privkey.pem`, or `certs`, a volume where a self-signed certificate is made on the first start |
 | `LAB_FIRST_USER`, `LAB_FIRST_EMAIL`, `LAB_FIRST_PASSWORD` | the first account, made only when there is none; clear the password afterwards |
+| `LAB_PROGRAM`, `LAB_PROGRAM_PASSWORD` | a program's account, made when it is missing (its mail `<name>@LAB_DOMAIN`); the program sends the password as HTTP Basic on `/api/`; keep it, the program needs it; empty: none |
 | `COMPOSE_PROFILES` | `mailpit` runs Mailpit locally; a deployment leaves it empty |
 | `LAB_SMTP_*` | where mail goes; with a relay, `LAB_SMTP_SKIP_VERIFY=false` |
 | `LAB_LLM_KEY` | LiteLLM's master key; the mind sends it |
@@ -215,6 +216,22 @@ call.
 ```bash
 docker compose run --rm --no-deps -T gate gate-user add bob bob@example.com "Bob" < password.txt
 ```
+
+### Programs
+
+A program (a script, an agent) is an account like a person's, and behind
+the gate it is `X-Principal-Id = <its name>`; what it may do is what that
+account steers. It passes on `/api/` only, with its password as HTTP Basic
+(gate's README: temporary until the gate issues tokens); pages stay closed to
+it:
+
+```bash
+curl -u "$LAB_PROGRAM:$LAB_PROGRAM_PASSWORD" "$LAB_URL/api/reins/me/subjects"
+```
+
+`LAB_PROGRAM` makes one; more are added as accounts, above. A changed
+password is a new account: remove the entry from gate's `/data/users.yml`
+and start again.
 
 ## Backup and restore
 
