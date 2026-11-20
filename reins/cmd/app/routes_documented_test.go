@@ -6,6 +6,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/jurasikasan/units/reins/internal/holds"
 	"github.com/jurasikasan/units/reins/internal/stewardship"
 	"github.com/jurasikasan/units/reins/internal/world"
 
@@ -42,7 +43,7 @@ func TestEveryRouteIsDocumented(t *testing.T) {
 // is the contract, and the lines that registered it are not.
 func routesFromRouter(t *testing.T) map[string]bool {
 	t.Helper()
-	r := newRouter(stewardship.NewHandler(nil), world.NewHandler(nil, nil), nil)
+	r := newRouter(stewardship.NewHandler(nil, nil), world.NewHandler(nil, nil), holds.NewHandler(nil), nil)
 	out := map[string]bool{}
 	err := r.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
 		tmpl, err := route.GetPathTemplate()

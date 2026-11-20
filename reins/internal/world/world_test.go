@@ -21,7 +21,32 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jurasikasan/units/reins/internal/holds"
 )
+
+// fakeHolds: subject → "<principal>/<device>" holding it, or "brain:x".
+type fakeHolds struct {
+	mu   sync.Mutex
+	held map[uuid.UUID]string
+	seen []string
+}
+
+func (f *fakeHolds) Holding(_ context.Context, p, d string, s uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.held[s] == p+"/"+d {
+		return nil
+	}
+	return &holds.Held{By: f.held[s]}
+}
+
+func (f *fakeHolds) Seen(_ context.Context, p, d string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.seen = append(f.seen, p+"/"+d)
+	return nil
+}
 
 // fakeStewards: principal → the avatars it steers.
 type fakeStewards map[string][]uuid.UUID
@@ -51,7 +76,7 @@ func (j *fakeJournal) Member(_ context.Context, s uuid.UUID) ([]Thread, error) {
 	out := []Thread{}
 	for _, t := range j.threads {
 		if slices.Contains(t.Members, s) {
-			out = append(out, Thread{ID: t.ID, CreatedAt: t.CreatedAt})
+			out = append(out, Thread{ID: t.ID, CreatedAt: t.CreatedAt, OpenedBy: t.OpenedBy})
 		}
 	}
 	return out, nil
@@ -135,18 +160,31 @@ var (
 	bob       = uuid.MustParse("00000000-0000-0000-0000-00000000000b")
 )
 
+// device is the device alice and bob each hold their avatars from.
+const device = "d1"
+
+var held *fakeHolds
+
 func setup() (*Service, *fakeJournal, *mux.Router) {
 	j := newFakeJournal()
-	svc := NewService(fakeStewards{"alice": {alice, assistant}, "bob": {bob}}, j)
+	held = &fakeHolds{held: map[uuid.UUID]string{alice: "alice/d1", assistant: "alice/d1", bob: "bob/d1"}}
+	svc := NewService(fakeStewards{"alice": {alice, assistant}, "bob": {bob}}, j, held)
 	r := mux.NewRouter()
 	RegisterRoutes(r, NewHandler(svc, nil))
 	return svc, j, r
 }
 
 func call(r http.Handler, principal, method, path, body string) *httptest.ResponseRecorder {
+	return callFrom(r, principal, device, method, path, body)
+}
+
+func callFrom(r http.Handler, principal, dev, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	if principal != "" {
 		req.Header.Set(principalHeader, principal)
+	}
+	if dev != "" {
+		req.Header.Set(holds.DeviceHeader, dev)
 	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -178,7 +216,7 @@ func TestOpen_AsAndWithJoin_OnlySteered(t *testing.T) {
 
 func TestSay_AsASteeredMember(t *testing.T) {
 	svc, j, r := setup()
-	th, err := svc.Open(context.Background(), "alice", alice, nil)
+	th, err := svc.Open(context.Background(), "alice", device, alice, nil)
 	require.NoError(t, err)
 	path := "/threads/" + th.ID.String() + "/entries"
 
@@ -201,14 +239,51 @@ func TestSay_AsASteeredMember(t *testing.T) {
 	assert.Len(t, j.entries[th.ID], 2)
 }
 
+// The one wheel: a steward who does not hold the avatar's reins from this
+// device watches, and writing is 409, saying who holds it.
+func TestSay_NeedsTheReins(t *testing.T) {
+	svc, j, r := setup()
+	th, err := svc.Open(context.Background(), "alice", device, alice, []uuid.UUID{assistant})
+	require.NoError(t, err)
+	path := "/threads/" + th.ID.String() + "/entries"
+	say := fmt.Sprintf(`{"as":%q,"content":[{"type":"text","text":"x"}]}`, alice)
+
+	w := callFrom(r, "alice", "d2", "POST", path, say)
+	assert.Equal(t, http.StatusConflict, w.Code, "another device of hers")
+	assert.Contains(t, w.Body.String(), "held by alice/d1")
+	held.held[assistant] = "brain:fake"
+	w = call(r, "alice", "POST", path, fmt.Sprintf(`{"as":%q,"content":[{"type":"text","text":"x"}]}`, assistant))
+	assert.Equal(t, http.StatusConflict, w.Code, "a brain holds it")
+	assert.Contains(t, w.Body.String(), "held by brain:fake")
+	w = call(r, "alice", "POST", "/me/threads", fmt.Sprintf(`{"as":%q}`, assistant))
+	assert.Equal(t, http.StatusConflict, w.Code, "opening is an act of `as`")
+	assert.Len(t, j.entries[th.ID], 2, "nothing written")
+	assert.Len(t, j.threads, 1, "nothing opened")
+}
+
+// The first thread: opened by the assistant, which joins, then the login's
+// avatar; nothing said; once only.
+func TestFirstThread_Once(t *testing.T) {
+	svc, j, _ := setup()
+	ctx := context.Background()
+	require.NoError(t, svc.FirstThread(ctx, assistant, alice))
+	require.NoError(t, svc.FirstThread(ctx, assistant, alice))
+	require.Len(t, j.threads, 1)
+	for id, th := range j.threads {
+		assert.Equal(t, assistant, *th.OpenedBy)
+		assert.Equal(t, []uuid.UUID{assistant, alice}, th.Members)
+		assert.Len(t, j.entries[id], 2, "two joins, nothing said")
+	}
+}
+
 func TestEntriesAndList_OnlyWhereAnAvatarIs(t *testing.T) {
 	svc, _, r := setup()
 	ctx := context.Background()
-	mine, err := svc.Open(ctx, "alice", alice, []uuid.UUID{assistant})
+	mine, err := svc.Open(ctx, "alice", device, alice, []uuid.UUID{assistant})
 	require.NoError(t, err)
-	_, err = svc.Say(ctx, "alice", mine.ID, assistant, json.RawMessage(`[{"type":"text","text":"from the assistant"}]`))
+	_, err = svc.Say(ctx, "alice", device, mine.ID, assistant, json.RawMessage(`[{"type":"text","text":"from the assistant"}]`))
 	require.NoError(t, err)
-	bobs, err := svc.Open(ctx, "bob", bob, nil)
+	bobs, err := svc.Open(ctx, "bob", device, bob, nil)
 	require.NoError(t, err)
 
 	w := call(r, "alice", "GET", "/threads/"+mine.ID.String()+"/entries?after=2", "")
@@ -293,7 +368,7 @@ func TestStream_Live(t *testing.T) {
 	}
 	ctx := context.Background()
 	rdb := redis.NewClient(&redis.Options{Addr: addr})
-	require.NoError(t, rdb.Del(ctx, ThreadsStream, "driver_events").Err())
+	require.NoError(t, rdb.Del(ctx, ThreadsStream, "driver_events", holds.Stream).Err())
 
 	svc, j, _ := setup()
 	j.appended = func(thread uuid.UUID, seq int64, kind string) {
@@ -302,6 +377,7 @@ func TestStream_Live(t *testing.T) {
 			"ce_type": "threads.entry.appended", "ce_subject": thread.String(), "data": string(data)}})
 	}
 	st := NewStream(svc, rdb, []string{"driver_events"})
+	st.Presence = held
 	st.Block = 200 * time.Millisecond
 	r := mux.NewRouter()
 	RegisterRoutes(r, NewHandler(svc, st))
@@ -310,7 +386,7 @@ func TestStream_Live(t *testing.T) {
 
 	open := func(principal, lastID string) (<-chan sse, func()) {
 		cctx, cancel := context.WithCancel(ctx)
-		req, _ := http.NewRequestWithContext(cctx, "GET", srv.URL+"/me/stream", nil)
+		req, _ := http.NewRequestWithContext(cctx, "GET", srv.URL+"/me/stream?device="+device, nil)
 		req.Header.Set(principalHeader, principal)
 		if lastID != "" {
 			req.Header.Set("Last-Event-ID", lastID)
@@ -328,13 +404,13 @@ func TestStream_Live(t *testing.T) {
 	ready := next(t, events)
 	assert.Equal(t, "ready", ready.event)
 
-	bobs, err := svc.Open(ctx, "bob", bob, nil)
+	bobs, err := svc.Open(ctx, "bob", device, bob, nil)
 	require.NoError(t, err)
-	th, err := svc.Open(ctx, "alice", alice, []uuid.UUID{assistant})
+	th, err := svc.Open(ctx, "alice", device, alice, []uuid.UUID{assistant})
 	require.NoError(t, err)
-	_, err = svc.Say(ctx, "bob", bobs.ID, bob, json.RawMessage(`[{"type":"text","text":"not for alice"}]`))
+	_, err = svc.Say(ctx, "bob", device, bobs.ID, bob, json.RawMessage(`[{"type":"text","text":"not for alice"}]`))
 	require.NoError(t, err)
-	_, err = svc.Say(ctx, "alice", th.ID, assistant, json.RawMessage(`[{"type":"text","text":"hello alice"}]`))
+	_, err = svc.Say(ctx, "alice", device, th.ID, assistant, json.RawMessage(`[{"type":"text","text":"hello alice"}]`))
 	require.NoError(t, err)
 
 	var got []map[string]any
@@ -364,10 +440,26 @@ func TestStream_Live(t *testing.T) {
 	assert.Empty(t, w.id, "what is not journaled is not resumed")
 	assert.Contains(t, w.data, `"type":"driver.reply.delta"`)
 	assert.Contains(t, w.data, th.ID.String())
+
+	// Who holds an avatar: bob's left out, alice's assistant to a brain
+	// shown as alice sees it.
+	for _, h := range []map[string]any{{"subject": bob, "holder": "brain:fake"}, {"subject": assistant, "holder": "brain:fake"}, {"subject": alice, "holder": "principal:alice", "device": device}} {
+		data, _ := json.Marshal(h)
+		require.NoError(t, rdb.XAdd(ctx, &redis.XAddArgs{Stream: holds.Stream, Values: map[string]any{
+			"ce_type": holds.HoldChanged, "data": string(data)}}).Err())
+	}
+	hd := next(t, events)
+	assert.Equal(t, "hold", hd.event)
+	assert.JSONEq(t, fmt.Sprintf(`{"subject":%q,"kind":"brain","profile":"fake"}`, assistant), hd.data)
+	hd = next(t, events)
+	assert.JSONEq(t, fmt.Sprintf(`{"subject":%q,"kind":"principal","principal":"alice","you":true,"here":true}`, alice), hd.data)
+	held.mu.Lock()
+	assert.Contains(t, held.seen, "alice/d1", "the open stream says its device is there")
+	held.mu.Unlock()
 	stop()
 
 	// Away, then back from the last id: what came meanwhile, nothing twice.
-	_, err = svc.Say(ctx, "alice", th.ID, alice, json.RawMessage(`[{"type":"text","text":"while away"}]`))
+	_, err = svc.Say(ctx, "alice", device, th.ID, alice, json.RawMessage(`[{"type":"text","text":"while away"}]`))
 	require.NoError(t, err)
 	events, stop = open("alice", lastID)
 	assert.Equal(t, "ready", next(t, events).event)

@@ -3,7 +3,8 @@
 Where a principal holds the reins of its subjects: which subjects an account
 at the door may look into and take up, the two personas a principal first
 seen is given in `subjects`, and a steward's changes to a subject's name,
-bio and preferences (whose keys are named in the contract), and the face's door
+bio and preferences (whose keys are named in the contract), who holds each
+subject's reins now (a principal on a device, a brain, or nobody), and the face's door
 into the world: threads written into only as an avatar the principal steers,
 and followed as one stream. What it promises is `CONTRACT.md`; this file is
 for working inside it.
@@ -18,6 +19,12 @@ for working inside it.
   pieces relayed, the position as SSE's id). `world_test.go` holds the routes
   to fakes and the stream to a real Redis (`REINS_TEST_REDIS_ADDR`;
   `check.sh` starts one in docker).
+- `internal/holds` — the one wheel: who holds each subject's reins now
+  (`holds`, `presence`), take, give back, hand to a brain (the driver's
+  profiles, `HTTPBrains`), stop, the lapse of a gone device's hold, every
+  change on `reins_events`; the inner port's `GET /holds` for drivers.
+  `holds_test.go` holds the SQL and the lapse against a real Postgres, in
+  a schema of its own.
 - `internal/db` — the migration runner and `migrations/`, applied on boot.
 - `internal/stewardship/repository_test.go` — the SQL and the per-principal
   lock against a real Postgres (`REINS_TEST_DATABASE_URL`); `check.sh` starts
@@ -31,7 +38,8 @@ for working inside it.
 
 Config: `DATABASE_URL` (its own Postgres), `SUBJECTS_URL`, `PORT` (8087);
 `THREADS_URL`, `REDIS_ADDR` and `WRITING_STREAMS` for the world (without
-them its routes answer 503).
+them its routes answer 503); `INTERNAL_PORT` (8088), `HOLD_GRACE` (2m),
+`DEFAULT_BRAIN` and `BRAINS_URL` for the holds.
 
 ```bash
 bash check.sh

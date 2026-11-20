@@ -12,6 +12,8 @@ import (
 	"regexp"
 
 	"github.com/google/uuid"
+
+	"github.com/jurasikasan/units/reins/internal/holds"
 )
 
 // Subject is a subject as `subjects` keeps it, passed on as it came.
@@ -21,6 +23,10 @@ type Subject struct {
 	Nick        string          `json:"nick"`
 	Bio         string          `json:"bio,omitempty"`
 	Preferences json.RawMessage `json:"preferences,omitempty" swaggertype:"object"`
+	// CurrentBrain is who holds its reins now, as the principal asking sees
+	// it from its device: reins' own, added to what `subjects` sent, never
+	// written there and never shown to a character.
+	CurrentBrain *holds.Brain `json:"current_brain,omitempty"`
 }
 
 // NewSubject is what reins asks `subjects` to make.

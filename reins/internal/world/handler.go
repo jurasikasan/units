@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/jurasikasan/units/reins/internal/holds"
 	httpHelper "github.com/jurasikasan/units/shared/http"
 
 	"github.com/google/uuid"
@@ -81,6 +82,8 @@ func failed(w http.ResponseWriter, p string, err error) {
 		http.Error(w, err.Error(), http.StatusForbidden)
 	case errors.Is(err, ErrNoThread):
 		http.Error(w, err.Error(), http.StatusNotFound)
+	case errors.Is(err, holds.ErrHeld):
+		http.Error(w, err.Error(), http.StatusConflict)
 	default:
 		log.Printf("reins: world for %q: %v", p, err)
 		http.Error(w, "threads or the database did not answer", http.StatusBadGateway)
@@ -117,15 +120,19 @@ func (h *Handler) MyThreads(w http.ResponseWriter, r *http.Request) {
 // @Description  A new thread opened by `as`; `as` joins it, then each of `with`
 // @Description  (a join entry sent by that avatar). Every one of them is an
 // @Description  avatar the caller steers: inviting another's is a later task.
+// @Description  Opening is an act of `as`: the caller holds its reins from
+// @Description  X-Device-Id, else 409.
 // @Tags         world
 // @Accept       json
 // @Produce      json
 // @Param        X-Principal-Id header string true "who is asking, as the door sets it"
+// @Param        X-Device-Id    header string true "the device the caller holds `as` from"
 // @Param        body body  world.OpenRequest true "who opens it, who joins"
 // @Success      201  {object}  world.Thread
 // @Failure      400  {string}  string "A bad body, or no `as`"
 // @Failure      401  {string}  string "No X-Principal-Id"
 // @Failure      403  {string}  string "The caller does not steer one of them"
+// @Failure      409  {string}  string "Held by someone else: who"
 // @Failure      502  {string}  string "threads or the database did not answer"
 // @Failure      503  {string}  string "No threads here"
 // @Router       /me/threads [post]
@@ -141,7 +148,7 @@ func (h *Handler) Open(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	t, err := h.svc.Open(WithTraceparent(r.Context(), r.Header.Get("traceparent")), p, req.As, req.With)
+	t, err := h.svc.Open(WithTraceparent(r.Context(), r.Header.Get("traceparent")), p, holds.Device(r), req.As, req.With)
 	if err != nil {
 		failed(w, p, err)
 		return
@@ -153,12 +160,14 @@ func (h *Handler) Open(w http.ResponseWriter, r *http.Request) {
 // @Summary      Say something in a thread as an avatar
 // @Description  A create entry sent by `as`, its content as threads takes it
 // @Description  (text, image, file, audio… blocks; threads' CONTRACT.md). `as`
-// @Description  must be an avatar the caller steers and a member of the thread.
-// @Description  The entry as threads stored it, seq and all.
+// @Description  must be an avatar the caller steers, whose reins it holds from
+// @Description  X-Device-Id (else 409, "held by <holder>"), and a member of the
+// @Description  thread. The entry as threads stored it, seq and all.
 // @Tags         world
 // @Accept       json
 // @Produce      json
 // @Param        X-Principal-Id header string true "who is asking, as the door sets it"
+// @Param        X-Device-Id    header string true "the device the caller holds `as` from"
 // @Param        id   path  string true "thread id"
 // @Param        body body  world.SayRequest true "who says it, what"
 // @Success      201  {object}  object "the entry"
@@ -166,6 +175,7 @@ func (h *Handler) Open(w http.ResponseWriter, r *http.Request) {
 // @Failure      401  {string}  string "No X-Principal-Id"
 // @Failure      403  {string}  string "The caller does not steer `as`, or `as` is not a member"
 // @Failure      404  {string}  string "No such thread"
+// @Failure      409  {string}  string "Held by someone else: who"
 // @Failure      413  {string}  string "Over 16 MB"
 // @Failure      502  {string}  string "threads or the database did not answer"
 // @Failure      503  {string}  string "No threads here"
@@ -191,7 +201,7 @@ func (h *Handler) Say(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	e, err := h.svc.Say(WithTraceparent(r.Context(), r.Header.Get("traceparent")), p, id, req.As, req.Content)
+	e, err := h.svc.Say(WithTraceparent(r.Context(), r.Header.Get("traceparent")), p, holds.Device(r), id, req.As, req.Content)
 	if err != nil {
 		failed(w, p, err)
 		return

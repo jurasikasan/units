@@ -15,6 +15,12 @@ import (
 type Service struct {
 	store    Store
 	registry Registry
+	// Welcome, when set, runs once a principal's personas are all made and
+	// before it is settled, with the ids of `<login>` and
+	// `<login>-assistant`: the assistant handed to the default brain, the
+	// first thread opened. It must be idempotent: a run cut before the
+	// principal is settled runs it again.
+	Welcome func(ctx context.Context, principal string, login, assistant uuid.UUID) error
 }
 
 func NewService(store Store, registry Registry) *Service {
@@ -77,18 +83,18 @@ func (s *Service) provision(ctx context.Context, principal string) error {
 		if err != nil {
 			return err
 		}
-		have := map[string]bool{}
+		have := map[string]uuid.UUID{}
 		for _, id := range ids {
 			sub, found, err := s.registry.Get(ctx, id)
 			if err != nil {
 				return err
 			}
 			if found {
-				have[sub.Nick] = true
+				have[sub.Nick] = sub.ID
 			}
 		}
 		for _, w := range wanted {
-			if have[w.Nick] {
+			if _, ok := have[w.Nick]; ok {
 				continue
 			}
 			sub, err := s.registry.Create(ctx, w)
@@ -104,7 +110,13 @@ func (s *Service) provision(ctx context.Context, principal string) error {
 			if err := l.Record(ctx, sub.ID); err != nil {
 				return err
 			}
+			have[w.Nick] = sub.ID
 			log.Printf("reins: principal %q steers new subject %s (%s)", principal, sub.ID, sub.Nick)
+		}
+		if s.Welcome != nil {
+			if err := s.Welcome(ctx, principal, have[wanted[0].Nick], have[wanted[1].Nick]); err != nil {
+				return err
+			}
 		}
 		return l.Settle(ctx)
 	})

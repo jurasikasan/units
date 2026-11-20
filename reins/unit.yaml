@@ -3,7 +3,7 @@
 
 unit: reins
 kind: service
-summary: Where a principal holds the reins of its subjects — which subjects an account at the door may look into and take up, out of the world; a principal first seen is given `<login>` and `<login>-assistant` in subjects, and a steward changes their name, bio and preferences. The face's door into the world - it writes into threads only as an avatar the principal steers, and streams the threads its avatars are in over SSE (entries read back on threads' events, replies being written relayed). Own database; each compose runs its own.
+summary: Where a principal holds the reins of its subjects — which subjects an account at the door may look into and take up, out of the world, and who holds each one's reins now (one holder - a principal on a device, a brain, or nobody - taken, handed, given back, lapsing with the device, announced on reins_events); a principal first seen is given `<login>` and `<login>-assistant` in subjects (the assistant handed to the default brain, a first thread opened by it), and a steward changes their name, bio and preferences. The face's door into the world - it writes into threads only as an avatar the principal steers and holds, and streams the threads its avatars are in over SSE (entries read back on threads' events, replies being written relayed). Own database; each compose runs its own.
 contract: CONTRACT.md
 maturity: probe
 
@@ -20,7 +20,22 @@ provides:
       - "POST /me/threads"
       - "POST /threads/{id}/entries"
       - "GET /threads/{id}/entries"
-      - "GET /me/stream"            # SSE: entry (id = threads_events id), writing, ready, reset
+      - "GET /me/stream"            # SSE: entry (id = threads_events id), writing, hold, ready, reset
+      - "POST /subjects/{id}/take"       # the reins, from this device (X-Device-Id)
+      - "POST /subjects/{id}/give-back"  # to nobody: the avatar offline
+      - "POST /subjects/{id}/hand"       # to a brain: {"profile"}
+      - "GET /brains"                    # the profiles to hand to, as the driver says them
+      - "POST /threads/{id}/stop"        # stop a brain's reply there: {"subject"}
+  http:                         # the inner port, never forwarded by the door
+    port: 8088
+    calls: ["GET /holds"]       # every hold of a brain: a driver reads whom its profiles hold
+  events:
+    stream: reins_events
+    envelope: cloudevents-1.0     # contracts/events.md
+    source: /reins
+    types:
+      - reins.hold.changed        # a subject's holder changed: subject, holder ("" for nobody), device; it only wakes
+      - reins.reply.stop          # a steward stops the reply a brain writes as subject in thread: thread, subject, by
   health: GET :8087/health
   ready: GET :8087/ready
 
@@ -41,7 +56,11 @@ consumes:
     - unit: drivers/model   # replies being written, relayed as `writing` (WRITING_STREAMS)
       via: events
       stream: driver_events
-      types: [driver.reply.delta, driver.reply.failed, driver.reply.finished]
+      types: [driver.reply.started, driver.reply.delta, driver.reply.failed, driver.reply.finished, driver.reply.stopped]
+    - unit: drivers/model   # the profiles a subject can be handed to (BRAINS_URL)
+      via: http
+      env: BRAINS_URL
+      calls: ["GET /profiles"]
   gate: X-Principal-Id  # who is asking; trusted, so reins is reached only through the door
   infra: [postgres]     # its own, on a network only it joins
   # Redis (the bus, REDIS_ADDR) is optional and not infra here: never waited
@@ -59,4 +78,8 @@ config:
     THREADS_URL: ""       # the threads service, e.g. http://threads:8085; unset, the world routes answer 503
     REDIS_ADDR: ""        # the bus threads announces on; unset, /me/stream answers 503
     WRITING_STREAMS: driver_events   # comma-separated streams of replies being written, relayed as `writing`
+    INTERNAL_PORT: "8088"  # the inner port: GET /holds, for drivers; never forwarded by the door
+    HOLD_GRACE: 2m         # a principal's hold lapses when its device's /me/stream has been gone this long
+    DEFAULT_BRAIN: ""      # the profile a principal's <login>-assistant is handed to at its first visit; empty: offline
+    BRAINS_URL: ""         # the driver saying its profiles (GET /profiles), e.g. http://driver:8097; unset, nothing to hand to
   secrets: {}

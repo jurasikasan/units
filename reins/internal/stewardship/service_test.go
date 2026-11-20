@@ -210,6 +210,37 @@ func TestFirstVisitMakesBothPersonasOnce(t *testing.T) {
 	assert.Equal(t, 2, reg.created)
 }
 
+// Welcome runs once the personas are made, with the login's and the
+// assistant's ids, before the principal is settled: a welcome that fails
+// leaves it unsettled, and the next visit runs it again.
+func TestWelcomeBeforeSettled(t *testing.T) {
+	store, reg := newFakeStore(), newFakeRegistry()
+	svc := NewService(store, reg)
+	ctx := context.Background()
+	var got [][2]uuid.UUID
+	fail := true
+	svc.Welcome = func(_ context.Context, p string, login, assistant uuid.UUID) error {
+		assert.Equal(t, "alice", p)
+		got = append(got, [2]uuid.UUID{login, assistant})
+		if fail {
+			return errors.New("threads went away")
+		}
+		return nil
+	}
+	_, err := svc.MySubjects(ctx, "alice")
+	require.Error(t, err)
+	assert.False(t, store.settled["alice"])
+	fail = false
+	subs, err := svc.MySubjects(ctx, "alice")
+	require.NoError(t, err)
+	assert.True(t, store.settled["alice"])
+	_, err = svc.MySubjects(ctx, "alice")
+	require.NoError(t, err)
+	require.Len(t, got, 2, "run again after the failure, then never")
+	assert.Equal(t, [2]uuid.UUID{subs[0].ID, subs[1].ID}, got[1])
+	assert.Equal(t, 2, reg.created)
+}
+
 func TestConcurrentFirstVisitsMakeEachPersonaOnce(t *testing.T) {
 	store, reg := newFakeStore(), newFakeRegistry()
 	svc := NewService(store, reg)

@@ -44,7 +44,7 @@ func (f *fakeReins) Handover(_ context.Context, caller string, _ uuid.UUID, to s
 
 func serve(f *fakeReins, method, path, principal, body string) *httptest.ResponseRecorder {
 	r := mux.NewRouter()
-	RegisterRoutes(r, NewHandler(f))
+	RegisterRoutes(r, NewHandler(f, nil))
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	if principal != "" {
 		req.Header.Set(PrincipalHeader, principal)

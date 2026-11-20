@@ -1,4 +1,38 @@
 definitions:
+  holds.Brain:
+    properties:
+      here:
+        description: 'Here: the principal asking holds it from the device asking.'
+        type: boolean
+      kind:
+        description: Kind is `principal`, `brain` or `offline`.
+        example: principal
+        type: string
+      principal:
+        description: Principal holding it (kind principal).
+        example: alice
+        type: string
+      profile:
+        description: 'Profile holding it (kind brain): a driver''s profile.'
+        example: fake
+        type: string
+      since:
+        type: string
+      you:
+        description: 'You: the principal asking holds it.'
+        type: boolean
+    type: object
+  holds.HandRequest:
+    properties:
+      profile:
+        example: fake
+        type: string
+    type: object
+  holds.StopRequest:
+    properties:
+      subject:
+        type: string
+    type: object
   stewardship.Change:
     properties:
       bio:
@@ -20,6 +54,13 @@ definitions:
     properties:
       bio:
         type: string
+      current_brain:
+        allOf:
+        - $ref: '#/definitions/holds.Brain'
+        description: |-
+          CurrentBrain is who holds its reins now, as the principal asking sees
+          it from its device: reins' own, added to what `subjects` sent, never
+          written there and never shown to a character.
       id:
         type: string
       name:
@@ -71,11 +112,46 @@ info:
     Where a principal holds the reins of its subjects: which
     subjects an account at the door may look into and take up.
     A principal first seen is given two personas in `subjects`.
+    Who holds each subject's reins now (the one wheel): taken
+    from a device, handed to a brain, given back.
     Reached only through the door (X-Principal-Id). Own database
     on its own network.
   title: Reins
   version: "1.0"
 paths:
+  /brains:
+    get:
+      description: 'The driver''s profiles, as it says them: names only.'
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "502":
+          description: The driver did not answer
+          schema:
+            type: string
+        "503":
+          description: No brains here (no BRAINS_URL)
+          schema:
+            type: string
+      summary: The brains a subject can be handed to
+      tags:
+      - holds
   /health:
     get:
       description: |-
@@ -148,7 +224,8 @@ paths:
         first call for a principal makes what is missing of its two
         personas: nick `<login>` and
         `<login>-assistant`, names empty. A nick taken by
-        another subject is never adopted.
+        another subject is never adopted. Each with its
+        current_brain as the caller sees it from X-Device-Id.
       parameters:
       - description: who is asking, as the door sets it
         in: header
@@ -225,10 +302,17 @@ paths:
         A new thread opened by `as`; `as` joins it, then each of `with`
         (a join entry sent by that avatar). Every one of them is an
         avatar the caller steers: inviting another's is a later task.
+        Opening is an act of `as`: the caller holds its reins from
+        X-Device-Id, else 409.
       parameters:
       - description: who is asking, as the door sets it
         in: header
         name: X-Principal-Id
+        required: true
+        type: string
+      - description: the device the caller holds `as` from
+        in: header
+        name: X-Device-Id
         required: true
         type: string
       - description: who opens it, who joins
@@ -254,6 +338,10 @@ paths:
             type: string
         "403":
           description: The caller does not steer one of them
+          schema:
+            type: string
+        "409":
+          description: 'Held by someone else: who'
           schema:
             type: string
         "502":
@@ -292,7 +380,9 @@ paths:
       - health
   /subjects/{id}:
     get:
-      description: As `subjects` returns it. Only a steward may look.
+      description: |-
+        As `subjects` returns it, with its current_brain as the
+        caller sees it from X-Device-Id. Only a steward may look.
       parameters:
       - description: who is asking, as the door sets it
         in: header
@@ -391,6 +481,103 @@ paths:
       summary: Change the name, bio or preferences of a subject the caller steers
       tags:
       - reins
+  /subjects/{id}/give-back:
+    post:
+      description: |-
+        Nobody holds it: the avatar is offline until a steward takes it
+        or hands it to a brain. Any steward may.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: subject id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: A bad id
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "403":
+          description: The caller does not steer this subject
+          schema:
+            type: string
+        "502":
+          description: The database did not answer
+          schema:
+            type: string
+      summary: Give the reins of a subject back, to nobody
+      tags:
+      - holds
+  /subjects/{id}/hand:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        A brain is a driver's profile (GET /brains): who moves into the
+        avatar and thinks for it. The subject's context stays one: a
+        brain builds it from the journal. Any steward may.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: subject id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: the profile
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/holds.HandRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/holds.Brain'
+        "400":
+          description: A bad id or body
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "403":
+          description: The caller does not steer this subject
+          schema:
+            type: string
+        "422":
+          description: No brain by that profile
+          schema:
+            type: string
+        "502":
+          description: The database or the driver did not answer
+          schema:
+            type: string
+        "503":
+          description: No brains here (no BRAINS_URL)
+          schema:
+            type: string
+      summary: Hand the reins of a subject to a brain
+      tags:
+      - holds
   /subjects/{id}/handover:
     post:
       consumes:
@@ -438,6 +625,57 @@ paths:
       summary: Hand the reins of a subject to another principal
       tags:
       - reins
+  /subjects/{id}/take:
+    post:
+      description: |-
+        The caller holds the subject from the device it names
+        (X-Device-Id): what it writes as that avatar is its. Any
+        steward may, from whoever holds it now (a brain, another
+        steward, another device); the former holder learns it on its
+        stream. The hold lapses when the device's stream has been gone
+        longer than HOLD_GRACE. The subject's current_brain as the caller sees it.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: the device it holds from
+        in: header
+        name: X-Device-Id
+        required: true
+        type: string
+      - description: subject id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/holds.Brain'
+        "400":
+          description: A bad id, or no device
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "403":
+          description: The caller does not steer this subject
+          schema:
+            type: string
+        "502":
+          description: The database did not answer
+          schema:
+            type: string
+      summary: Take the reins of a subject, from this device
+      tags:
+      - holds
   /threads/{id}/entries:
     get:
       description: |-
@@ -513,12 +751,18 @@ paths:
       description: |-
         A create entry sent by `as`, its content as threads takes it
         (text, image, file, audio… blocks; threads' CONTRACT.md). `as`
-        must be an avatar the caller steers and a member of the thread.
-        The entry as threads stored it, seq and all.
+        must be an avatar the caller steers, whose reins it holds from
+        X-Device-Id (else 409, "held by <holder>"), and a member of the
+        thread. The entry as threads stored it, seq and all.
       parameters:
       - description: who is asking, as the door sets it
         in: header
         name: X-Principal-Id
+        required: true
+        type: string
+      - description: the device the caller holds `as` from
+        in: header
+        name: X-Device-Id
         required: true
         type: string
       - description: thread id
@@ -555,6 +799,10 @@ paths:
           description: No such thread
           schema:
             type: string
+        "409":
+          description: 'Held by someone else: who'
+          schema:
+            type: string
         "413":
           description: Over 16 MB
           schema:
@@ -570,6 +818,58 @@ paths:
       summary: Say something in a thread as an avatar
       tags:
       - world
+  /threads/{id}/stop:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        An action on the brain: published as reins.reply.stop, and the
+        driver writing as the subject there cancels its run. What it
+        wrote so far is journaled as said when there is any text;
+        nothing when there is none. A steward of the subject may.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: thread id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: whose reply
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/holds.StopRequest'
+      responses:
+        "202":
+          description: Accepted
+        "400":
+          description: A bad id or body
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "403":
+          description: The caller does not steer the subject
+          schema:
+            type: string
+        "502":
+          description: The database or the bus did not answer
+          schema:
+            type: string
+        "503":
+          description: No bus here (no REDIS_ADDR)
+          schema:
+            type: string
+      summary: Stop the reply a subject's brain is writing in a thread
+      tags:
+      - holds
 schemes:
 - http
 swagger: "2.0"

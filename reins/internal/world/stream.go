@@ -16,6 +16,8 @@ import (
 
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
+
+	"github.com/jurasikasan/units/reins/internal/holds"
 )
 
 // ThreadsStream is where threads announces each append (threads/CONTRACT.md,
@@ -40,11 +42,23 @@ type Stream struct {
 	svc     *Service
 	rdb     *redis.Client
 	writing []string
+	// Presence, when set, is told a device is there while its stream is
+	// open: a principal's hold lapses when its device's stream has been gone
+	// longer than the grace.
+	Presence Presence
 	// Block is how long one read waits before a keep-alive is sent.
 	Block time.Duration
 	// Refresh is how often the principal's avatars are read again.
 	Refresh time.Duration
 }
+
+// Presence marks a principal's device as there now.
+type Presence interface {
+	Seen(ctx context.Context, principal, device string) error
+}
+
+// seenEvery is how often an open stream says its device is there.
+const seenEvery = 20 * time.Second
 
 func NewStream(svc *Service, rdb *redis.Client, writing []string) *Stream {
 	return &Stream{svc: svc, rdb: rdb, writing: writing, Block: 15 * time.Second, Refresh: 30 * time.Second}
@@ -57,6 +71,7 @@ var positionPattern = regexp.MustCompile(`^\d+-\d+$`)
 func (st *Stream) Serve(w http.ResponseWriter, r *http.Request, principal string) {
 	ctx := r.Context()
 	rc := http.NewResponseController(w)
+	device := holds.Device(r)
 	since := r.Header.Get("Last-Event-ID")
 	if since == "" {
 		since = r.URL.Query().Get("since")
@@ -77,10 +92,11 @@ func (st *Stream) Serve(w http.ResponseWriter, r *http.Request, principal string
 			return
 		}
 	}
-	// The writing streams start where they are now: what was written before
-	// the reader came is in the journal or was never finished.
+	// The writing streams, and reins' own, start where they are now: what
+	// was written before the reader came is in the journal or was never
+	// finished, and who holds what is read with the subjects.
 	ids := []string{pos}
-	for _, s := range st.writing {
+	for _, s := range append(slices.Clone(st.writing), holds.Stream) {
 		l, err := st.last(ctx, s)
 		if err != nil {
 			log.Printf("reins: stream for %q: %v", principal, err)
@@ -119,9 +135,23 @@ func (st *Stream) Serve(w http.ResponseWriter, r *http.Request, principal string
 		return
 	}
 
+	seen := time.Time{}
+	present := func() {
+		if st.Presence == nil || device == "" || time.Since(seen) < seenEvery {
+			return
+		}
+		if err := st.Presence.Seen(ctx, principal, device); err != nil {
+			log.Printf("reins: stream for %q: %v", principal, err)
+			return
+		}
+		seen = time.Now()
+	}
+	present()
+
 	sees := &seer{svc: st.svc, principal: principal, refresh: st.Refresh}
-	streams := append([]string{ThreadsStream}, st.writing...)
+	streams := append(append([]string{ThreadsStream}, st.writing...), holds.Stream)
 	for {
+		present()
 		res, err := st.rdb.XRead(ctx, &redis.XReadArgs{
 			Streams: append(slices.Clone(streams), ids...),
 			Count:   100,
@@ -144,9 +174,12 @@ func (st *Stream) Serve(w http.ResponseWriter, r *http.Request, principal string
 			i := slices.Index(streams, xs.Stream)
 			for _, m := range xs.Messages {
 				var err error
-				if i == 0 {
+				switch {
+				case i == 0:
 					err = st.entry(ctx, sees, m, send)
-				} else {
+				case xs.Stream == holds.Stream:
+					err = st.hold(ctx, sees, device, m, send)
+				default:
 					err = st.piece(ctx, sees, xs.Stream, m, send)
 				}
 				if err != nil {
@@ -231,6 +264,41 @@ func (st *Stream) piece(ctx context.Context, sees *seer, stream string, m redis.
 	return send("writing", "", out)
 }
 
+// hold relays a change of who holds one of the principal's avatars, as
+// `hold`: the subject and its current_brain as this principal sees it
+// from this device. No id: who holds what is read again with the
+// subjects.
+func (st *Stream) hold(ctx context.Context, sees *seer, device string, m redis.XMessage, send func(string, string, []byte) error) error {
+	if t, _ := m.Values["ce_type"].(string); t != holds.HoldChanged {
+		return nil
+	}
+	var h holds.Hold
+	data, _ := m.Values["data"].(string)
+	if err := json.Unmarshal([]byte(data), &h); err != nil || h.Subject == uuid.Nil {
+		log.Printf("reins: a hold change %s that names no subject: %q", m.ID, data)
+		return nil
+	}
+	ok, err := sees.steers(ctx, h.Subject)
+	if err != nil || !ok {
+		return err
+	}
+	var b holds.Brain
+	if h.Holder == "" {
+		b = holds.View(nil, sees.principal, device)
+	} else {
+		b = holds.View(&h, sees.principal, device)
+	}
+	b.Since = nil
+	out, err := json.Marshal(struct {
+		Subject uuid.UUID `json:"subject"`
+		holds.Brain
+	}{h.Subject, b})
+	if err != nil {
+		return err
+	}
+	return send("hold", "", out)
+}
+
 // last is the id of the newest entry on a stream, "0-0" when it has none.
 func (st *Stream) last(ctx context.Context, stream string) (string, error) {
 	ms, err := st.rdb.XRevRangeN(ctx, stream, "+", "-", 1).Result()
@@ -303,13 +371,28 @@ type seer struct {
 
 func (s *seer) forget(thread uuid.UUID) { delete(s.threads, thread) }
 
-func (s *seer) thread(ctx context.Context, thread uuid.UUID) (bool, error) {
+func (s *seer) fresh(ctx context.Context) error {
 	if s.threads == nil || time.Since(s.read) > s.refresh {
 		avatars, err := s.svc.stewards.Steered(ctx, s.principal)
 		if err != nil {
-			return false, err
+			return err
 		}
 		s.avatars, s.read, s.threads = avatars, time.Now(), map[uuid.UUID]bool{}
+	}
+	return nil
+}
+
+// steers is whether the principal steers the subject.
+func (s *seer) steers(ctx context.Context, subject uuid.UUID) (bool, error) {
+	if err := s.fresh(ctx); err != nil {
+		return false, err
+	}
+	return slices.Contains(s.avatars, subject), nil
+}
+
+func (s *seer) thread(ctx context.Context, thread uuid.UUID) (bool, error) {
+	if err := s.fresh(ctx); err != nil {
+		return false, err
 	}
 	if ok, known := s.threads[thread]; known {
 		return ok, nil

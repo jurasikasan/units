@@ -30,13 +30,21 @@ var (
 	ErrBad = errors.New("bad request")
 )
 
+// Holding is what the world needs of the holds: whether the caller holds
+// an avatar's reins from its device. Nil when it does; an error that is
+// holds.ErrHeld, saying who does, when it does not.
+type Holding interface {
+	Holding(ctx context.Context, principal, device string, subject uuid.UUID) error
+}
+
 type Service struct {
 	stewards Stewards
 	journal  Journal
+	holds    Holding
 }
 
-func NewService(stewards Stewards, journal Journal) *Service {
-	return &Service{stewards: stewards, journal: journal}
+func NewService(stewards Stewards, journal Journal, holds Holding) *Service {
+	return &Service{stewards: stewards, journal: journal, holds: holds}
 }
 
 // The kinds reins writes, ActivityStreams' as threads keeps them.
@@ -97,8 +105,9 @@ func (s *Service) steers(ctx context.Context, principal string, avatar uuid.UUID
 
 // Open is a new thread opened by `as`, which joins it first, then each of
 // `with`. For now every one of them is an avatar the principal steers:
-// putting in someone else's is an invitation, a later task.
-func (s *Service) Open(ctx context.Context, principal string, as uuid.UUID, with []uuid.UUID) (Thread, error) {
+// putting in someone else's is an invitation, a later task. Opening is an
+// act of `as`: the caller holds its reins from its device.
+func (s *Service) Open(ctx context.Context, principal, device string, as uuid.UUID, with []uuid.UUID) (Thread, error) {
 	if as == uuid.Nil {
 		return Thread{}, fmt.Errorf("%w: \"as\" names the avatar that opens the thread", ErrBad)
 	}
@@ -113,7 +122,20 @@ func (s *Service) Open(ctx context.Context, principal string, as uuid.UUID, with
 			return Thread{}, err
 		}
 	}
-	t, err := s.journal.Open(ctx, as)
+	if err := s.holds.Holding(ctx, principal, device, as); err != nil {
+		return Thread{}, err
+	}
+	t, err := s.open(ctx, as, joining)
+	if err != nil {
+		return Thread{}, err
+	}
+	log.Printf("reins: %q opened thread %s as %s with %v", principal, t.ID, as, joining[1:])
+	return t, nil
+}
+
+// open mints a thread opened by `by`, and each of joining joins it.
+func (s *Service) open(ctx context.Context, by uuid.UUID, joining []uuid.UUID) (Thread, error) {
+	t, err := s.journal.Open(ctx, by)
 	if err != nil {
 		return Thread{}, err
 	}
@@ -122,18 +144,42 @@ func (s *Service) Open(ctx context.Context, principal string, as uuid.UUID, with
 			return Thread{}, err
 		}
 	}
-	log.Printf("reins: %q opened thread %s as %s with %v", principal, t.ID, as, joining[1:])
 	return s.journal.Get(ctx, t.ID)
 }
 
+// FirstThread opens a principal's first thread: opened by its assistant,
+// which joins it, then the login's avatar. Nothing is said: the brain in
+// the assistant speaks first. Once only: a thread the assistant opened
+// already is enough (provisioning cut half way runs this again).
+func (s *Service) FirstThread(ctx context.Context, assistant, login uuid.UUID) error {
+	ts, err := s.journal.Member(ctx, assistant)
+	if err != nil {
+		return err
+	}
+	for _, t := range ts {
+		if t.OpenedBy != nil && *t.OpenedBy == assistant {
+			return nil
+		}
+	}
+	t, err := s.open(ctx, assistant, []uuid.UUID{assistant, login})
+	if err != nil {
+		return err
+	}
+	log.Printf("reins: first thread %s opened by %s with %s", t.ID, assistant, login)
+	return nil
+}
+
 // Say appends what `as` says or does in the thread: a create entry, its
-// content as threads takes it. `as` must be an avatar the principal steers
-// and a member of the thread.
-func (s *Service) Say(ctx context.Context, principal string, thread, as uuid.UUID, content json.RawMessage) (json.RawMessage, error) {
+// content as threads takes it. `as` must be an avatar the principal steers,
+// whose reins it holds from this device, and a member of the thread.
+func (s *Service) Say(ctx context.Context, principal, device string, thread, as uuid.UUID, content json.RawMessage) (json.RawMessage, error) {
 	if as == uuid.Nil {
 		return nil, fmt.Errorf("%w: \"as\" names the avatar that says it", ErrBad)
 	}
 	if err := s.steers(ctx, principal, as); err != nil {
+		return nil, err
+	}
+	if err := s.holds.Holding(ctx, principal, device, as); err != nil {
 		return nil, err
 	}
 	t, err := s.journal.Get(ctx, thread)

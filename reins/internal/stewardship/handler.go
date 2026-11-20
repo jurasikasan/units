@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/jurasikasan/units/reins/internal/holds"
 	httpHelper "github.com/jurasikasan/units/shared/http"
 
 	"github.com/google/uuid"
@@ -25,9 +26,38 @@ type Reins interface {
 	Change(ctx context.Context, caller string, subject uuid.UUID, c Change) (Subject, error)
 }
 
-type Handler struct{ svc Reins }
+type Handler struct {
+	svc Reins
+	// brains, when set, adds each subject's current_brain to what is read.
+	brains holds.Viewer
+}
 
-func NewHandler(svc Reins) *Handler { return &Handler{svc: svc} }
+// NewHandler: brains may be nil, and subjects are read without
+// current_brain.
+func NewHandler(svc Reins, brains holds.Viewer) *Handler { return &Handler{svc: svc, brains: brains} }
+
+// withBrains adds current_brain to each subject, as the caller sees it from
+// its device. A failure to read it leaves it out and is logged: the
+// subjects are still the subjects.
+func (h *Handler) withBrains(r *http.Request, p string, subs []Subject) {
+	if h.brains == nil || len(subs) == 0 {
+		return
+	}
+	ids := make([]uuid.UUID, len(subs))
+	for i, s := range subs {
+		ids[i] = s.ID
+	}
+	views, err := h.brains.Views(r.Context(), p, holds.Device(r), ids)
+	if err != nil {
+		log.Printf("reins: current brains for %q: %v", p, err)
+		return
+	}
+	for i := range subs {
+		if b, ok := views[subs[i].ID]; ok {
+			subs[i].CurrentBrain = &b
+		}
+	}
+}
 
 func RegisterRoutes(r *mux.Router, h *Handler) {
 	r.HandleFunc("/me/subjects", h.MySubjects).Methods(http.MethodGet)
@@ -52,7 +82,8 @@ func principal(w http.ResponseWriter, r *http.Request) (string, bool) {
 // @Description  first call for a principal makes what is missing of its two
 // @Description  personas: nick `<login>` and
 // @Description  `<login>-assistant`, names empty. A nick taken by
-// @Description  another subject is never adopted.
+// @Description  another subject is never adopted. Each with its
+// @Description  current_brain as the caller sees it from X-Device-Id.
 // @Tags         reins
 // @Produce      json
 // @Param        X-Principal-Id header string true "who is asking, as the door sets it"
@@ -78,6 +109,7 @@ func (h *Handler) MySubjects(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "subjects could not be read", http.StatusBadGateway)
 		return
 	}
+	h.withBrains(r, p, subs)
 	httpHelper.RespondWithJSON(w, http.StatusOK, subs)
 }
 
@@ -142,7 +174,8 @@ func steeredFailed(w http.ResponseWriter, p string, id uuid.UUID, err error) {
 
 // Subject godoc
 // @Summary      One subject the caller steers
-// @Description  As `subjects` returns it. Only a steward may look.
+// @Description  As `subjects` returns it, with its current_brain as the
+// @Description  caller sees it from X-Device-Id. Only a steward may look.
 // @Tags         reins
 // @Produce      json
 // @Param        X-Principal-Id header string true "who is asking, as the door sets it"
@@ -169,7 +202,9 @@ func (h *Handler) Subject(w http.ResponseWriter, r *http.Request) {
 		steeredFailed(w, p, id, err)
 		return
 	}
-	httpHelper.RespondWithJSON(w, http.StatusOK, sub)
+	one := []Subject{sub}
+	h.withBrains(r, p, one)
+	httpHelper.RespondWithJSON(w, http.StatusOK, one[0])
 }
 
 // Change godoc
@@ -215,5 +250,7 @@ func (h *Handler) Change(w http.ResponseWriter, r *http.Request) {
 		steeredFailed(w, p, id, err)
 		return
 	}
-	httpHelper.RespondWithJSON(w, http.StatusOK, sub)
+	one := []Subject{sub}
+	h.withBrains(r, p, one)
+	httpHelper.RespondWithJSON(w, http.StatusOK, one[0])
 }
