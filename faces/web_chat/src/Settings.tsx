@@ -18,13 +18,13 @@ import {
   SidebarProvider,
 } from '@/upstream/components/ui/sidebar'
 import { Pick, type Offer } from '@/Models'
-import { initials, type Avatar, type Change, type Classic } from '@/avatars'
+import { initials, type Avatar, type Change } from '@/avatars'
 
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   avatars: Avatar[]
-  pair: Classic
+  first?: Avatar
   offers: Offer[]
   save: (id: string, change: Change) => Promise<unknown>
 }
@@ -32,12 +32,12 @@ type Props = {
 // Settings: the avatars the principal steers, each its profile and its
 // preferences, in shadcn's "sidebar in a dialog" block (sidebar-13): the
 // avatars on the left, the one chosen on the right. The nick is shown and
-// never changes; name, bio and preferences are saved to reins. Which
-// preferences an avatar shows is the classic chat's wiring
-// (src/avatars.ts): the assistant's chat model and voice, the person's ear.
-export function Settings({ open, onOpenChange, avatars, pair, offers, save }: Props) {
+// never changes; name, bio and preferences are saved to reins. Every
+// avatar has the same: an ear, a mouth and its voice, whoever is in it.
+// Which model thinks is not the body's (src/Brain.tsx).
+export function Settings({ open, onOpenChange, avatars, first, offers, save }: Props) {
   const [chosen, setChosen] = useState<string>()
-  const shown = avatars.find((a) => a.id === chosen) ?? pair.person ?? avatars[0]
+  const shown = avatars.find((a) => a.id === chosen) ?? first ?? avatars[0]
   const nav = (
     <SidebarMenu>
       {avatars.map((a) => (
@@ -81,7 +81,7 @@ export function Settings({ open, onOpenChange, avatars, pair, offers, save }: Pr
             {/* On a phone the block's nav is hidden: the avatars go above. */}
             <div className="px-2 pb-2 md:hidden">{nav}</div>
             <div className="flex flex-1 flex-col overflow-y-auto p-4 pt-0 pb-6">
-              {shown && <AvatarForm key={shown.id} avatar={shown} pair={pair} offers={offers} save={save} />}
+              {shown && <AvatarForm key={shown.id} avatar={shown} offers={offers} save={save} />}
             </div>
           </main>
         </SidebarProvider>
@@ -93,7 +93,7 @@ export function Settings({ open, onOpenChange, avatars, pair, offers, save }: Pr
 // AvatarForm is one avatar: its profile, its preferences, a Save that
 // sends what changed. A list's first is shown when nothing is set, and
 // that is the agent's own.
-function AvatarForm({ avatar, pair, offers, save }: { avatar: Avatar; pair: Classic; offers: Offer[]; save: Props['save'] }) {
+function AvatarForm({ avatar, offers, save }: { avatar: Avatar; offers: Offer[]; save: Props['save'] }) {
   const prefs = avatar.preferences ?? {}
   const [name, setName] = useState(avatar.name)
   const [bio, setBio] = useState(avatar.bio ?? '')
@@ -101,14 +101,11 @@ function AvatarForm({ avatar, pair, offers, save }: { avatar: Avatar; pair: Clas
   const [state, setState] = useState<{ saving?: boolean; saved?: boolean; error?: string }>({})
 
   const of = (mode: string) => offers.filter((o) => o.mode === mode)
-  const chats = of('chat').map((o) => o.id)
   const ears = of('audio_transcription').map((o) => o.id)
   const mouths = of('audio_speech')
   const value = (key: string) => picked[key] ?? (prefs[key] as string | undefined)
   const mouth = mouths.find((o) => o.id === value('mouth')) ?? mouths[0]
   const voice = value('voice') ?? mouth?.voices[0]
-  const isAssistant = avatar.id === pair.assistant?.id
-  const isPerson = avatar.id === pair.person?.id
 
   const pick = (key: string) => (v: string) => setPicked((p) => ({ ...p, [key]: v }))
   // A new mouth brings its first voice; a mouth and its voice are saved
@@ -161,42 +158,34 @@ function AvatarForm({ avatar, pair, offers, save }: { avatar: Avatar; pair: Clas
         </FieldGroup>
       </FieldSet>
 
-      {(isAssistant || isPerson) && offers.length > 0 && (
+      {(ears.length > 0 || mouths.length > 0) && (
         <FieldSet>
-          <FieldLegend>Preferences</FieldLegend>
-          <FieldDescription>
-            {isAssistant ? 'What it answers with, and how it sounds.' : 'How your words are heard.'} The first of each list is the agent's own.
-          </FieldDescription>
+          <FieldLegend>Body</FieldLegend>
+          <FieldDescription>How this avatar hears and how it sounds, whoever is in it. The first of each list is the agent's own.</FieldDescription>
           <FieldGroup>
-            {isAssistant && chats.length > 0 && (
+            {ears.length > 0 && (
               <Field orientation="horizontal">
-                <FieldLabel htmlFor={fid('chat')}>Chat model</FieldLabel>
-                <Pick id={fid('chat')} label="Chat model" ids={chats} value={value('chat_model')} onChange={pick('chat_model')} />
+                <FieldLabel htmlFor={fid('ear')}>Speech to text</FieldLabel>
+                <Pick id={fid('ear')} label="Speech to text" ids={ears} value={value('ear')} onChange={pick('ear')} />
               </Field>
             )}
-            {isAssistant && mouths.length > 0 && (
+            {mouths.length > 0 && (
               <Field orientation="horizontal">
                 <FieldLabel htmlFor={fid('mouth')}>Text to speech</FieldLabel>
                 <Pick id={fid('mouth')} label="Text to speech" ids={mouths.map((o) => o.id)} value={mouth?.id} onChange={pickMouth} />
               </Field>
             )}
-            {isAssistant && (mouth?.voices.length ?? 0) > 0 && (
+            {(mouth?.voices.length ?? 0) > 0 && (
               <Field orientation="horizontal">
                 <FieldLabel htmlFor={fid('voice')}>Voice</FieldLabel>
                 <Pick id={fid('voice')} label="Voice" ids={mouth!.voices} value={voice} onChange={pickVoice} />
-              </Field>
-            )}
-            {isPerson && ears.length > 0 && (
-              <Field orientation="horizontal">
-                <FieldLabel htmlFor={fid('ear')}>Speech to text</FieldLabel>
-                <Pick id={fid('ear')} label="Speech to text" ids={ears} value={value('ear')} onChange={pick('ear')} />
               </Field>
             )}
           </FieldGroup>
         </FieldSet>
       )}
 
-      <div className="flex items-center gap-3">
+      <div className="bg-background sticky bottom-0 -mb-6 flex items-center gap-3 py-3">
         <Button type="submit" size="sm" disabled={!dirty || state.saving}>
           {state.saving ? 'Saving…' : 'Save'}
         </Button>

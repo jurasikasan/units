@@ -16,7 +16,7 @@ its registry. React, Vite, Tailwind.
 |---|---|
 | `src/App.tsx`, `src/main.tsx`, `index.html` | ours: the runtime wired to `/api/run`, the theme |
 | `src/Sidebar.tsx`, `src/threads.ts` | ours: the sidebar (upstream's thread list, who is logged in at its foot) and the chats it lists, kept in memory |
-| `src/Settings.tsx`, `src/avatars.ts`, `src/Models.tsx` | ours: the settings (the avatars, their profiles and preferences), the avatars from reins and the classic chat's wiring, the models offered |
+| `src/Settings.tsx`, `src/avatars.ts`, `src/Models.tsx`, `src/Brain.tsx` | ours: the settings (the avatars, their profiles and bodies), the avatars from reins and the classic chat's wiring, the models offered, the composer's chat model |
 | `src/upstream/` | **generated**: what assistant-ui's registry gives today (the thread, its parts, shadcn's base components, the stylesheet). Never edited by hand |
 | `patches/` | our changes to upstream, each with why; applied on top of it |
 | `upstream.sh` | `src/upstream` again from the registry, patches on top |
@@ -72,11 +72,10 @@ assistant-ui has nothing for settings. The block itself is demo content, so
 field for the form), not the block.
 
 Each avatar shows its nick, which never changes, its name and its bio, and
-its preferences, among what `GET /api/v1/models` offers:
-
-- the assistant (`<login>-assistant`): its **chat model**, and its voice:
-  **text to speech** (the mouth) and one of the mouth's **voices**;
-- the person (`<login>`): its **ear**, **speech to text**.
+its body, among what `GET /api/v1/models` offers: its **ear** (speech to
+text), its **mouth** (text to speech) and one of the mouth's **voices**.
+Every avatar shows the same, whoever is in it: nothing in a nick says what
+an avatar is for. Which model thinks is not the body's (below).
 
 Save sends what changed (`PATCH /api/reins/subjects/{id}`): a name or bio,
 and the preferences changed, merged by reins into the stored ones; a mouth
@@ -100,19 +99,23 @@ on a phone.
 
 ## Which model, ear, mouth and voice
 
-What each request is asked with is what the avatars prefer, wired for the
-classic chat, where `<login>` speaks and `<login>-assistant` answers
-(`src/avatars.ts`), until something that keeps the conversation reads the
-preferences itself. The pair is found by nick: the login's from userinfo,
-else the first avatar whose assistant is also steered.
+**The chat model** is the brain holding the reins now, not a property of
+any avatar: a picker in the composer (`src/Brain.tsx`), assistant-ui's
+model selector among the chat models offered, the agent's own first. The
+pick goes into the runtime's model context, as assistant-ui's own model
+selector puts it (`src/Models.tsx`, `RunModel`), which the AG-UI runtime
+sends with each run as `forwardedProps.modelName`; a call names it as
+`chat_model`. It lasts while the page is open, until a driver holds the
+reins.
 
-- **Chat model** (the assistant's `chat_model`): into the runtime's model
-  context, as assistant-ui's own model selector puts it (`src/Models.tsx`,
-  `RunModel`), which the AG-UI runtime sends with each run as
-  `forwardedProps.modelName`.
-- **Ear** (the person's `ear`): the mic's transcription `model` (before
-  the sound).
-- **Mouth** and **voice** (the assistant's `mouth`, `voice`): read-aloud's
+**Ear, mouth and voice** are the avatars' bodies, wired for the classic
+chat until the page knows whom the principal acts as and who answered
+each entry (`src/avatars.ts`): the principal speaks as the avatar named
+by its login (the first, when none is) and hears the first other one.
+
+- **Ear** (mine, `ear`): the mic's transcription `model` (before the
+  sound).
+- **Mouth** and **voice** (the other's `mouth`, `voice`): read-aloud's
   `model` and `voice`.
 - A call names all of them (below).
 
@@ -158,10 +161,10 @@ own session; its own adapters go to a provider with a key in the page). The
 mic goes out as PCM16 at 24 kHz every 100 ms, echo cancelled by the
 browser; the answer's sound plays as it comes. The page asks for the
 session's formats, the model's own turn detection and a transcript of what
-was said, and names what the avatars prefer when the call starts:
-the ear as `audio.input.transcription.model`, the voice as
-`audio.output.voice` (`<mouth>_<voice>`, `piper_irina`), the chat model as
-`chat_model` (ours: the schema's model is the realtime model itself). A
+was said, and names, when the call starts, my avatar's ear as
+`audio.input.transcription.model`, the other's voice as
+`audio.output.voice` (`<mouth>_<voice>`, `piper_irina`), and the
+composer's chat model as `chat_model` (ours: the schema's model is the realtime model itself). A
 realtime model built of parts (`minds/realtime`) answers with those; one
 that is a single model ignores them. What each side said lands in the
 thread as a voice conversation, the answer word by word. While the call

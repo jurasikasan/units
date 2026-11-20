@@ -10,9 +10,10 @@ const MODELS = '/api/v1/models'
 // not said).
 export type Offer = { id: string; mode: string; voices: string[] }
 
-// What a run, the mic, read-aloud and a call are asked with, from the
-// avatars' preferences (src/avatars.ts); the adapters read it at each
-// call. Empty: the agent's own.
+// What a run, the mic, read-aloud and a call are asked with: the chat
+// model from the composer (src/Brain.tsx), the rest from the avatars'
+// bodies (src/avatars.ts); the adapters read it at each call. Empty: the
+// agent's own.
 export type SoundPick = { chat?: string; stt?: string; tts?: string; voice?: string }
 
 // useModels is what the agent offers; [] when nothing answers there, and
@@ -39,11 +40,11 @@ const options = (ids: string[]): ModelOption[] => ids.map((id) => ({ id, name: i
 // Pick is one of the agent's lists, assistant-ui's model selector without
 // the runtime (its props-driven elements), the first shown when nothing is
 // picked: the agent's own. What it is for is the caller's.
-export function Pick({ id, label, ids, value, onChange }: { id?: string; label: string; ids: string[]; value?: string; onChange: (v: string) => void }) {
+export function Pick({ id, label, ids, value, onChange, variant = 'outline' }: { id?: string; label: string; ids: string[]; value?: string; onChange: (v: string) => void; variant?: 'outline' | 'ghost' }) {
   if (ids.length === 0) return null
   return (
     <ModelSelectorRoot models={options(ids)} value={value ?? ids[0]} onValueChange={onChange}>
-      <ModelSelectorTrigger id={id} variant="outline" size="sm" className="w-fit" aria-label={`${label}: ${value ?? ids[0]}`} />
+      <ModelSelectorTrigger id={id} variant={variant} size="sm" className="w-fit" aria-label={`${label}: ${value ?? ids[0]}`} />
       <ModelSelectorContent />
     </ModelSelectorRoot>
   )

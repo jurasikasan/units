@@ -4,15 +4,14 @@ import type { SoundPick } from '@/Models'
 const MINE = '/api/reins/me/subjects'
 const ONE = (id: string) => `/api/reins/subjects/${encodeURIComponent(id)}`
 
-// The preference keys the face reads, as reins' CONTRACT.md names them:
-// on an assistant its chat model, its mouth and the mouth's voice; on a
-// person its ear. Each is a model's id at /api/v1/models (a voice: one of
-// that speech model's voices); one left out is the agent's own.
-export type Preferences = { chat_model?: string; mouth?: string; voice?: string; ear?: string; [other: string]: unknown }
+// The preference keys the face reads, as reins' CONTRACT.md names them,
+// the same on every avatar: its ear, its mouth and the mouth's voice. Each
+// is a model's id at /api/v1/models (a voice: one of that speech model's
+// voices); one left out is the agent's own.
+export type Preferences = { ear?: string; mouth?: string; voice?: string; [other: string]: unknown }
 
 // An avatar: a subject the principal steers, as reins answers it. Its
-// subject_type is not read: what an avatar is for here is the classic
-// chat's wiring below.
+// subject_type is not read: avatars are all alike (UNIT-56 drops it).
 export type Avatar = { id: string; nick: string; name: string; bio?: string; preferences?: Preferences }
 
 // A change of one avatar, as reins takes it: a field left out is kept,
@@ -55,34 +54,30 @@ export function useAvatars(fetcher: typeof fetch) {
   return { avatars, save }
 }
 
-// The classic chat: <login> speaks and <login>-assistant answers. Which
-// avatar's preference feeds which request is the face's wiring until the
-// conversation is kept somewhere that reads them itself. The pair is found
-// by nick: the logged-in login's when known, else the first avatar whose
-// assistant is also steered.
-export const ASSISTANT_SUFFIX = '-assistant'
+// Every avatar is a body like any other: each has an ear (`ear`) and a
+// mouth with its voice (`mouth`, `voice`), whoever is in it. Which model
+// thinks for it is not the body's: that is the brain holding its reins
+// now, picked in the composer for the run (src/Brain.tsx) until a driver
+// holds it (UNIT-60).
+//
+// Until the page knows whom the principal acts as and who answered each
+// entry (UNIT-59), the classic chat is wired here: the principal speaks
+// as the avatar named by its login (the first, when none is), and an
+// answer is heard in the voice of the first other one. Nothing in a nick
+// says what an avatar is for.
+export type Wiring = { me?: Avatar; other?: Avatar }
 
-export type Classic = { person?: Avatar; assistant?: Avatar }
-
-export function classic(avatars: Avatar[] | undefined, login: string | undefined): Classic {
-  if (!avatars) return {}
-  const byNick = new Map(avatars.map((a) => [a.nick, a]))
-  const person =
-    (login ? byNick.get(login) : undefined) ?? avatars.find((a) => byNick.has(a.nick + ASSISTANT_SUFFIX))
-  return { person, assistant: person && byNick.get(person.nick + ASSISTANT_SUFFIX) }
+export function wiring(avatars: Avatar[] | undefined, login: string | undefined): Wiring {
+  if (!avatars || avatars.length === 0) return {}
+  const me = avatars.find((a) => a.nick === login) ?? avatars[0]
+  return { me, other: avatars.find((a) => a.id !== me.id) }
 }
 
-// picks is what a run, the mic, read-aloud and a call are asked with: the
-// person's ear, the assistant's chat model, mouth and voice. Nothing set
-// is the agent's own.
-export function picks({ person, assistant }: Classic): SoundPick {
-  const p = assistant?.preferences ?? {}
-  return {
-    chat: p.chat_model,
-    tts: p.mouth,
-    voice: p.voice,
-    stt: person?.preferences?.ear,
-  }
+// picks is what the mic, read-aloud and a call are asked with: my ear, the
+// other's mouth and voice. Nothing set is the agent's own.
+export function picks({ me, other }: Wiring): Omit<SoundPick, 'chat'> {
+  const p = other?.preferences ?? {}
+  return { tts: p.mouth, voice: p.voice, stt: me?.preferences?.ear }
 }
 
 // initials are what an avatar circle shows: the first letters of up to two
