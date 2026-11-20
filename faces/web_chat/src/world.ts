@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AppendMessage, CompleteAttachment, ThreadMessageLike } from '@assistant-ui/react'
+import type { AppendMessage, CompleteAttachment, ThreadMessage, ThreadMessageLike } from '@assistant-ui/react'
 import type { Avatar } from '@/avatars'
 
 // The world as reins shows it to the person (reins' CONTRACT.md): the
@@ -66,7 +66,7 @@ const ATTACHED = /^<attachment name="([^"]*)">\n?([\s\S]*?)\n?<\/attachment>$/
 // sender is the avatar the page acts as, everyone else's on the other side.
 // Pictures, files and attached text on the person's side are attachments,
 // as they were when sent.
-export function toMessage(e: Entry, me: string | undefined, names: Map<string, string>): ThreadMessageLike {
+export function toMessage(e: Entry, me: string | undefined, names: Map<string, string>, shownAs?: string): ThreadMessageLike {
   const mine = e.sender === me
   const content: Exclude<ThreadMessageLike['content'], string>[number][] = []
   const attachments: CompleteAttachment[] = []
@@ -89,7 +89,7 @@ export function toMessage(e: Entry, me: string | undefined, names: Map<string, s
     }
   }
   return {
-    id: e.id,
+    id: shownAs ?? e.id,
     role: mine ? 'user' : 'assistant',
     content,
     ...(mine ? { attachments } : { status: { type: 'complete', reason: 'stop' } }),
@@ -156,13 +156,22 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
   const [entries, setEntries] = useState<Record<string, Entry[]>>({})
   const [writing, setWriting] = useState<Record<string, Writing[]>>({})
   const [current, setCurrent] = useState<string | null>()
+  // What was said in a call, by chat: shown for as long as the page is
+  // open, never journaled (a call's transcripts go to threads with UNIT-52).
+  const [spoken, setSpoken] = useState<Record<string, ThreadMessage[]>>({})
   const [draft, setDraft] = useState(() => crypto.randomUUID())
   const loaded = useRef(new Set<string>())
+  // A reply written here keeps, once said, the id it was written under: to
+  // the runtime it is the same message grown whole, not another one beside
+  // it (a branch). Entry id → that id, for as long as the page is open.
+  const shownAs = useRef(new Map<string, string>())
   const entriesRef = useRef(entries)
   const threadsRef = useRef(threads)
+  const writingRef = useRef(writing)
   useEffect(() => {
     entriesRef.current = entries
     threadsRef.current = threads
+    writingRef.current = writing
   })
 
   const loadThreads = useCallback(async () => {
@@ -170,8 +179,10 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
     if (!r.ok) return
     const list: Thread[] = await r.json()
     setThreads(list)
-    // The newest is shown first, when nothing is yet.
-    setCurrent((c) => (c === undefined ? (list[0]?.id ?? null) : c))
+    // The chat the address names (a reload stays in it), else the newest,
+    // when nothing is shown yet.
+    const named = location.hash.slice(1)
+    setCurrent((c) => (c === undefined ? ((list.some((t) => t.id === named) ? named : list[0]?.id) ?? null) : c))
     // A few words of each, to call it by.
     for (const t of list.slice(0, 30)) {
       if (t.name || entriesRef.current[t.id]?.length) continue
@@ -230,9 +241,16 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
         const e: Entry = JSON.parse(me.data)
         setEntries((all) => ({ ...all, [e.thread]: merge(all[e.thread], [e]) }))
         if (e.kind === 'create') {
-          // The finished reply is the entry: what was being written by its
-          // sender is gone.
-          setWriting((all) => (all[e.thread]?.some((w) => w.sender === e.sender && !w.failed) ? { ...all, [e.thread]: all[e.thread]!.filter((w) => w.sender !== e.sender || w.failed) } : all))
+          // The finished reply is the entry: the words written under a reply
+          // by its sender, said whole. What was being written is gone, and
+          // the entry is shown under its id. Another entry by the same
+          // sender (a person acting as it) leaves the reply being written.
+          const said = e.content.map((b) => (b.type === 'text' ? String(b.text) : '')).join('')
+          const w = writingRef.current[e.thread]?.find((x) => x.sender === e.sender && !x.failed && x.text === said)
+          if (w) {
+            shownAs.current.set(e.id, `writing-${w.reply}`)
+            setWriting((all) => ({ ...all, [e.thread]: (all[e.thread] ?? []).filter((x) => x.reply !== w.reply) }))
+          }
         }
         // A thread not listed yet, or its members or name changed: the list again.
         if (!threadsRef.current?.some((t) => t.id === e.thread) || e.kind === 'join' || e.kind === 'leave' || e.kind === 'update') void loadThreads()
@@ -270,17 +288,33 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
     }
   }, [fetcher, loadThreads, loadEntries])
 
+  // The chat shown is in the address, #<thread id>: a reload, or the link
+  // sent to oneself, opens it.
   useEffect(() => {
     if (current) void loadEntries(current)
+    if (current !== undefined) history.replaceState(null, '', current ? `#${current}` : location.pathname + location.search)
   }, [current, loadEntries])
 
   const names = useMemo(() => new Map((avatars ?? []).map((a) => [a.id, a.name || a.nick])), [avatars])
 
   const messages = useMemo(() => {
-    if (!current) return []
-    const shown = (entries[current] ?? []).filter((e) => e.kind === 'create').map((e) => toMessage(e, me?.id, names))
-    return [...shown, ...(writing[current] ?? []).map(writingMessage)]
-  }, [current, entries, writing, me, names])
+    const key = current ?? draft
+    const said = (current ? (entries[current] ?? []) : []).filter((e) => e.kind === 'create').map((e) => toMessage(e, me?.id, names, shownAs.current.get(e.id)))
+    const all: ThreadMessageLike[] = [...said, ...((spoken[key] ?? []) as ThreadMessageLike[])]
+    const at = (m: ThreadMessageLike) => (m.createdAt ? new Date(m.createdAt).getTime() : 0)
+    all.sort((a, b) => at(a) - at(b))
+    return [...all, ...(current ? (writing[current] ?? []) : []).map(writingMessage)]
+  }, [current, draft, entries, spoken, writing, me, names])
+
+  // onVoiceTranscript: a call's finished words, kept in the page under the
+  // chat they were said in.
+  const heard = useCallback(
+    (m: ThreadMessage) => {
+      const key = current ?? draft
+      setSpoken((all) => ({ ...all, [key]: [...(all[key] ?? []).filter((x) => x.id !== m.id), m] }))
+    },
+    [current, draft],
+  )
 
   // say appends what the person said, as the avatar the page acts as; a
   // new chat is opened first, with the other avatar in it.
@@ -309,8 +343,6 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
       })
       if (!r.ok) throw new Error((await r.text()).trim() || `${r.status} ${r.statusText}`)
       const e: Entry = await r.json()
-      // A failure said before is not this message's: it goes.
-      setWriting((all) => ({ ...all, [e.thread]: (all[e.thread] ?? []).filter((w) => !w.failed) }))
       setEntries((all) => ({ ...all, [e.thread]: merge(all[e.thread], [e]) }))
       setCurrent(id)
     },
@@ -333,5 +365,9 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
     [current, draft, threads, list],
   )
 
-  return { messages, say, threadList, ready: threads !== undefined }
+  // Who is writing a reply in the chat shown now, by name: the page says so
+  // beside the composer, as Matrix's typing does.
+  const writers = useMemo(() => [...new Set((current ? (writing[current] ?? []) : []).filter((w) => !w.failed).map((w) => names.get(w.sender) || 'someone'))], [current, writing, names])
+
+  return { messages, say, heard, threadList, writers, ready: threads !== undefined }
 }

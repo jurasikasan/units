@@ -11,7 +11,7 @@ import { ChatSidebar } from '@/Sidebar'
 import { Me, useMe } from '@/Me'
 import { Settings } from '@/Settings'
 import { picks, useAvatars, wiring } from '@/avatars'
-import { CallContext, ComposerRow } from '@/Composer'
+import { ComposerContext, ComposerRow } from '@/Composer'
 import { useWorld } from '@/world'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/upstream/components/ui/sidebar'
 
@@ -103,6 +103,7 @@ export default function App() {
     isRunning: false,
     isLoading: !world.ready,
     onNew: world.say,
+    onVoiceTranscript: world.heard,
     adapters: { attachments, dictation, speech, voice: call, threadList: world.threadList },
   })
 
@@ -113,9 +114,9 @@ export default function App() {
           <ChatSidebar me={me && <Me me={me} onSettings={avatars ? () => setSettings(true) : undefined} />} />
           <SidebarInset className="h-dvh">
             <SidebarTrigger className="absolute top-2 left-2 z-10" />
-            <CallContext.Provider value={!!call}>
+            <ComposerContext.Provider value={{ call: !!call, writers: world.writers }}>
               <Thread components={{ ComposerExtra: ComposerRow }} />
-            </CallContext.Provider>
+            </ComposerContext.Provider>
           </SidebarInset>
         </SidebarProvider>
         {avatars && <Settings open={settings} onOpenChange={setSettings} avatars={avatars} first={wired.me} offers={offers} save={save} />}

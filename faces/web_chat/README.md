@@ -17,7 +17,7 @@ components from its registry. React, Vite, Tailwind.
 |---|---|
 | `src/App.tsx`, `src/main.tsx`, `index.html` | ours: the external store runtime wired to the world, the theme |
 | `src/world.ts` | ours: the threads, their entries and the stream from reins, entries as messages and messages as threads' blocks |
-| `src/Sidebar.tsx`, `src/Composer.tsx` | ours: the sidebar (upstream's thread list, who is logged in at its foot), the composer's call buttons |
+| `src/Sidebar.tsx`, `src/Composer.tsx` | ours: the sidebar (upstream's thread list, who is logged in at its foot), the composer's row: a call's buttons, who is writing |
 | `src/Settings.tsx`, `src/avatars.ts`, `src/Models.tsx` | ours: the settings (the avatars, their profiles and bodies), the avatars from reins and whom the page acts as, the models offered |
 | `src/upstream/` | **generated**: what assistant-ui's registry gives today (the thread, its parts, shadcn's base components, the stylesheet). Never edited by hand |
 | `patches/` | our changes to upstream, each with why; applied on top of it |
@@ -97,7 +97,8 @@ contract. The subject's type is not read or shown.
 Each chat is a thread in `threads`, read and written through reins
 (`src/world.ts`), fed to assistant-ui's external store runtime
 (`useExternalStoreRuntime`) and its thread list adapter. The page keeps
-nothing: a reload reads it all again, and the newest chat is shown.
+nothing: a reload reads it all again. The chat shown is in the address
+(`#<thread id>`), so a reload stays in it; with none, the newest is shown.
 
 - **Acting as.** The page acts as the avatar named by the login (the first,
   when none is; `src/avatars.ts`). What the person says is appended as that
@@ -117,9 +118,9 @@ nothing: a reload reads it all again, and the newest chat is shown.
   empty) reads everything again.
 - **A reply being written** comes as `writing` pieces: shown as a message
   of the other side while it grows, its reasoning apart, and gone when its
-  entry comes. A reply that failed is said there, in the writer's words,
-  until the page is reloaded or the person says something again: it was
-  never journaled. Composing is never held while someone writes.
+  entry comes; beside the composer, "<name> is writing…" (`role=status`)
+  while it does. A reply that failed is said there, in the writer's words,
+  until the page is reloaded: it was never journaled. Composing is never held while someone writes.
 - **The list.** A sidebar lists the chats, as assistant-ui's
   `threadlist-sidebar` does (shadcn's sidebar and upstream's thread list,
   put together in `src/Sidebar.tsx` without that element's own branding):
@@ -196,9 +197,10 @@ was said, and names, when the call starts, my avatar's ear as
 so a realtime model built of parts (`minds/realtime`) thinks with its own.
 A realtime model built of parts answers with those; one that is a single
 model ignores them. What each side said shows in the chat as a voice
-conversation, the answer word by word, **for as long as the page is open:
-a call's transcripts are not journaled yet** (UNIT-52), so they are not in
-the thread, not seen elsewhere and gone on reload. While the call
+conversation, the answer word by word, and stays there (`onVoiceTranscript`)
+**for as long as the page is open: a call's transcripts are not journaled
+yet** (UNIT-52), so they are not in the thread, not seen elsewhere, not read
+by the driver, and gone on reload. While the call
 goes: mute (nothing is sent), hang up. An interruption is taken from
 `input_audio_buffer.speech_started` while an answer plays, or from the
 answer's `response.done` before its `output_audio.done` (all a model behind
