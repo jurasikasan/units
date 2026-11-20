@@ -1,8 +1,44 @@
 name: reins-showcase
 
-# reins and the registry it reads, each on its own Postgres on a network only
-# it joins; the demo talks to reins as a door would, X-Principal-Id set.
+# reins, the registry it reads and the journal it writes into, each on its
+# own Postgres on a network only it joins, and the bus threads announces its
+# appends on; the demo talks to reins as a door would, X-Principal-Id set.
 services:
+  bus:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      retries: 30
+
+  threads-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: threads
+      POSTGRES_PASSWORD: threads
+      POSTGRES_DB: threads
+    networks: [threads-db]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "threads"]
+      interval: 1s
+      retries: 30
+
+  threads:
+    build: ../../threads
+    depends_on:
+      threads-db:
+        condition: service_healthy
+      bus:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://threads:threads@threads-db:5432/threads?sslmode=disable
+      REDIS_ADDR: bus:6379
+    networks: [default, threads-db]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/ready"]
+      interval: 1s
+      retries: 30
+
   subjects-db:
     image: postgres:16-alpine
     environment:
@@ -47,9 +83,13 @@ services:
         condition: service_healthy
       subjects:
         condition: service_healthy
+      threads:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://reins:reins@reins-db:5432/reins?sslmode=disable
       SUBJECTS_URL: http://subjects:8083
+      THREADS_URL: http://threads:8085
+      REDIS_ADDR: bus:6379
     networks: [default, reins-db]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8087/ready"]
@@ -71,4 +111,6 @@ networks:
   subjects-db:
     internal: true
   reins-db:
+    internal: true
+  threads-db:
     internal: true

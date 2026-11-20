@@ -7,9 +7,10 @@ may look into a subject and take it up, as actor or watcher: a relation out of
 the world, invisible to the subjects. Handing a subject over changes who sees
 it from inside; nothing in the world changes.
 
-reins is the face's door into the world. It starts with stewardship; keeping
-the conversation (writing the occupied subject's acts into `threads`, pushing
-what changes to the face) is meant to grow here.
+reins is the face's door into the world: a principal acts there only as an
+avatar it steers, written into `threads` as that subject, and follows the
+threads its avatars are in as one stream (section 3). It keeps nothing of
+the world: the journal is `threads`'.
 
 Not here: membership in communities (hired, fired) is an in-world fact and
 belongs to a community's journal in `threads`.
@@ -61,6 +62,34 @@ reached only through the door.
 
 The full shapes are the swagger spec in `docs/`.
 
+### The world
+
+Each act goes through an avatar the caller steers, and is written into
+`threads` as that subject. Without `THREADS_URL` these routes answer 503.
+
+- `GET /me/threads` — every thread where an avatar the caller steers is a
+  member (`threads`' `?member=`), each once, as `threads` reads it: `name`
+  and `members`. Newest first.
+- `POST /me/threads {"as": "<avatar>", "with": ["<avatar>", …]}` — 201 with
+  the new thread, opened by `as` (`opened_by`); `as` joins it, then each of
+  `with`, each by a `join` entry sent by that subject. For now each of them
+  must be an avatar the caller steers, else 403 and nothing is opened:
+  putting in someone else's is an invitation, a later task. 400 without
+  `as`.
+- `POST /threads/{id}/entries {"as": "<avatar>", "content": [blocks]}` —
+  201 with the entry as `threads` stored it: a `create` sent by `as`, its
+  content `threads`' blocks (text, a picture as `image`, a document as
+  `file`, …; `threads`' CONTRACT.md). 403 when the caller does not steer
+  `as` or `as` is not a member; 404 when there is no such thread; 400 with
+  `threads`' own words when it refuses the content; 413 over 16 MB (a
+  picture or a file goes inline as a `data:` URL until its bytes are kept
+  elsewhere).
+- `GET /threads/{id}/entries` — as `threads` answers it (`after`, `before`,
+  `tail`, `limit`), for a thread one of the caller's avatars is in, else
+  403. Every entry, whoever sent it: a watcher sees the channel itself, not
+  an avatar's projection.
+- `GET /me/stream` — section 3.
+
 ### Preferences
 
 A subject's `preferences` is a JSON object `subjects` keeps without looking
@@ -84,7 +113,44 @@ chat until the conversation is kept here: the person speaks as the subject
 named by its login and hears the other one. reins does not check the values:
 which models exist is the agent's to say.
 
-## 3. Provisioning
+## 3. The stream
+
+`GET /me/stream` is one principal's view of the world as it changes, as
+server-sent events. Without `REDIS_ADDR` it answers 503.
+
+| `event` | `id` | `data` |
+|---|---|---|
+| `ready` | the position the stream starts after | `{"position"}` |
+| `entry` | the wake-up's id on `threads_events` | one entry, as `threads` stores it |
+| `writing` | none | a piece of a reply being written: its event's `data`, with its CloudEvents `type` beside |
+| `reset` | none | `{"reason"}` |
+
+- **Entries.** On each `threads.entry.appended` on `threads_events` (the bus
+  `threads` announces on, `REDIS_ADDR`) for a thread one of the principal's
+  avatars is in, the entry is read back from `threads` and sent: the event
+  only wakes reins, the journal is the truth. Who is in a thread is asked
+  of `threads` once per stream, and again after a `join` or `leave` in it;
+  which avatars the principal steers, every 30 s.
+- **The position** is SSE's own: each `entry`'s id is its event's id on
+  `threads_events`, so a reconnect with `Last-Event-ID` (an `EventSource`
+  sends it by itself) resumes after it, as Matrix's `/sync` does with
+  `since`; `?since=` says the same where the header cannot be set. No
+  position: from now. A position the stream no longer holds (trimmed away,
+  or past its end: a bus that came back empty) is a `reset`, then the
+  stream goes on from now: the reader reloads what it shows from `threads`.
+  A reader that opens the stream first and reads the threads after misses
+  nothing in between; an entry it has twice it knows by its `seq`.
+- **Writing.** A reply being written is ephemeral: its pieces are published
+  by whoever writes it on its own stream (`WRITING_STREAMS`, by default
+  `driver_events`, from `drivers/model`), and relayed here as `writing`
+  for a thread the principal sees (its `data` names the `thread`), with no
+  id: they are never journaled, and a reconnect does not bring them back.
+  Only the finished reply is an `entry`.
+- A failure to read the bus or `threads` ends the stream before the event
+  it was on; the reader comes back from its last id and it is tried again.
+  A comment (`: keep-alive`) goes every 15 s when nothing else does.
+
+## 4. Provisioning
 
 - A principal is provisioned once. Until every persona is made and recorded,
   each visit completes what is missing; then the principal is settled and
@@ -99,12 +165,14 @@ which models exist is the agent's to say.
   on. `subjects` mints the ids, so reins cannot record first; an operator
   records the stewardship by hand.
 
-## 4. Boundaries
+## 5. Boundaries
 
 - Its database is its own, on a network only it joins; nobody else opens a
   socket to it. The schema is migrated on boot.
 - It holds no rows of its own making: which principal steers what is the
   deployment's data.
-- It publishes no events and has no MCP.
+- It publishes no events and has no MCP. It consumes `threads_events` and
+  the writing streams, each stream on its own, from now or the reader's
+  position: no consumer group, nothing acknowledged.
 - Of a subject it changes only what a steward may: name, bio, preferences.
   Its nick and type are `subjects`' rules; who drives it is not written there.

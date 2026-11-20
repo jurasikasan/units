@@ -6,13 +6,16 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jurasikasan/units/reins/internal/db"
 	"github.com/jurasikasan/units/reins/internal/stewardship"
+	"github.com/jurasikasan/units/reins/internal/world"
 
 	httpHelper "github.com/jurasikasan/units/shared/http"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -60,8 +63,9 @@ func main() {
 	}
 	log.Println("schema applied")
 
-	svc := stewardship.NewService(stewardship.NewPGXRepository(pool), stewardship.NewHTTPRegistry(subjectsURL))
-	r := newRouter(stewardship.NewHandler(svc), pool)
+	repo := stewardship.NewPGXRepository(pool)
+	svc := stewardship.NewService(repo, stewardship.NewHTTPRegistry(subjectsURL))
+	r := newRouter(stewardship.NewHandler(svc), worldHandler(repo), pool)
 
 	log.Printf("reins listening on :%s", port)
 	srv := &http.Server{
@@ -72,12 +76,49 @@ func main() {
 	log.Fatal(srv.ListenAndServe())
 }
 
+// worldHandler is the face's door into the world: threads where THREADS_URL
+// names them, followed on the bus where REDIS_ADDR names it (threads_events,
+// and the streams in WRITING_STREAMS for replies being written). Without
+// THREADS_URL its routes answer 503, without REDIS_ADDR the stream does.
+// Redis is not waited for: a read that fails ends one stream, and the
+// reader comes back.
+func worldHandler(stewards world.Stewards) *world.Handler {
+	threadsURL := os.Getenv("THREADS_URL")
+	if threadsURL == "" {
+		log.Println("no THREADS_URL: the world routes answer 503")
+		return world.NewHandler(nil, nil)
+	}
+	svc := world.NewService(stewards, world.NewHTTPJournal(threadsURL))
+	addr := os.Getenv("REDIS_ADDR")
+	if addr == "" {
+		log.Println("no REDIS_ADDR: /me/stream answers 503")
+		return world.NewHandler(svc, nil)
+	}
+	writing := []string{}
+	for _, s := range strings.Split(envOr("WRITING_STREAMS", "driver_events"), ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			writing = append(writing, s)
+		}
+	}
+	// Each stream holds one connection while it waits on the bus.
+	rdb := redis.NewClient(&redis.Options{Addr: addr, PoolSize: 500})
+	return world.NewHandler(svc, world.NewStream(svc, rdb, writing))
+}
+
+func envOr(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
+}
+
 // newRouter is the whole routing table, so that routes_documented_test.go
 // checks the router the server actually serves.
-func newRouter(h *stewardship.Handler, db pinger) *mux.Router {
+func newRouter(h *stewardship.Handler, wh *world.Handler, db pinger) *mux.Router {
 	r := mux.NewRouter()
 	r.Use(httpHelper.LoggingMiddleware)
 	stewardship.RegisterRoutes(r, h)
+	world.RegisterRoutes(r, wh)
 	r.HandleFunc("/health", healthHandler).Methods(http.MethodGet)
 	r.HandleFunc("/ready", readyHandler(db)).Methods(http.MethodGet)
 	return r

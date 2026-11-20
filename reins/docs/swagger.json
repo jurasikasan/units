@@ -34,6 +34,65 @@
                 }
             }
         },
+        "/me/stream": {
+            "get": {
+                "description": "Server-sent events. `ready` first, its id the position the stream\nstarts after. `entry`: one appended entry (threads' shape) of a\nthread one of the caller's avatars is in, read back from threads\non its event; its id is the event's id on threads_events, so a\nreconnect with Last-Event-ID (or since=) resumes after it.\n`writing`: a piece of a reply still being written there (never\njournaled, no id). `reset`: the position is no longer on the\nstream; reload what is shown.",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "world"
+                ],
+                "summary": "Follow the threads the caller's avatars are in",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "who is asking, as the door sets it",
+                        "name": "X-Principal-Id",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "resume after this id",
+                        "name": "Last-Event-ID",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "resume after this id, when the header cannot be set",
+                        "name": "since",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "the events",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "No X-Principal-Id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "502": {
+                        "description": "The bus did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "No threads or no bus here",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/me/subjects": {
             "get": {
                 "description": "The subjects whose reins the principal in X-Principal-Id holds,\nread from `subjects` (deleted ones left out), oldest first. The\nfirst call for a principal makes what is missing of its two\npersonas: nick `\u003clogin\u003e` (subject_type human) and\n`\u003clogin\u003e-assistant` (assistant), names empty. A nick taken by\nanother subject is never adopted.",
@@ -83,6 +142,125 @@
                     },
                     "502": {
                         "description": "subjects or the database did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/threads": {
+            "get": {
+                "description": "Every thread where an avatar the principal steers is a member,\nas `threads` reads it: its name and members. Newest first.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "world"
+                ],
+                "summary": "The threads the caller's avatars are in",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "who is asking, as the door sets it",
+                        "name": "X-Principal-Id",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/world.Thread"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "No X-Principal-Id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "502": {
+                        "description": "threads or the database did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "No threads here",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "A new thread opened by `as`; `as` joins it, then each of `with`\n(a join entry sent by that avatar). Every one of them is an\navatar the caller steers: inviting another's is a later task.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "world"
+                ],
+                "summary": "Open a thread as an avatar",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "who is asking, as the door sets it",
+                        "name": "X-Principal-Id",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "who opens it, who joins",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/world.OpenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/world.Thread"
+                        }
+                    },
+                    "400": {
+                        "description": "A bad body, or no `as`",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "No X-Principal-Id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "The caller does not steer one of them",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "502": {
+                        "description": "threads or the database did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "No threads here",
                         "schema": {
                             "type": "string"
                         }
@@ -329,6 +507,193 @@
                     }
                 }
             }
+        },
+        "/threads/{id}/entries": {
+            "get": {
+                "description": "As threads answers it, oldest first: after={seq}, before={seq}\nor tail=true, and limit. Every entry, whoever sent it: a watcher\nsees the channel itself.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "world"
+                ],
+                "summary": "Read a thread the caller's avatars are in",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "who is asking, as the door sets it",
+                        "name": "X-Principal-Id",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "thread id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "the entries after this seq",
+                        "name": "after",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "the limit entries before this seq",
+                        "name": "before",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "the last limit entries",
+                        "name": "tail",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1..1000, 100 by default",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "entries",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "object"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "A bad id or query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "No X-Principal-Id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "None of the caller's avatars is in the thread",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "No such thread",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "502": {
+                        "description": "threads or the database did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "No threads here",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "A create entry sent by `as`, its content as threads takes it\n(text, image, file, audio… blocks; threads' CONTRACT.md). `as`\nmust be an avatar the caller steers and a member of the thread.\nThe entry as threads stored it, seq and all.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "world"
+                ],
+                "summary": "Say something in a thread as an avatar",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "who is asking, as the door sets it",
+                        "name": "X-Principal-Id",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "thread id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "who says it, what",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/world.SayRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "the entry",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "400": {
+                        "description": "A bad body, or content threads refuses (its words)",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "No X-Principal-Id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "The caller does not steer `as`, or `as` is not a member",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "No such thread",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "413": {
+                        "description": "Over 16 MB",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "502": {
+                        "description": "threads or the database did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "No threads here",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -376,6 +741,60 @@
                     "type": "object"
                 },
                 "subject_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "world.OpenRequest": {
+            "type": "object",
+            "properties": {
+                "as": {
+                    "type": "string"
+                },
+                "with": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "world.SayRequest": {
+            "type": "object",
+            "properties": {
+                "as": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "array",
+                    "items": {
+                        "type": "object"
+                    }
+                }
+            }
+        },
+        "world.Thread": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "members": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "opened_by": {
+                    "type": "string"
+                },
+                "parent": {
                     "type": "string"
                 }
             }

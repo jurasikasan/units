@@ -1,8 +1,10 @@
 #!/bin/sh
 # alice comes for the first time and is given her two personas; she comes
 # again and gets the same ones; she names her assistant and sets its chat
-# model, and another reader's preference and the nick stay; she hands her assistant to bob, and it leaves
-# her list for his. Refusals: a nick taken by someone else, a login that
+# model, and another reader's preference and the nick stay; she opens a
+# thread as herself with her assistant, follows it as a stream and says
+# something as each, while bob may neither read nor write there; she hands
+# her assistant to bob, and it leaves her list for his. Refusals: a nick taken by someone else, a login that
 # cannot be a nick, a handover by someone who does not steer the subject.
 set -u
 R=http://reins:8087
@@ -34,14 +36,37 @@ step "alice changes her assistant: name, bio, preferences merged"
 curl -s -o /dev/null -X PUT "$S/subjects/$ASSISTANT" -d '{"subject_type":"assistant","preferences":{"theirs":1,"voice":"denis"}}'
 C=$(as alice -X PATCH "$R/subjects/$ASSISTANT" -d '{"name":"Alice'"'"'s helper","bio":"Answers.","preferences":{"ear":"fake-stt-b","voice":null}}'); echo "$C"
 expect "her name" "$(echo "$C" | grep -o '"name":"[^"]*"')" '"name":"Alice'"'"'s helper"'
-# subjects keeps preferences as JSONB, in its own key order.
-expect "preferences merged, voice taken out" "$(echo "$C" | grep -o '"preferences":{[^}]*}' | tr -d ' ')" '"preferences":{"theirs":1,"ear":"fake-stt-b"}'
+# subjects keeps preferences as JSONB, in its own key order: compared sorted.
+expect "preferences merged, voice taken out" "$(echo "$C" | grep -o '"preferences":{[^}]*}' | sed 's/"preferences":{\(.*\)}/\1/' | tr ',' '\n' | sort | tr '\n' ' ')" '"ear":"fake-stt-b" "theirs":1 '
 G=$(as alice "$R/subjects/$ASSISTANT"); echo "$G"
 expect "read back, the same" "$G" "$C"
 expect "in subjects, nick and type as stored" "$(curl -s $S/subjects/$ASSISTANT | grep -o '"nick":"[^"]*","bio":"[^"]*","subject_type":"[^"]*"')" '"nick":"alice-assistant","bio":"Answers.","subject_type":"assistant"'
 expect "the nick never changes" "$(as alice -o /dev/null -w '%{http_code}' -X PATCH "$R/subjects/$ASSISTANT" -d '{"nick":"eve"}')" 400
 expect "bob may not look" "$(as bob -o /dev/null -w '%{http_code}' "$R/subjects/$ASSISTANT")" 403
 expect "bob may not change it" "$(as bob -o /dev/null -w '%{http_code}' -X PATCH "$R/subjects/$ASSISTANT" -d '{"name":"mine"}')" 403
+
+ME=$(echo "$A1" | grep -o '{[^{}]*"nick":"alice"[^{}]*}' | sed 's/.*"id":"\([^"]*\)".*/\1/')
+
+step "alice opens a thread as herself, with her assistant"
+T=$(as alice -X POST "$R/me/threads" -d '{"as":"'"$ME"'","with":["'"$ASSISTANT"'"]}'); echo "$T"
+TID=$(echo "$T" | sed 's/.*"id":"\([^"]*\)".*/\1/' | head -c 36)
+expect "both are members" "$(echo "$T" | grep -o '"members":\[[^]]*\]')" '"members":["'"$ME"'","'"$ASSISTANT"'"]'
+expect "listed as hers" "$(as alice "$R/me/threads" | grep -o '"id":"[^"]*"' | head -1)" '"id":"'"$TID"'"'
+
+step "she follows it, and says something as each avatar"
+as alice -N "$R/me/stream" > /tmp/stream 2>/dev/null &
+FOLLOW=$!
+sleep 1
+as alice -o /dev/null -w '%{http_code}\n' -X POST "$R/threads/$TID/entries" -d '{"as":"'"$ME"'","content":[{"type":"text","text":"hello, assistant"}]}'
+expect "as her assistant" "$(as alice -o /dev/null -w '%{http_code}' -X POST "$R/threads/$TID/entries" -d '{"as":"'"$ASSISTANT"'","content":[{"type":"text","text":"hello, alice"}]}')" 201
+sleep 1
+kill $FOLLOW 2>/dev/null
+cat /tmp/stream
+expect "the stream carried both, read back" "$(grep -o '"text":"hello, [a-z]*"' /tmp/stream | tr '\n' ' ')" '"text":"hello, assistant" "text":"hello, alice" '
+expect "ready and each entry with its position" "$(grep -c '^id: [0-9]*-[0-9]*$' /tmp/stream)" 3
+expect "read back, page by page" "$(as alice "$R/threads/$TID/entries?after=2" | grep -o '"seq":[0-9]*' | tr '\n' ' ')" '"seq":3 "seq":4 '
+expect "bob may not read it" "$(as bob -o /dev/null -w '%{http_code}' "$R/threads/$TID/entries")" 403
+expect "nor say anything as alice" "$(as bob -o /dev/null -w '%{http_code}' -X POST "$R/threads/$TID/entries" -d '{"as":"'"$ME"'","content":[{"type":"text","text":"x"}]}')" 403
 
 step "alice hands her assistant to bob"
 expect "handover" "$(as alice -o /dev/null -w '%{http_code}' -X POST "$R/subjects/$ASSISTANT/handover" -d '{"to":"bob"}')" 204

@@ -3,7 +3,7 @@
 
 unit: reins
 kind: service
-summary: Where a principal holds the reins of its subjects — which subjects an account at the door may look into and take up, out of the world; a principal first seen is given `<login>` and `<login>-assistant` in subjects, and a steward changes their name, bio and preferences. Own database; each compose runs its own.
+summary: Where a principal holds the reins of its subjects — which subjects an account at the door may look into and take up, out of the world; a principal first seen is given `<login>` and `<login>-assistant` in subjects, and a steward changes their name, bio and preferences. The face's door into the world - it writes into threads only as an avatar the principal steers, and streams the threads its avatars are in over SSE (entries read back on threads' events, replies being written relayed). Own database; each compose runs its own.
 contract: CONTRACT.md
 maturity: probe
 
@@ -16,6 +16,11 @@ provides:
       - "GET /subjects/{id}"
       - "PATCH /subjects/{id}"
       - "POST /subjects/{id}/handover"
+      - "GET /me/threads"
+      - "POST /me/threads"
+      - "POST /threads/{id}/entries"
+      - "GET /threads/{id}/entries"
+      - "GET /me/stream"            # SSE: entry (id = threads_events id), writing, ready, reset
   health: GET :8087/health
   ready: GET :8087/ready
 
@@ -25,8 +30,23 @@ consumes:
       via: http
       env: SUBJECTS_URL
       calls: ["GET /subjects/{id}", "POST /subjects", "PUT /subjects/{id}"]
+    - unit: threads     # the journal; reins writes an avatar's acts into it and reads it back
+      via: http
+      env: THREADS_URL
+      calls: ["GET /threads", "GET /threads/{id}", "POST /threads", "POST /threads/{id}/entries", "GET /threads/{id}/entries"]
+    - unit: threads     # its wake-ups, followed for /me/stream; the entry is read back
+      via: events
+      stream: threads_events
+      types: [threads.entry.appended]
+    - unit: drivers/model   # replies being written, relayed as `writing` (WRITING_STREAMS)
+      via: events
+      stream: driver_events
+      types: [driver.reply.delta, driver.reply.failed, driver.reply.finished]
   gate: X-Principal-Id  # who is asking; trusted, so reins is reached only through the door
   infra: [postgres]     # its own, on a network only it joins
+  # Redis (the bus, REDIS_ADDR) is optional and not infra here: never waited
+  # for (not shared/redis's client, which blocks until it answers); a read
+  # that fails ends one stream, and the reader comes back.
 
 wire: []
 
@@ -36,4 +56,7 @@ config:
     SUBJECTS_URL: the subjects service, e.g. http://subjects:8083
   optional:
     PORT: "8087"
+    THREADS_URL: ""       # the threads service, e.g. http://threads:8085; unset, the world routes answer 503
+    REDIS_ADDR: ""        # the bus threads announces on; unset, /me/stream answers 503
+    WRITING_STREAMS: driver_events   # comma-separated streams of replies being written, relayed as `writing`
   secrets: {}

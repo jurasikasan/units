@@ -31,6 +31,41 @@ definitions:
       subject_type:
         type: string
     type: object
+  world.OpenRequest:
+    properties:
+      as:
+        type: string
+      with:
+        items:
+          type: string
+        type: array
+    type: object
+  world.SayRequest:
+    properties:
+      as:
+        type: string
+      content:
+        items:
+          type: object
+        type: array
+    type: object
+  world.Thread:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      members:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      opened_by:
+        type: string
+      parent:
+        type: string
+    type: object
 host: localhost:8087
 info:
   contact: {}
@@ -60,6 +95,53 @@ paths:
       summary: Liveness probe and build version
       tags:
       - health
+  /me/stream:
+    get:
+      description: |-
+        Server-sent events. `ready` first, its id the position the stream
+        starts after. `entry`: one appended entry (threads' shape) of a
+        thread one of the caller's avatars is in, read back from threads
+        on its event; its id is the event's id on threads_events, so a
+        reconnect with Last-Event-ID (or since=) resumes after it.
+        `writing`: a piece of a reply still being written there (never
+        journaled, no id). `reset`: the position is no longer on the
+        stream; reload what is shown.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: resume after this id
+        in: header
+        name: Last-Event-ID
+        type: string
+      - description: resume after this id, when the header cannot be set
+        in: query
+        name: since
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: the events
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "502":
+          description: The bus did not answer
+          schema:
+            type: string
+        "503":
+          description: No threads or no bus here
+          schema:
+            type: string
+      summary: Follow the threads the caller's avatars are in
+      tags:
+      - world
   /me/subjects:
     get:
       description: |-
@@ -103,6 +185,90 @@ paths:
       summary: The subjects the caller steers
       tags:
       - reins
+  /me/threads:
+    get:
+      description: |-
+        Every thread where an avatar the principal steers is a member,
+        as `threads` reads it: its name and members. Newest first.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/world.Thread'
+            type: array
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "502":
+          description: threads or the database did not answer
+          schema:
+            type: string
+        "503":
+          description: No threads here
+          schema:
+            type: string
+      summary: The threads the caller's avatars are in
+      tags:
+      - world
+    post:
+      consumes:
+      - application/json
+      description: |-
+        A new thread opened by `as`; `as` joins it, then each of `with`
+        (a join entry sent by that avatar). Every one of them is an
+        avatar the caller steers: inviting another's is a later task.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: who opens it, who joins
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/world.OpenRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/world.Thread'
+        "400":
+          description: A bad body, or no `as`
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "403":
+          description: The caller does not steer one of them
+          schema:
+            type: string
+        "502":
+          description: threads or the database did not answer
+          schema:
+            type: string
+        "503":
+          description: No threads here
+          schema:
+            type: string
+      summary: Open a thread as an avatar
+      tags:
+      - world
   /ready:
     get:
       description: |-
@@ -274,6 +440,138 @@ paths:
       summary: Hand the reins of a subject to another principal
       tags:
       - reins
+  /threads/{id}/entries:
+    get:
+      description: |-
+        As threads answers it, oldest first: after={seq}, before={seq}
+        or tail=true, and limit. Every entry, whoever sent it: a watcher
+        sees the channel itself.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: thread id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: the entries after this seq
+        in: query
+        name: after
+        type: integer
+      - description: the limit entries before this seq
+        in: query
+        name: before
+        type: integer
+      - description: the last limit entries
+        in: query
+        name: tail
+        type: boolean
+      - description: 1..1000, 100 by default
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: entries
+          schema:
+            items:
+              type: object
+            type: array
+        "400":
+          description: A bad id or query
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "403":
+          description: None of the caller's avatars is in the thread
+          schema:
+            type: string
+        "404":
+          description: No such thread
+          schema:
+            type: string
+        "502":
+          description: threads or the database did not answer
+          schema:
+            type: string
+        "503":
+          description: No threads here
+          schema:
+            type: string
+      summary: Read a thread the caller's avatars are in
+      tags:
+      - world
+    post:
+      consumes:
+      - application/json
+      description: |-
+        A create entry sent by `as`, its content as threads takes it
+        (text, image, file, audio… blocks; threads' CONTRACT.md). `as`
+        must be an avatar the caller steers and a member of the thread.
+        The entry as threads stored it, seq and all.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: thread id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: who says it, what
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/world.SayRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: the entry
+          schema:
+            type: object
+        "400":
+          description: A bad body, or content threads refuses (its words)
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "403":
+          description: The caller does not steer `as`, or `as` is not a member
+          schema:
+            type: string
+        "404":
+          description: No such thread
+          schema:
+            type: string
+        "413":
+          description: Over 16 MB
+          schema:
+            type: string
+        "502":
+          description: threads or the database did not answer
+          schema:
+            type: string
+        "503":
+          description: No threads here
+          schema:
+            type: string
+      summary: Say something in a thread as an avatar
+      tags:
+      - world
 schemes:
 - http
 swagger: "2.0"
