@@ -54,6 +54,7 @@ uses today. A new kind is added when a writer needs it.
 | `text` | `text` |
 | `audio` | `url`, `media_type`, `sha256`, `transcript` (optional) |
 | `image` | `url`, `media_type`, `sha256` |
+| `file` | `url`, `media_type`, `sha256`, `name` (optional) — a document such as a PDF |
 | `tool_call` | `id`, `name`, `args` (a JSON object) |
 | `tool_result` | `call_id`, `text`, `is_error` (optional) |
 
@@ -61,8 +62,9 @@ uses today. A new kind is added when a writer needs it.
 digest, so a reader can tell when what the url serves is no longer what was
 referenced; keeping those bytes is the writer's business.
 
-`tool_call` and `tool_result` are not ActivityStreams; `audio` and `image`
-follow its `Audio` / `Image` objects (`url`, `mediaType`).
+`tool_call` and `tool_result` are not ActivityStreams; `audio`, `image` and
+`file` follow its `Audio` / `Image` / `Document` objects (`url`, `mediaType`,
+`name`).
 
 ## 2. Routes
 

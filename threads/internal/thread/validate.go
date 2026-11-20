@@ -20,6 +20,7 @@ var blockFields = map[string]struct{ allowed, required []string }{
 	BlockText:       {[]string{"text"}, []string{"text"}},
 	BlockAudio:      {[]string{"url", "media_type", "sha256", "transcript"}, []string{"url", "media_type", "sha256"}},
 	BlockImage:      {[]string{"url", "media_type", "sha256"}, []string{"url", "media_type", "sha256"}},
+	BlockFile:       {[]string{"url", "media_type", "sha256", "name"}, []string{"url", "media_type", "sha256"}},
 	BlockToolCall:   {[]string{"id", "name", "args"}, []string{"id", "name", "args"}},
 	BlockToolResult: {[]string{"call_id", "text", "is_error"}, []string{"call_id"}},
 }

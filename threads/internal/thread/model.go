@@ -59,6 +59,7 @@ const (
 	BlockText       = "text"
 	BlockAudio      = "audio"
 	BlockImage      = "image"
+	BlockFile       = "file"
 	BlockToolCall   = "tool_call"
 	BlockToolResult = "tool_result"
 )
