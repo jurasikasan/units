@@ -42,12 +42,13 @@
 // E2E_ONLY=call runs this alone. Last, the sidebar's foot shows who is
 // logged in, and its log-out ends the session (E2E_ONLY=me).
 //
-// What a run and the sound are asked with is set in the settings, opened
-// from the sidebar's foot, on the person's avatars (kept in subjects,
-// through reins): the assistant's chat model, set and then reloaded, is the
-// group that answers (E2E_ONLY=model); the person's ear and the
-// assistant's mouth and voice are the ones that hear and speak
-// (E2E_ONLY=sound), and on cascade the parts of a call.
+// The model that thinks is the run's brain, picked in the composer, and
+// it is the group that answers (E2E_ONLY=model). An ear, a mouth and a
+// voice are an avatar's body, the same fields on every avatar, set in the
+// settings opened from the sidebar's foot (kept in subjects, through
+// reins): the page wires the classic chat for now — alice's ear hears,
+// the other avatar's mouth and voice speak (E2E_ONLY=sound), and on
+// cascade they are the parts of a call.
 //
 // E2E_ONLY=refused is another round, on a mind asking a model that takes no
 // pictures (fake-text): a picture sent ends the run with the mind's error,
@@ -290,44 +291,65 @@ async function callRound() {
   step('hung up', `${await saidBy.count()} heard, ${await answeredBy.count()} answered in the thread`)
 }
 
-// modelRound: the assistant's chat model, set in the settings, is the
-// group that answers after a reload; the settings offer the lab's chat
-// groups, the mind's default shown when nothing is set. Its name, set
-// there too, is still there after the reload. Set back to the default, the
-// next answer is the default's, no reload needed. Last the preference is
-// taken out through reins, so later rounds ask the agent's own again. In a
-// conversation of its own (a reload: the page keeps it in memory), since a
-// picture said before would be refused by fake-text.
+// modelRound: which model thinks is the run's brain, picked in the
+// composer, not any avatar's: the picker offers the lab's chat groups, the
+// mind's default shown first; fake-text picked answers, fake picked back
+// answers again. An avatar's profile is the settings': a name set there is
+// still there after a reload. In a conversation of its own (a reload: the
+// page keeps it in memory), since a picture said before would be refused
+// by fake-text.
 async function modelRound() {
   await page.reload()
   await page.getByRole('textbox', { name: 'Message input' }).waitFor()
-  const set = await settings(assistant, { 'Chat model': 'fake-text' }, { Name: 'Lab helper' })
-  const offered = set.offered['Chat model']
-  step('offered, shown', `${offered.join(' ')}; ${set.was['Chat model']}`)
-  if (set.was['Chat model'] !== 'Chat model: fake' || !offered.includes('fake') || !offered.includes('fake-text') || offered.some((m) => m.includes('stt') || m.includes('realtime'))) {
+  const shown = await page.getByRole('combobox', { name: /^Chat model:/ }).getAttribute('aria-label')
+  const offered = await choose('Chat model', 'fake-text')
+  step('offered in the composer, shown', `${offered.join(' ')}; ${shown}`)
+  if (shown !== 'Chat model: fake' || !offered.includes('fake') || !offered.includes('fake-text') || offered.some((m) => m.includes('stt') || m.includes('realtime'))) {
     step('FAIL', 'not the chat groups, or not fake shown')
     failed = true
   }
-  await page.reload()
-  await page.getByRole('textbox', { name: 'Message input' }).waitFor()
   const picked = await say('Which model are you? #which_model')
-  step('set fake-text, reloaded, answered', JSON.stringify(picked))
-  const kept = await settings(assistant, { 'Chat model': 'fake' }, {}, ['Name'])
-  step('after the reload, the settings show', `${kept.was['Chat model']}, name ${JSON.stringify(kept.read.Name)}`)
+  step('picked fake-text, answered', JSON.stringify(picked))
+  await choose('Chat model', 'fake')
   const back = await say('And now? #which_model')
-  step('set fake again, answered', JSON.stringify(back))
+  step('picked fake again, answered', JSON.stringify(back))
   if (!picked.includes('fake-text-1') || !back.includes('fake-1') || back.includes('fake-text')) {
-    step('FAIL', 'the preference did not decide which group answered')
+    step('FAIL', 'the pick did not decide which group answered')
     failed = true
   }
-  if (kept.was['Chat model'] !== 'Chat model: fake-text' || kept.read.Name !== 'Lab helper') {
+  const bodies = await settings(assistant, {}, { Name: 'Lab helper' })
+  await page.reload()
+  await page.getByRole('textbox', { name: 'Message input' }).waitFor()
+  const kept = await settings(assistant, {}, {}, ['Name'])
+  step('a name set, after the reload', JSON.stringify(kept.read.Name))
+  if (kept.read.Name !== 'Lab helper' || bodies === undefined) {
     step('FAIL', 'what was saved did not survive the reload')
     failed = true
   }
-  const mine = await (await page.request.get(url + '/api/reins/me/subjects')).json()
-  const id = mine.find((a) => a.nick === assistant)?.id
-  const out = await page.request.patch(`${url}/api/reins/subjects/${id}`, { data: { preferences: { chat_model: null } } })
-  step('the preference taken out', out.status())
+  const alike = await settingsLabels([user, assistant])
+  step('every avatar offers the same', JSON.stringify(alike))
+  if (alike[user] !== alike[assistant] || alike[user].includes('Chat model')) {
+    step('FAIL', 'avatars are not alike in the settings, or a body has a chat model')
+    failed = true
+  }
+}
+
+// settingsLabels opens each nick's avatar in the settings and returns the
+// labels of its pickers, joined.
+async function settingsLabels(nicks) {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  await dialog.waitFor()
+  const out = {}
+  for (const nick of nicks) {
+    await dialog.getByRole('button', { name: nick, exact: true }).click()
+    const form = dialog.getByRole('form', { name: `Avatar ${nick}` })
+    await form.waitFor()
+    out[nick] = (await form.getByRole('combobox').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label').split(':')[0]))).join(',')
+  }
+  await page.keyboard.press('Escape')
+  await dialog.waitFor({ state: 'detached' })
+  return out
 }
 
 // threadsRound: the sidebar's chats. A new one starts empty and runs as a

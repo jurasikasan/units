@@ -37,13 +37,13 @@ browser → nginx + gate ─ /      → face (static files)
 ## Models
 
 `litellm/models.yaml` names them; the mind asks for `LAB_LLM_MODEL` unless
-the person's avatars prefer another, set in the page's settings (opened
-from who is logged in, at the sidebar's foot): the assistant's chat model
-among the chat groups (`LAB_LLM_MODEL` shown when none is set), its mouth
-(`LAB_TTS_MODEL`) and the mouth's voices, where its engine lists them, and
-the person's ear (`LAB_STT_MODEL`); realtime ones are not offered. What is
-set is kept in `subjects`, through reins, and holds across reloads and
-logins. A group whose key or URL is empty is offered too and
+the person picks another in the composer among the chat groups
+(`LAB_LLM_MODEL` shown first), for as long as the page is open. The
+avatars' bodies are set in the page's settings (opened from who is logged
+in, at the sidebar's foot), the same on each: an ear (`LAB_STT_MODEL` when
+none), a mouth (`LAB_TTS_MODEL`) and the mouth's voices, where its engine
+lists them; realtime ones are not offered. What is set is kept in
+`subjects`, through reins, and holds across reloads and logins. A group whose key or URL is empty is offered too and
 fails when asked.
 
 | model | |
@@ -62,7 +62,7 @@ fails when asked.
 | `tts` | Gemini 3.8 flash-lite TTS: WAV only, Gemini's voices (OpenAI's names map to some); to try, not to run on |
 | `fake-realtime` | [`fake_realtime`](fake_realtime/) behind OpenAI's Realtime API: hears by loudness, answers from a script with a tone, in the event flow Gemini Live sent through LiteLLM |
 | `fake-realtime-full` | the same, in the schema's whole set (`speech_started`, a cancelled answer, `truncated`) |
-| `cascade` | our own: [`minds/realtime`](../../minds/realtime/) made of [`senses/hearing`](../../senses/hearing/), a chat model and [`abilities/speaking`](../../abilities/speaking/), all through this LiteLLM, each the one the avatars prefer in the page's settings (the assistant's chat model, mouth and voice, the person's ear), `LAB_CASCADE_*` when none is; the language found in each utterance; the whole set, truncate honoured |
+| `cascade` | our own: [`minds/realtime`](../../minds/realtime/) made of [`senses/hearing`](../../senses/hearing/), a chat model and [`abilities/speaking`](../../abilities/speaking/), all through this LiteLLM, the ear and voice the avatars' bodies have in the page's settings, the chat model the composer's, `LAB_CASCADE_*` when none is; the language found in each utterance; the whole set, truncate honoured |
 
 The mind serves OpenAI's audio API at `/api/v1/audio/…` and hands it on with
 `LAB_STT_MODEL` and `LAB_TTS_MODEL`: the page's mic puts what was said into
@@ -106,10 +106,11 @@ adds two numbers; the model's reasoning is shown apart from its answer, and
 the thought signatures a model left go back to it with the tool call and,
 a run later, from the page; a file over the page's limit is refused there
 and nothing is sent, then a picture and a text file go with a question and
-the answer carries what only the file holds; the settings offer the chat
-groups with `fake` shown, and the assistant's chat model set to
-`fake-text` there is what answers after a reload, its name set with it
-still there, `fake` again what answers next (`E2E_ONLY=model`); a new chat in the
+the answer carries what only the file holds; the composer offers the chat
+groups with `fake` shown, `fake-text` picked there is what answers and
+`fake` again what answers next, an avatar's name set in the settings is
+still there after a reload, and every avatar offers the same fields
+(`E2E_ONLY=model`); a new chat in the
 sidebar starts empty and runs as a thread of its own, and the first is all
 there when switched back to (`E2E_ONLY=threads`); the second fake ear
 set on the person and the second fake mouth and one of its voices on the
