@@ -18,6 +18,9 @@ login gives the person two: `<login>` and `<login>-assistant`; later calls
 answer the same ones. Each keeps its own Postgres on a network only it
 joins. The face asks for them in its settings, and changes their names,
 bios and preferences there (`PATCH /api/reins/subjects/{id}`).
+[`threads`](../../threads/) keeps what happened where, each append
+announced on the bus (`threads_events`); nothing reaches it from outside
+yet, reins will put the face in front of it.
 
 Who is logged in is gate's to say: `/api/v1/userinfo` is its
 `userinfo.conf`, and the face shows it at the foot of the sidebar with a

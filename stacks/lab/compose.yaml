@@ -164,6 +164,40 @@ services:
       test: ["CMD", "wget", "-qO-", "http://localhost:8083/ready"]
       interval: 1s
       retries: 30
+  # What happened where: threads as journals, each append announced on the
+  # bus (threads_events) for whoever follows them. Nobody reaches it from
+  # outside yet; reins puts the face in front of it (UNIT-59).
+  threads:
+    build: ../../threads
+    image: units-threads:local
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://threads:threads@threads-db:5432/threads?sslmode=disable
+      REDIS_ADDR: bus:6379
+    networks: [default, threads-db]
+    depends_on:
+      threads-db:
+        condition: service_healthy
+      bus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/ready"]
+      interval: 1s
+      retries: 30
+  threads-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: threads
+      POSTGRES_PASSWORD: threads
+      POSTGRES_DB: threads
+    networks: [threads-db]
+    volumes:
+      - threads-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "threads"]
+      interval: 1s
+      retries: 30
   subjects-db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -398,6 +432,7 @@ volumes:
   certs:
   subjects-db:
   reins-db:
+  threads-db:
 
 # The databases' networks are internal: only their service joins them.
 networks:
@@ -405,4 +440,6 @@ networks:
   subjects-db:
     internal: true
   reins-db:
+    internal: true
+  threads-db:
     internal: true
