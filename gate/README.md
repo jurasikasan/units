@@ -30,6 +30,7 @@ no session
   an API answers 401                         401
   a forged X-Principal-Id changes nothing    401
   who is logged in: nobody                   401
+  a 2 MB upload answers 401, not 500         401
 log in
   wrong password                             401
   alice                                      200
@@ -39,6 +40,7 @@ what the application sees
   X-Principal-Id (client sent mallory)       alice
   Cookie                                     []
   Authorization (client sent a Bearer)       []
+  a 2 MB upload reaches the application      204
 who is logged in, for the person's page
   userinfo                                   {"sub":"alice",…,"end_session_endpoint":"/auth/logout"}
 mail
@@ -115,6 +117,12 @@ than escaped.
 A location that includes `page.conf` or `api.conf` takes its
 `proxy_set_header` lines from there; nginx does not merge them with the
 server's.
+
+How large a body may be is the protected location's own
+`client_max_body_size` (nginx's default is 1 MB). The check is not held to
+it: the subrequest gets no body and takes any size, since nginx would
+otherwise answer a larger one with 413 there, and `auth_request` turns that
+into 500.
 
 ## Configuration
 

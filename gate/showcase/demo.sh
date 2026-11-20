@@ -35,6 +35,10 @@ case "$loc" in "$B/auth/?rd="*) expect "  … at /auth/?rd=" ok ok ;; *) expect 
 expect "an API answers 401" "$(code "$B/api/whoami.txt")" 401
 expect "a forged X-Principal-Id changes nothing" "$(code -H 'X-Principal-Id: alice' "$B/api/whoami.txt")" 401
 expect "who is logged in: nobody" "$(code -H 'Remote-User: alice' "$B/api/v1/userinfo")" 401
+# A body over nginx's 1 MB default (an attached photo): asking gate must not
+# hold it to that, or auth_request answers 500.
+head -c 2000000 /dev/zero > /tmp/big
+expect "a 2 MB upload answers 401, not 500" "$(code -X POST --data-binary @/tmp/big "$B/api/upload")" 401
 
 echo "log in"
 expect "wrong password" "$(login alice wrong)" 401
@@ -48,6 +52,7 @@ seen=$(c -H 'X-Principal-Id: mallory' -H 'Authorization: Bearer stolen' "$B/api/
 expect "X-Principal-Id (client sent mallory)" "$(echo "$seen" | sed -n 's/^principal=//p')" alice
 expect "Cookie" "[$(echo "$seen" | sed -n 's/^cookie=//p')]" "[]"
 expect "Authorization (client sent a Bearer)" "[$(echo "$seen" | sed -n 's/^authorization=//p')]" "[]"
+expect "a 2 MB upload reaches the application" "$(code -X POST --data-binary @/tmp/big "$B/api/upload")" 204
 
 echo "who is logged in, for the person's page"
 expect "userinfo" "$(c -H 'Remote-User: mallory' "$B/api/v1/userinfo")" \
