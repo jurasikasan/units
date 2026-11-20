@@ -1,7 +1,7 @@
 # subjects
 
-Who exists in a deployment: a registry of identities with a permanent nick, a
-type and free-form preferences. What it promises is `CONTRACT.md`; this file is
+Who exists in a deployment: a registry of identities with a permanent nick and
+free-form preferences. What it promises is `CONTRACT.md`; this file is
 for working inside it.
 
 - `internal/subject` — handler → service → repository.

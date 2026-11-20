@@ -48,8 +48,8 @@ func NewPGXSubjectRepository(dbpool *pgxpool.Pool) *PGXSubjectRepository {
 // Create inserts a new subject record into the database.
 func (r *PGXSubjectRepository) Create(ctx context.Context, subject *Subject) error {
 	pv := prefsValue(subject.Preferences)
-	query := `INSERT INTO subjects (id, name, nick, bio, subject_type, preferences) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`
-	_, err := r.dbpool.Exec(ctx, query, subject.ID, subject.Name, subject.Nick, subject.Bio, subject.SubjectType, pv)
+	query := `INSERT INTO subjects (id, name, nick, bio, preferences) VALUES ($1, $2, $3, $4, $5::jsonb)`
+	_, err := r.dbpool.Exec(ctx, query, subject.ID, subject.Name, subject.Nick, subject.Bio, pv)
 	// 23505 is unique_violation: the only unique column a client chooses is nick.
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -60,7 +60,7 @@ func (r *PGXSubjectRepository) Create(ctx context.Context, subject *Subject) err
 
 // GetAll retrieves all non-deleted subjects from the database.
 func (r *PGXSubjectRepository) GetAll(ctx context.Context) ([]Subject, error) {
-	query := "SELECT id, name, nick, bio, subject_type, preferences FROM subjects WHERE deleted_at IS NULL ORDER BY created_at DESC"
+	query := "SELECT id, name, nick, bio, preferences FROM subjects WHERE deleted_at IS NULL ORDER BY created_at DESC"
 	rows, err := r.dbpool.Query(ctx, query)
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (r *PGXSubjectRepository) GetAll(ctx context.Context) ([]Subject, error) {
 	for rows.Next() {
 		var s Subject
 		var prefs []byte
-		if err := rows.Scan(&s.ID, &s.Name, &s.Nick, &s.Bio, &s.SubjectType, &prefs); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Nick, &s.Bio, &prefs); err != nil {
 			return nil, err
 		}
 		s.Preferences = scanPrefs(prefs)
@@ -90,10 +90,10 @@ func (r *PGXSubjectRepository) GetAll(ctx context.Context) ([]Subject, error) {
 
 // GetByID retrieves a non-deleted subject by its ID.
 func (r *PGXSubjectRepository) GetByID(ctx context.Context, id string) (*Subject, error) {
-	query := "SELECT id, name, nick, bio, subject_type, preferences FROM subjects WHERE id = $1 AND deleted_at IS NULL"
+	query := "SELECT id, name, nick, bio, preferences FROM subjects WHERE id = $1 AND deleted_at IS NULL"
 	var subject Subject
 	var prefs []byte
-	err := r.dbpool.QueryRow(ctx, query, id).Scan(&subject.ID, &subject.Name, &subject.Nick, &subject.Bio, &subject.SubjectType, &prefs)
+	err := r.dbpool.QueryRow(ctx, query, id).Scan(&subject.ID, &subject.Name, &subject.Nick, &subject.Bio, &prefs)
 	if err != nil {
 		return nil, err
 	}
@@ -105,8 +105,8 @@ func (r *PGXSubjectRepository) GetByID(ctx context.Context, id string) (*Subject
 // written: it is fixed at creation.
 func (r *PGXSubjectRepository) Update(ctx context.Context, subject *Subject) error {
 	pv := prefsValue(subject.Preferences)
-	query := `UPDATE subjects SET name = $1, bio = $2, subject_type = $3, preferences = $4::jsonb WHERE id = $5`
-	_, err := r.dbpool.Exec(ctx, query, subject.Name, subject.Bio, subject.SubjectType, pv, subject.ID)
+	query := `UPDATE subjects SET name = $1, bio = $2, preferences = $3::jsonb WHERE id = $4`
+	_, err := r.dbpool.Exec(ctx, query, subject.Name, subject.Bio, pv, subject.ID)
 	return err
 }
 

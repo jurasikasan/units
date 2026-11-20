@@ -44,7 +44,7 @@ func TestCreateSubject_NickAlphabet(t *testing.T) {
 				repo.On("Create", mock.Anything, mock.Anything).Return(nil)
 			}
 			err := NewDefaultSubjectService(repo).CreateSubject(context.Background(),
-				&Subject{Name: "X", Nick: tc.nick, SubjectType: "human"})
+				&Subject{Name: "X", Nick: tc.nick})
 			if tc.ok {
 				assert.NoError(t, err)
 			} else {
@@ -57,13 +57,13 @@ func TestCreateSubject_NickAlphabet(t *testing.T) {
 
 func TestUpdateSubject_NickIsImmutable(t *testing.T) {
 	id := uuid.New()
-	stored := &Subject{ID: id, Name: "Alice", Nick: "alice", SubjectType: "human"}
+	stored := &Subject{ID: id, Name: "Alice", Nick: "alice"}
 
 	t.Run("a different nick is refused", func(t *testing.T) {
 		repo := new(mockSubjectRepository)
 		repo.On("GetByID", mock.Anything, id.String()).Return(stored, nil)
 		err := NewDefaultSubjectService(repo).UpdateSubject(context.Background(),
-			&Subject{ID: id, Name: "Alice", Nick: "alicia", SubjectType: "human"})
+			&Subject{ID: id, Name: "Alice", Nick: "alicia"})
 		assert.ErrorIs(t, err, ErrNickImmutable)
 		repo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
 	})
@@ -76,7 +76,7 @@ func TestUpdateSubject_NickIsImmutable(t *testing.T) {
 				return s.Nick == "alice" && s.Name == "Alice B."
 			})).Return(nil)
 			err := NewDefaultSubjectService(repo).UpdateSubject(context.Background(),
-				&Subject{ID: id, Name: "Alice B.", Nick: nick, SubjectType: "human"})
+				&Subject{ID: id, Name: "Alice B.", Nick: nick})
 			assert.NoError(t, err)
 			repo.AssertExpectations(t)
 		})

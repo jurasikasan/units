@@ -39,7 +39,7 @@ func RegisterRoutes(r *mux.Router, h *SubjectHandler) {
 // @Produce      json
 // @Param        subject body subject.Subject true "Subject details"
 // @Success      201  {object}  subject.Subject
-// @Failure      400  {string}  string "Invalid request body, an empty subject_type, preferences that are not an object, or the nick breaks its rules"
+// @Failure      400  {string}  string "Invalid request body, preferences that are not an object, or the nick breaks its rules"
 // @Failure      409  {string}  string "The nick is taken"
 // @Failure      500  {string}  string "Failed to create subject"
 // @Router       /subjects [post]
@@ -54,7 +54,7 @@ func (h *SubjectHandler) CreateSubject(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, ErrInvalidNick):
 			http.Error(w, err.Error(), http.StatusBadRequest)
-		case errors.Is(err, ErrEmptyType), errors.Is(err, ErrPreferencesNotObject):
+		case errors.Is(err, ErrPreferencesNotObject):
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		case errors.Is(err, ErrNickTaken):
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -139,7 +139,7 @@ func (h *SubjectHandler) GetSubjectByID(w http.ResponseWriter, r *http.Request) 
 // @Param        id   path      string  true  "Subject ID"
 // @Param        subject body subject.Subject true "Subject details"
 // @Success      200  {object}  subject.Subject
-// @Failure      400  {string}  string "Invalid subject ID format, Invalid request body, an empty subject_type, preferences that are not an object, or an attempt to change the nick"
+// @Failure      400  {string}  string "Invalid subject ID format, Invalid request body, preferences that are not an object, or an attempt to change the nick"
 // @Failure      404  {string}  string "Subject not found"
 // @Failure      500  {string}  string "Failed to update subject"
 // @Router       /subjects/{id} [put]
@@ -169,7 +169,7 @@ func (h *SubjectHandler) UpdateSubject(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, ErrNickImmutable):
 			http.Error(w, err.Error(), http.StatusBadRequest)
-		case errors.Is(err, ErrEmptyType), errors.Is(err, ErrPreferencesNotObject):
+		case errors.Is(err, ErrPreferencesNotObject):
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		case errors.Is(err, pgx.ErrNoRows):
 			http.Error(w, "Subject not found", http.StatusNotFound)

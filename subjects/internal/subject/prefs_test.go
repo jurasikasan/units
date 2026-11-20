@@ -33,7 +33,7 @@ func TestCreateSubject_PreferencesMustBeObject(t *testing.T) {
 	for _, p := range []string{`[]`, `"x"`, `42`, `true`} {
 		repo := new(mockSubjectRepository)
 		err := NewDefaultSubjectService(repo).CreateSubject(context.Background(),
-			&Subject{Nick: "alice", SubjectType: "ai", Preferences: json.RawMessage(p)})
+			&Subject{Nick: "alice", Preferences: json.RawMessage(p)})
 		assert.ErrorIs(t, err, ErrPreferencesNotObject, p)
 		repo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 	}
@@ -41,7 +41,7 @@ func TestCreateSubject_PreferencesMustBeObject(t *testing.T) {
 		repo := new(mockSubjectRepository)
 		repo.On("Create", mock.Anything, mock.Anything).Return(nil)
 		err := NewDefaultSubjectService(repo).CreateSubject(context.Background(),
-			&Subject{Nick: "alice", SubjectType: "ai", Preferences: json.RawMessage(p)})
+			&Subject{Nick: "alice", Preferences: json.RawMessage(p)})
 		assert.NoError(t, err, p)
 	}
 }

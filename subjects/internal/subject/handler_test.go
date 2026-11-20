@@ -63,7 +63,7 @@ func TestCreateSubject(t *testing.T) {
 	}{
 		{
 			name: "happy path",
-			body: `{"name":"Alice","subject_type":"HUMAN"}`,
+			body: `{"name":"Alice"}`,
 			setupMock: func(s *mockSubjectService) {
 				s.On("CreateSubject", mock.Anything, mock.MatchedBy(func(sub *Subject) bool {
 					return sub.Name == "Alice"
@@ -251,7 +251,7 @@ func TestUpdateSubject(t *testing.T) {
 		{
 			name: "happy path",
 			id:   subjID.String(),
-			body: `{"name":"Updated","subject_type":"AI"}`,
+			body: `{"name":"Updated"}`,
 			setupMock: func(s *mockSubjectService) {
 				s.On("UpdateSubject", mock.Anything, mock.MatchedBy(func(sub *Subject) bool {
 					return sub.ID == subjID && sub.Name == "Updated"

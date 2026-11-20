@@ -128,7 +128,7 @@
                         }
                     },
                     "400": {
-                        "description": "Invalid request body, an empty subject_type, preferences that are not an object, or the nick breaks its rules",
+                        "description": "Invalid request body, preferences that are not an object, or the nick breaks its rules",
                         "schema": {
                             "type": "string"
                         }
@@ -235,7 +235,7 @@
                         }
                     },
                     "400": {
-                        "description": "Invalid subject ID format, Invalid request body, an empty subject_type, preferences that are not an object, or an attempt to change the nick",
+                        "description": "Invalid subject ID format, Invalid request body, preferences that are not an object, or an attempt to change the nick",
                         "schema": {
                             "type": "string"
                         }
@@ -324,9 +324,6 @@
                 "preferences": {
                     "description": "Preferences is a JSON object this service stores and returns as it came.\nIts keys belong to whoever reads them; the registry never looks inside.",
                     "type": "object"
-                },
-                "subject_type": {
-                    "type": "string"
                 }
             }
         }

@@ -25,9 +25,6 @@ var (
 	ErrNickTaken = errors.New("nick is taken")
 	// ErrNickImmutable: an update tried to change the nick.
 	ErrNickImmutable = errors.New("nick cannot be changed once set")
-	// ErrEmptyType: subject_type is TEXT NOT NULL and its values are the
-	// deployment's (human, ai, …); an empty one is refused, not stored.
-	ErrEmptyType = errors.New("subject_type is required")
 	// ErrPreferencesNotObject: preferences, when present, is a JSON object.
 	ErrPreferencesNotObject = errors.New("preferences must be a JSON object")
 )
@@ -53,9 +50,6 @@ func NewDefaultSubjectService(repo SubjectRepository) *DefaultSubjectService {
 
 // CreateSubject handles the logic for creating a new subject.
 func (s *DefaultSubjectService) CreateSubject(ctx context.Context, subject *Subject) error {
-	if subject.SubjectType == "" {
-		return ErrEmptyType
-	}
 	if !prefsIsObject(subject.Preferences) {
 		return ErrPreferencesNotObject
 	}
@@ -81,9 +75,6 @@ func (s *DefaultSubjectService) GetSubjectByID(ctx context.Context, id string) (
 // one it carries must be the stored one, so a client that edits it learns that
 // it did not happen instead of getting a 200 for a change that was dropped.
 func (s *DefaultSubjectService) UpdateSubject(ctx context.Context, subject *Subject) error {
-	if subject.SubjectType == "" {
-		return ErrEmptyType
-	}
 	if !prefsIsObject(subject.Preferences) {
 		return ErrPreferencesNotObject
 	}

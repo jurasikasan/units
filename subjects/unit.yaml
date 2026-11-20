@@ -3,7 +3,7 @@
 
 unit: subjects
 kind: service
-summary: The registry of subjects — who exists, their permanent nick, type and free-form preferences. Own database; each compose runs its own.
+summary: The registry of subjects — who exists, their permanent nick and free-form preferences. Own database; each compose runs its own.
 contract: CONTRACT.md
 maturity: probe
 

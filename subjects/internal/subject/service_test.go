@@ -53,18 +53,18 @@ func TestDefaultSubjectService_CreateSubject(t *testing.T) {
 	}{
 		{
 			name:      "generates uuid",
-			input:     &Subject{Name: "Alice", Nick: "alice", SubjectType: "HUMAN"},
+			input:     &Subject{Name: "Alice", Nick: "alice"},
 			checkUUID: true,
 		},
 		{
 			name:      "ignoring incoming id",
-			input:     &Subject{Name: "Carol", Nick: "carol", SubjectType: "human"},
+			input:     &Subject{Name: "Carol", Nick: "carol"},
 			checkUUID: true,
 			clientID:  uuid.New(),
 		},
 		{
 			name:    "repo error propagated",
-			input:   &Subject{Name: "Bob", Nick: "bob", SubjectType: "ai"},
+			input:   &Subject{Name: "Bob", Nick: "bob"},
 			repoErr: errors.New("db error"),
 			wantErr: true,
 		},

@@ -1,7 +1,7 @@
 # subjects — contract
 
 The registry of subjects: who exists in a deployment, how they are addressed and
-what they are. A subject is an identity — a person, an AI agent, a service —
+who they say they are. A subject is a character, every one like any other —
 not an account (that is auth's) and not a chat member (that is whatever keeps
 the conversation). Who drives a subject right now (a model, a keyboard, a phone
 call) is the runtime's business, not the registry's.
@@ -14,15 +14,14 @@ call) is the runtime's business, not the registry's.
 | `name` | display name |
 | `nick` | how people and models address the subject: `^[a-z][a-z0-9_-]{1,31}$`, unique across every subject ever created (deleted ones included), set once and never changed |
 | `bio` | who the subject is, in free text |
-| `subject_type` | what the subject is, in the deployment's own words (`human`, `ai`, …); required, never empty |
 | `preferences` | a JSON object stored and returned as it came; its keys belong to whoever reads them |
 
 The full shape is the swagger spec in `docs/`.
 
 ## 2. Routes
 
-- `POST /subjects` — 201 with the subject; 400 on an empty type, preferences
-  that are not an object, or a nick that breaks its rules; 409 when the nick is
+- `POST /subjects` — 201 with the subject; 400 on preferences that are not an
+  object or a nick that breaks its rules; 409 when the nick is
   taken.
 - `GET /subjects` — every subject not deleted, newest first.
 - `GET /subjects/{id}` — 404 when there is none or it is deleted.
