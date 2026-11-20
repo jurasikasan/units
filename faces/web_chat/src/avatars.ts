@@ -57,14 +57,12 @@ export function useAvatars(fetcher: typeof fetch) {
 // Every avatar is a body like any other: each has an ear (`ear`) and a
 // mouth with its voice (`mouth`, `voice`), whoever is in it. Which model
 // thinks for it is not the body's: that is the brain holding its reins
-// now, picked in the composer for the run (src/Brain.tsx) until a driver
-// holds it (UNIT-60).
+// (a driver, drivers/model).
 //
-// Until the page knows whom the principal acts as and who answered each
-// entry (UNIT-59), the classic chat is wired here: the principal speaks
-// as the avatar named by its login (the first, when none is), and an
-// answer is heard in the voice of the first other one. Nothing in a nick
-// says what an avatar is for.
+// The page acts as the avatar named by its login (the first, when none
+// is): what the person says goes into threads as that avatar, and a new
+// chat is opened with the first other one, whose mouth and voice read an
+// answer aloud. Nothing in a nick says what an avatar is for.
 export type Wiring = { me?: Avatar; other?: Avatar }
 
 export function wiring(avatars: Avatar[] | undefined, login: string | undefined): Wiring {
@@ -75,7 +73,7 @@ export function wiring(avatars: Avatar[] | undefined, login: string | undefined)
 
 // picks is what the mic, read-aloud and a call are asked with: my ear, the
 // other's mouth and voice. Nothing set is the agent's own.
-export function picks({ me, other }: Wiring): Omit<SoundPick, 'chat'> {
+export function picks({ me, other }: Wiring): SoundPick {
   const p = other?.preferences ?? {}
   return { tts: p.mouth, voice: p.voice, stt: me?.preferences?.ear }
 }

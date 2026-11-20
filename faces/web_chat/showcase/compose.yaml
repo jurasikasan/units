@@ -1,27 +1,81 @@
 name: web-chat-showcase
 
+# The page and the door into the world it reads: reins, with the registry
+# (subjects) and the journal (threads) behind it, each on its own Postgres,
+# and the bus threads announces on. Nobody answers here: what alice says as
+# alice is there to read, as any of her avatars would see it.
+x-pg: &pg
+  image: postgres:16-alpine
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+    interval: 1s
+    retries: 30
+
 services:
   # The page, as built by its Dockerfile.
   face:
     build: ..
     image: units-faces-web-chat:local
 
-  # Any AG-UI agent will do; this one echoes, so the face is shown on its own.
-  agent:
-    image: python:3.13-alpine
-    command: ["python3", "-u", "/echo_agent.py"]
-    volumes:
-      - ./echo_agent.py:/echo_agent.py:ro
-    ports:
-      - 127.0.0.1:${AGENT_PORT:-8089}:8089   # for `npm run dev`
+  bus:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      retries: 30
+  subjects-db:
+    <<: *pg
+    environment: {POSTGRES_USER: subjects, POSTGRES_PASSWORD: subjects, POSTGRES_DB: subjects}
+  subjects:
+    build: ../../../subjects
+    environment:
+      DATABASE_URL: postgres://subjects:subjects@subjects-db:5432/subjects?sslmode=disable
+    depends_on: {subjects-db: {condition: service_healthy}}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/ready"]
+      interval: 1s
+      retries: 30
+  threads-db:
+    <<: *pg
+    environment: {POSTGRES_USER: threads, POSTGRES_PASSWORD: threads, POSTGRES_DB: threads}
+  threads:
+    build: ../../../threads
+    environment:
+      DATABASE_URL: postgres://threads:threads@threads-db:5432/threads?sslmode=disable
+      REDIS_ADDR: bus:6379
+    depends_on: {threads-db: {condition: service_healthy}, bus: {condition: service_healthy}}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/ready"]
+      interval: 1s
+      retries: 30
+  reins-db:
+    <<: *pg
+    environment: {POSTGRES_USER: reins, POSTGRES_PASSWORD: reins, POSTGRES_DB: reins}
+  reins:
+    build: ../../../reins
+    environment:
+      DATABASE_URL: postgres://reins:reins@reins-db:5432/reins?sslmode=disable
+      SUBJECTS_URL: http://subjects:8083
+      THREADS_URL: http://threads:8085
+      REDIS_ADDR: bus:6379
+    depends_on:
+      reins-db: {condition: service_healthy}
+      subjects: {condition: service_healthy}
+      threads: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8087/ready"]
+      interval: 1s
+      retries: 30
 
   front:
     image: nginx:1.30-alpine
     volumes:
       - ./site.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
-      - 127.0.0.1:${WEB_CHAT_PORT:-8080}:80
-    depends_on: [face, agent]
+      - 127.0.0.1:${WEB_CHAT_PORT:-8080}:80   # the page; also what `npm run dev` sends /api to
+    depends_on:
+      face: {condition: service_started}
+      reins: {condition: service_healthy}
 
   demo:
     image: curlimages/curl:8.11.1

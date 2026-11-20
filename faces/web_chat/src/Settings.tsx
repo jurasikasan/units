@@ -34,7 +34,7 @@ type Props = {
 // avatars on the left, the one chosen on the right. The nick is shown and
 // never changes; name, bio and preferences are saved to reins. Every
 // avatar has the same: an ear, a mouth and its voice, whoever is in it.
-// Which model thinks is not the body's (src/Brain.tsx).
+// Which model thinks is not the body's: the brain holding its reins is.
 export function Settings({ open, onOpenChange, avatars, first, offers, save }: Props) {
   const [chosen, setChosen] = useState<string>()
   const shown = avatars.find((a) => a.id === chosen) ?? first ?? avatars[0]

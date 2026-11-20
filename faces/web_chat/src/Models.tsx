@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { useAui } from '@assistant-ui/react'
 import type { ModelOption } from '@/upstream/components/assistant-ui/elements/model-selector'
 import { ModelSelectorContent, ModelSelectorRoot, ModelSelectorTrigger } from '@/upstream/components/assistant-ui/elements/model-selector'
 
@@ -10,11 +9,10 @@ const MODELS = '/api/v1/models'
 // not said).
 export type Offer = { id: string; mode: string; voices: string[] }
 
-// What a run, the mic, read-aloud and a call are asked with: the chat
-// model from the composer (src/Brain.tsx), the rest from the avatars'
-// bodies (src/avatars.ts); the adapters read it at each call. Empty: the
-// agent's own.
-export type SoundPick = { chat?: string; stt?: string; tts?: string; voice?: string }
+// What the mic, read-aloud and a call are asked with: the avatars' bodies
+// (src/avatars.ts); the adapters read it at each call. Empty: the agent's
+// own.
+export type SoundPick = { stt?: string; tts?: string; voice?: string }
 
 // useModels is what the agent offers; [] when nothing answers there, and
 // then nothing is picked.
@@ -48,17 +46,4 @@ export function Pick({ id, label, ids, value, onChange, variant = 'outline' }: {
       <ModelSelectorContent />
     </ModelSelectorRoot>
   )
-}
-
-// RunModel puts the chat model into the runtime's model context, as
-// assistant-ui's own model selector does: the AG-UI runtime sends it with
-// each run as forwardedProps.modelName. None: the agent's own.
-export function RunModel({ name }: { name?: string }) {
-  const api = useAui()
-  useEffect(() => {
-    if (!name) return
-    const config = { config: { modelName: name } }
-    return api.modelContext.register({ getModelContext: () => config })
-  }, [api, name])
-  return null
 }

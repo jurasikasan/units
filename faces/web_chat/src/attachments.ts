@@ -8,11 +8,10 @@ import {
 
 // What a person can attach, and how it leaves: assistant-ui's own adapters
 // for pictures (a data URL) and text files (the text, naming the file), and
-// a PDF as a file part. The AG-UI runtime sends them as InputContent parts
-// (image, document) with the message; the whole conversation goes with each
-// run, so a file goes inline every time.
+// a PDF as a file part. src/world.ts makes them threads' blocks (image, text,
+// file), the bytes inline as data: URLs.
 
-// MAX_FILE is the largest file taken. The mind takes runs of 16 MB, and
+// MAX_FILE is the largest file taken. reins takes entries of 16 MB, and
 // base64 makes a file a third larger.
 export const MAX_FILE = 10 * 1024 * 1024
 

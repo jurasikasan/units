@@ -3,9 +3,9 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
-// `npm run dev` puts the page in front of whatever answers AG-UI at
-// /api/run: the face's own showcase by default, a lab with API_URL.
-const api = process.env.API_URL ?? 'http://localhost:8089'
+// `npm run dev` puts the page in front of whatever answers its /api: the
+// face's own showcase by default, a lab with API_URL.
+const api = process.env.API_URL ?? 'http://localhost:8080'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

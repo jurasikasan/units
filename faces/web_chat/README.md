@@ -1,22 +1,24 @@
 # faces/web_chat
 
-A chat page: the conversation and a box to type in. It speaks
-[AG-UI](https://docs.ag-ui.com) to whatever answers at `/api/run` on the same
-origin, sending the whole conversation with each run and showing the events
-that come back as they arrive. It has no server and decides nothing: static
-files.
+A chat page: the conversation and a box to type in. Its chats are threads
+in the world, read and written through [reins](../../reins/CONTRACT.md) on
+the same origin: what the person says is appended there as their avatar,
+and everything said in their threads, by anyone, comes back on one stream
+as it is said. It has no server, keeps nothing and asks no model itself:
+static files.
 
-Built from [assistant-ui](https://www.assistant-ui.com) (MIT): its AG-UI
-runtime (`@assistant-ui/react-ag-ui`) from npm, and its chat components from
-its registry. React, Vite, Tailwind.
+Built from [assistant-ui](https://www.assistant-ui.com) (MIT): its external
+store runtime (`@assistant-ui/react`) from npm, fed from reins, and its chat
+components from its registry. React, Vite, Tailwind.
 
 ## Ours and upstream's
 
 | | |
 |---|---|
-| `src/App.tsx`, `src/main.tsx`, `index.html` | ours: the runtime wired to `/api/run`, the theme |
-| `src/Sidebar.tsx`, `src/threads.ts` | ours: the sidebar (upstream's thread list, who is logged in at its foot) and the chats it lists, kept in memory |
-| `src/Settings.tsx`, `src/avatars.ts`, `src/Models.tsx`, `src/Brain.tsx` | ours: the settings (the avatars, their profiles and bodies), the avatars from reins and the classic chat's wiring, the models offered, the composer's chat model |
+| `src/App.tsx`, `src/main.tsx`, `index.html` | ours: the external store runtime wired to the world, the theme |
+| `src/world.ts` | ours: the threads, their entries and the stream from reins, entries as messages and messages as threads' blocks |
+| `src/Sidebar.tsx`, `src/Composer.tsx` | ours: the sidebar (upstream's thread list, who is logged in at its foot), the composer's call buttons |
+| `src/Settings.tsx`, `src/avatars.ts`, `src/Models.tsx` | ours: the settings (the avatars, their profiles and bodies), the avatars from reins and whom the page acts as, the models offered |
 | `src/upstream/` | **generated**: what assistant-ui's registry gives today (the thread, its parts, shadcn's base components, the stylesheet). Never edited by hand |
 | `patches/` | our changes to upstream, each with why; applied on top of it |
 | `upstream.sh` | `src/upstream` again from the registry, patches on top |
@@ -29,6 +31,8 @@ longer applies says upstream changed where we had. A change of ours to
 upstream's code is a new patch, never an edit in `src/upstream`; a component
 of our own goes outside it, into a `Thread` slot (`components={{
 AssistantMessage, Welcome, ComposerExtra }}`) where upstream offers one.
+`upstream.sh` may bring `@assistant-ui/react-ag-ui` back into
+`package.json`: the face no longer uses it, so take it out again.
 
 `src/upstream` is about 5,600 lines nobody here wrote: read it when the work
 is about the UI's edge, not to learn the face.
@@ -37,7 +41,9 @@ is about the UI's edge, not to learn the face.
 
 | | |
 |---|---|
-| `POST /api/run` | an AG-UI agent: `RunAgentInput` in, events out as SSE; text messages are what it shows now |
+| `GET /api/reins/me/threads`, `POST /api/reins/me/threads` | [reins](../../reins/CONTRACT.md): the threads the person's avatars are in, and a new one opened |
+| `GET`, `POST /api/reins/threads/{id}/entries` | reins: a thread read page by page, and what the person says appended as their avatar |
+| `GET /api/reins/me/stream` | reins: server-sent events, each new entry of those threads (`entry`) and the pieces of a reply being written (`writing`) |
 | `GET /api/v1/models` | OpenAI's list of models, with `mode` and a speech model's `voices` beside OpenAI's fields; each mode's first is the agent's own. The preferences show in the settings only when this answers |
 | `GET /api/reins/me/subjects`, `PATCH /api/reins/subjects/{id}` | [reins](../../reins/CONTRACT.md): the avatars the person steers, and a change of one's name, bio or preferences. The settings show only when this answers |
 | `POST /api/v1/audio/transcriptions` | OpenAI's: a recording in, `{text}` out. The mic shows only when this is answered |
@@ -45,7 +51,7 @@ is about the UI's edge, not to learn the face.
 | `GET /api/v1/realtime` | OpenAI's Realtime API, a WebSocket: a call. The call button shows only when this is answered |
 | `GET /api/v1/userinfo` | OpenID Connect's UserInfo claims (`sub`, `preferred_username`, `name`, `email`), and `end_session_endpoint` beside them: who is logged in, and where to log out. Shown only when this is answered |
 
-A `401` from `/api/run` reloads the page: whatever door stands in front gets
+A `401` from any of these reloads the page: whatever door stands in front gets
 to ask the person to log in. The face knows no door of its own.
 
 ## Who is logged in
@@ -88,31 +94,49 @@ contract. The subject's type is not read or shown.
 
 ## Chats
 
-A sidebar lists the page's chats, as assistant-ui's `threadlist-sidebar`
-does (shadcn's sidebar and upstream's thread list, put together in
-`src/Sidebar.tsx` without that element's own branding): a new one, search,
-switching, rename, archive, delete. Each chat is an AG-UI thread: its id is
-the `threadId` of its runs, and only its own messages go with them. They
-live in the page's memory (`src/threads.ts`, through the AG-UI runtime's
-`threadList` adapter) and are gone on reload, until a store holds them.
-Collapsed by the button at the top left, a sheet
-on a phone.
+Each chat is a thread in `threads`, read and written through reins
+(`src/world.ts`), fed to assistant-ui's external store runtime
+(`useExternalStoreRuntime`) and its thread list adapter. The page keeps
+nothing: a reload reads it all again, and the newest chat is shown.
+
+- **Acting as.** The page acts as the avatar named by the login (the first,
+  when none is; `src/avatars.ts`). What the person says is appended as that
+  avatar (`POST /api/reins/threads/{id}/entries`); a message is shown as the
+  person's when its sender is that avatar, and on the other side when it is
+  anyone else's. A new chat is not opened until something is said in it:
+  then a thread with the page's avatar and the first other one
+  (`POST /api/reins/me/threads`).
+- **Following.** One stream (`GET /api/reins/me/stream`, an `EventSource`)
+  brings each entry of any of the person's threads as it is appended, by
+  whoever: another tab, another device, the driver holding the other
+  avatar's reins. It is opened before the threads are read, so nothing
+  said in between is missed; an entry had twice is one `seq`. A dropped
+  stream comes back from its last id by itself (`Last-Event-ID`), one that
+  cannot (a 502) is opened again from it a few seconds later, and a 401
+  reloads the page. A `reset` (the position is gone: the bus came back
+  empty) reads everything again.
+- **A reply being written** comes as `writing` pieces: shown as a message
+  of the other side while it grows, its reasoning apart, and gone when its
+  entry comes. A reply that failed is said there, in the writer's words,
+  until the page is reloaded or the person says something again: it was
+  never journaled. Composing is never held while someone writes.
+- **The list.** A sidebar lists the chats, as assistant-ui's
+  `threadlist-sidebar` does (shadcn's sidebar and upstream's thread list,
+  put together in `src/Sidebar.tsx` without that element's own branding):
+  a new one, search, switching. A chat is called by its name in `threads`,
+  or the start of its first words. Rename, archive and delete are not
+  there yet: reins has no route for them.
+
+Collapsed by the button at the top left, a sheet on a phone.
 
 ## Which model, ear, mouth and voice
 
-**The chat model** is the brain holding the reins now, not a property of
-any avatar: a picker in the composer (`src/Brain.tsx`), assistant-ui's
-model selector among the chat models offered, the agent's own first. The
-pick goes into the runtime's model context, as assistant-ui's own model
-selector puts it (`src/Models.tsx`, `RunModel`), which the AG-UI runtime
-sends with each run as `forwardedProps.modelName`; a call names it as
-`chat_model`. It lasts while the page is open, until a driver holds the
-reins.
+**The chat model** is not the page's: it is the brain holding the other
+avatar's reins (a driver, `drivers/model`, with the model it was given),
+not a property of any avatar's body. The page picks none.
 
-**Ear, mouth and voice** are the avatars' bodies, wired for the classic
-chat until the page knows whom the principal acts as and who answered
-each entry (`src/avatars.ts`): the principal speaks as the avatar named
-by its login (the first, when none is) and hears the first other one.
+**Ear, mouth and voice** are the avatars' bodies (`src/avatars.ts`): the
+page acts as the avatar named by its login and hears the first other one.
 
 - **Ear** (mine, `ear`): the mic's transcription `model` (before the
   sound).
@@ -132,11 +156,15 @@ settings, and the agent's own.
 
 A picture, a text file or a PDF can go with a message (`src/attachments.ts`):
 assistant-ui's own adapters for pictures (a `data:` URL) and text files (the
-text, naming the file), and ours for a PDF (a file part). The AG-UI runtime
-sends them as `image` and `document` parts, or text, with the message, and,
-since the whole conversation goes with each run, with every run after. A
-file over 10 MB is refused when attached: the attachment shows an error,
-its reason when pointed at, and nothing is sent while it is there.
+text, naming the file), and ours for a PDF (a file part). Into the journal
+they go as `threads`' blocks (`src/world.ts`): a picture as an `image` block
+whose `url` is its `data:` URL, with the bytes' `sha256`; a text file as the
+text assistant-ui made of it (`<attachment name="…">…</attachment>`); a PDF
+as a `file` block, url, sha256 and name. Read back, they are the message's
+attachments again. Their bytes live inline in the journal until they are
+kept elsewhere (artifact_store, a later task). A file over 10 MB is refused
+when attached: the attachment shows an error, its reason when pointed at,
+and nothing is sent while it is there.
 
 ## Sound, turn by turn
 
@@ -164,11 +192,13 @@ browser; the answer's sound plays as it comes. The page asks for the
 session's formats, the model's own turn detection and a transcript of what
 was said, and names, when the call starts, my avatar's ear as
 `audio.input.transcription.model`, the other's voice as
-`audio.output.voice` (`<mouth>_<voice>`, `piper_irina`), and the
-composer's chat model as `chat_model` (ours: the schema's model is the realtime model itself). A
-realtime model built of parts (`minds/realtime`) answers with those; one
-that is a single model ignores them. What each side said lands in the
-thread as a voice conversation, the answer word by word. While the call
+`audio.output.voice` (`<mouth>_<voice>`, `piper_irina`); no `chat_model`,
+so a realtime model built of parts (`minds/realtime`) thinks with its own.
+A realtime model built of parts answers with those; one that is a single
+model ignores them. What each side said shows in the chat as a voice
+conversation, the answer word by word, **for as long as the page is open:
+a call's transcripts are not journaled yet** (UNIT-52), so they are not in
+the thread, not seen elsewhere and gone on reload. While the call
 goes: mute (nothing is sent), hang up. An interruption is taken from
 `input_audio_buffer.speech_started` while an answer plays, or from the
 answer's `response.done` before its `output_audio.done` (all a model behind
@@ -186,14 +216,16 @@ docker compose up -d --build
 docker compose run --rm demo
 ```
 
-Then http://localhost:8080. Behind the page is an agent of twenty lines that
-says back what it was told (`showcase/echo_agent.py`): any AG-UI agent will
-do, and `minds/assistant` is one.
+Then http://localhost:8080. Behind the page are reins, subjects, threads and
+a bus, and a front that lets everyone in as `alice` the way a door would.
+Nobody answers there: what alice says is kept, comes back on the stream to
+every tab she has open, and is there after a reload. The demo does the
+same through the front with curl.
 
 ## Developing
 
 `npm run dev` serves the page with hot reload and sends `/api` to the
-showcase's agent (`http://localhost:8089`), or to `API_URL`. `./check.sh`:
+showcase's front (`http://localhost:8080`), or to `API_URL`. `./check.sh`:
 install, typecheck and build (upstream included: a type error there is news
 too), lint (ours only), the manifest.
 
@@ -201,7 +233,10 @@ Light or dark follows the system's setting, and changes with it.
 
 ## Not yet
 
-- One conversation, kept in the page: a reload forgets it. A list of threads
-  comes when there is somewhere to keep them.
+- Acting as another of one's avatars from the page (only the login's is
+  used), renaming, archiving or deleting a chat, inviting someone else's
+  avatar, stopping a reply being written.
+- A user message's Edit button shows, but nothing edits an entry: a
+  correction is a new one.
 - The bundle is 1.6 MB (460 KB gzipped), mostly what assistant-ui brings for
   markdown, attachments and tools.

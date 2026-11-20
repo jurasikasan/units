@@ -1,20 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { HttpAgent } from '@ag-ui/client'
-import { AssistantRuntimeProvider } from '@assistant-ui/react'
-import { useAgUiRuntime } from '@assistant-ui/react-ag-ui'
+import { AssistantRuntimeProvider, useExternalStoreRuntime, type ThreadMessageLike } from '@assistant-ui/react'
 import { Thread } from '@/upstream/components/assistant-ui/elements/thread.aui'
 import { TooltipProvider } from '@/upstream/components/ui/tooltip'
 import { attachments } from '@/attachments'
 import { SpeechEndpointAdapter, TranscriptionDictationAdapter } from '@/voice'
 import { VoiceNotice } from '@/VoiceNotice'
 import { RealtimeCallAdapter } from '@/realtime'
-import { RunModel, useModels, type SoundPick } from '@/Models'
+import { useModels, type SoundPick } from '@/Models'
 import { ChatSidebar } from '@/Sidebar'
 import { Me, useMe } from '@/Me'
 import { Settings } from '@/Settings'
 import { picks, useAvatars, wiring } from '@/avatars'
-import { BrainContext, ComposerRow } from '@/Brain'
-import { useThreads } from '@/threads'
+import { CallContext, ComposerRow } from '@/Composer'
+import { useWorld } from '@/world'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/upstream/components/ui/sidebar'
 
 // A 401 means the door in front no longer knows who this is: reloading the
@@ -57,7 +55,6 @@ function useVoice(sound: SoundPick) {
         speech: mouth ? new SpeechEndpointAdapter(SPEAK, () => ({ model: sound.tts, voice: sound.voice })) : undefined,
         call: line && RealtimeCallAdapter.isSupported()
           ? new RealtimeCallAdapter(CALL, () => ({
-              chat: sound.chat,
               stt: sound.stt,
               voice: sound.tts && sound.voice ? `${sound.tts}_${sound.voice}` : undefined,
             }))
@@ -71,47 +68,54 @@ function useVoice(sound: SoundPick) {
   return voice
 }
 
-// The face keeps its conversations in memory, and sends the current one whole with each
-// run to whatever answers AG-UI at /api/run, attachments included. The
-// page's chats sit in a sidebar (src/Sidebar.tsx, src/threads.ts), who is
-// logged in at its foot (src/Me.tsx), which opens the settings: the
-// avatars the principal steers, from reins (src/avatars.ts,
-// src/Settings.tsx). Their bodies' ears and voices, among the models
-// offered at /api/v1/models (src/Models.tsx), are what the mic, read-aloud
-// and a call are asked with; the model that thinks is picked in the
-// composer (src/Brain.tsx). Sound goes to OpenAI's audio API on the same
-// origin (src/voice.ts), and a call to its Realtime API there
-// (src/realtime.ts).
+const asIs = (m: ThreadMessageLike) => m
+
+// The face shows the world as reins lets the person see it (src/world.ts):
+// the threads their avatars are in, read from reins, followed as one stream,
+// and what they say appended there as the avatar named by their login. It
+// keeps nothing: assistant-ui's external store runtime is fed from reins,
+// and a reload reads it all again. Who answers is whoever holds the other
+// avatar's reins (a driver, or a person); the face never asks a model
+// itself. The chats sit in a sidebar (src/Sidebar.tsx), who is logged in at
+// its foot (src/Me.tsx), which opens the settings: the avatars the
+// principal steers, from reins (src/avatars.ts, src/Settings.tsx). Their
+// bodies' ears and voices, among the models offered at /api/v1/models
+// (src/Models.tsx), are what the mic, read-aloud and a call are asked
+// with. Sound goes to OpenAI's audio API on the same origin (src/voice.ts),
+// and a call to its Realtime API there (src/realtime.ts).
 export default function App() {
-  const agent = useMemo(() => new HttpAgent({ url: '/api/run', fetch: fetchOrLogIn, threadId: crypto.randomUUID() }), [])
   const sound = useMemo<SoundPick>(() => ({}), [])
   const { dictation, speech, call } = useVoice(sound)
   const offers = useModels(fetchOrLogIn)
   const me = useMe(fetchOrLogIn)
   const { avatars, save } = useAvatars(fetchOrLogIn)
   const wired = wiring(avatars, me?.preferred_username)
-  const [brain, setBrain] = useState<string>()
-  // The adapters read sound at each call; a change saved in the settings,
-  // or a brain picked in the composer, is in the next request.
-  Object.assign(sound, picks(wired), { chat: brain })
-  const chats = offers.filter((o) => o.mode === 'chat').map((o) => o.id)
+  // The adapters read sound at each call; a change saved in the settings is
+  // in the next request.
+  Object.assign(sound, picks(wired))
   const [settings, setSettings] = useState(false)
-  const threads = useThreads(agent)
-  const runtime = useAgUiRuntime({ agent, adapters: { attachments, dictation, speech, voice: call, threadList: threads.adapter } })
-  const { bind } = threads
-  useEffect(() => bind(runtime), [bind, runtime])
+  const world = useWorld(fetchOrLogIn, wired.me, wired.other, avatars)
+  const runtime = useExternalStoreRuntime({
+    messages: world.messages,
+    convertMessage: asIs,
+    // People talk over each other: a reply being written never holds the
+    // composer.
+    isRunning: false,
+    isLoading: !world.ready,
+    onNew: world.say,
+    adapters: { attachments, dictation, speech, voice: call, threadList: world.threadList },
+  })
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <TooltipProvider>
         <SidebarProvider>
-          <RunModel name={brain} />
           <ChatSidebar me={me && <Me me={me} onSettings={avatars ? () => setSettings(true) : undefined} />} />
           <SidebarInset className="h-dvh">
             <SidebarTrigger className="absolute top-2 left-2 z-10" />
-            <BrainContext.Provider value={{ ids: chats, value: brain, set: setBrain, call: !!call }}>
+            <CallContext.Provider value={!!call}>
               <Thread components={{ ComposerExtra: ComposerRow }} />
-            </BrainContext.Provider>
+            </CallContext.Provider>
           </SidebarInset>
         </SidebarProvider>
         {avatars && <Settings open={settings} onOpenChange={setSettings} avatars={avatars} first={wired.me} offers={offers} save={save} />}
