@@ -15,6 +15,8 @@ user's:
 | `#plain_text_response` | `plain_text_response pass` |
 | `#fail_429`, `#fail_500` | that status with an OpenAI error body |
 | `#hang` | no byte for 2 s, then a normal answer |
+| `#late` | no byte for 20 s, then `#hang`'s answer: a reply stopped before it said anything (stream only) |
+| `#slow` | `Counting slowly: one, two, … ten.`, a few words at a time over 30 s: a reply to stop while it is written (stream only) |
 | `#tool_sum` | a call of `everything__get-sum` with `{"a": 2, "b": 3}`, in fragments, its id holding odd characters as Gemini's do (stream only) |
 | `#think_glm` | reasoning in GLM's shape (`reasoning_content` and the same as `reasoning`), then `Thought it over.` (stream only) |
 | `#think_gemini` | reasoning in Gemini's shape, then a call of `everything__get-sum` with thought signatures (`FAKE_SIG_1`) on the message, on the call and in its id; after the tool, when the signatures came back with the call, `The tool said: …; its signature came back.` and a new signature (`FAKE_SIG_2`), no reasoning shown (stream only) |

@@ -3,13 +3,17 @@
 # browser a person logs in, says something and asks what they said first,
 # and the answer carries it back (the fake model: the page writes into
 # threads through reins, the driver holding <login>-assistant answers there
-# through mind and LiteLLM, its pieces streamed); two browsers see each
-# other's words without a reload; a reload keeps the conversation; a call goes through the
+# through mind and LiteLLM, its pieces streamed); on the first login the
+# assistant greets first; a reply is stopped, kept as far as it went; two
+# browsers of the person, one taking the assistant's reins, talk and see
+# each other's words without a reload, then the assistant is handed to the
+# fake profile, which answers, and taken back; a reload keeps the conversation; a call goes through the
 # mind to the fake realtime model and back, interrupted, muted and hung up,
 # in the flow Gemini sent, in the schema's whole set, and on our own
 # (cascade: hearing, the fake model, speaking), every event in the mind's log; and a model answering
 # 429 or 500 ends one with the mind's error on the page;
-# on a model declared to take words only, a picture is refused in words;
+# handed to a profile whose model takes words only, a picture is refused
+# in words; the browsers gone past the grace, nobody holds the person's avatar;
 # the foot of the sidebar shows who is logged in and its log-out ends the
 # session; the chat is closed to nobody; after the first login the person
 # steers their two subjects (reins, subjects), the same ones on the next
@@ -44,7 +48,8 @@ sed -e "s|^LAB_URL=.*|LAB_URL=https://lab.localhost:$port|" \
     -e "s|^LAB_PORT=.*|LAB_PORT=$port|" \
     -e "s|^LAB_MAILPIT_PORT=.*|LAB_MAILPIT_PORT=$(free_port)|" \
     -e "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=mailpit,everything|" \
-    -e "s|^LAB_MCP_SERVERS=.*|LAB_MCP_SERVERS=everything=http://everything:3001/mcp|" .env.example > "$work/env"
+    -e "s|^LAB_MCP_SERVERS=.*|LAB_MCP_SERVERS=everything=http://everything:3001/mcp|" \
+    -e "s|^LAB_HOLD_GRACE=.*|LAB_HOLD_GRACE=45s|" .env.example > "$work/env"
 export COMPOSE_ENV_FILES="$work/env" COMPOSE_PROJECT_NAME="lab-check-$$"
 first_user=$(sed -n 's/^LAB_FIRST_USER=//p' .env.example)
 first_password=$(sed -n 's/^LAB_FIRST_PASSWORD=//p' .env.example)
@@ -52,6 +57,17 @@ trap 'docker compose --profile "*" down -v --remove-orphans >/dev/null 2>&1 || t
 
 add_carol() { echo carol-lab | docker compose run --rm --no-deps -T gate gate-user add carol carol@example.com Carol; }
 backup() { ./backup.sh "$work/backups" > "$work/archive"; }
+# The browsers are closed: past the grace (45 s here), no principal holds
+# anything, and the assistant is still the fake profile's.
+lapsed() {
+  q() { docker compose exec -T reins-db psql -U reins -tAc "$1"; }
+  for _ in $(seq 40); do
+    [ "$(q "SELECT count(*) FROM holds WHERE holder LIKE 'principal:%'")" = 0 ] && break
+    sleep 3
+  done
+  q "SELECT holder FROM holds" | sort | tr '\n' ' '
+  [ "$(q "SELECT count(*) FROM holds WHERE holder LIKE 'principal:%'")" = 0 ] && [ "$(q "SELECT holder FROM holds")" = "brain:fake" ]
+}
 wipe() { docker compose --profile '*' down -v; }
 restore() { ./restore.sh "$(cat "$work/archive")"; }
 # Which subjects the first account steers, as reins keeps it.
@@ -61,8 +77,8 @@ same_steered() { [ "$(steered)" = "$(cat "$work/steered")" ] || { echo "before:"
 
 run "build"          docker compose --profile e2e build -q
 run "up"             docker compose up -d --wait
-run "e2e: a conversation goes through threads and the driver whole, streamed, failed, the driver's model, avatars alike, chats apart and kept on reload, who is logged in, logged out"  docker compose run --rm e2e "$first_user" "$first_password"
-run "e2e: two browsers, $first_user and $first_user-assistant, each sees the other's words without a reload"  env E2E_ONLY=two docker compose run --rm e2e "$first_user" "$first_password"
+run "e2e: the assistant greets first; a conversation goes through threads and the driver whole, streamed, stopped, failed, the driver's model, avatars alike, chats apart and kept on reload, who is logged in, logged out"  env E2E_FIRST_LOGIN=1 docker compose run --rm e2e "$first_user" "$first_password"
+run "e2e: two browsers as $first_user and $first_user-assistant talk; the assistant handed to the fake profile answers, then taken back"  env E2E_ONLY=two docker compose run --rm e2e "$first_user" "$first_password"
 run "the driver said the answers as $first_user-assistant, and the failures only on the bus"  bash -c 'l=$(docker compose logs driver); echo "$l" | grep -q "msg=replied subject=$0-assistant" && echo "$l" | grep -q "msg=\"reply failed\".*code=model_rate_limited"' "$first_user"
 run "the stream carried the reply as it was written"  bash -c '[ "$(docker compose exec -T bus redis-cli XLEN driver_events)" -gt 20 ]'
 run "the mind logged the call, each event"  bash -c 'docker compose logs mind | grep -q "dir=in .*type=conversation.item.truncate" && docker compose logs mind | grep -q "dir=out .*type=response.output_audio.delta" && docker compose logs mind | grep -q "realtime call closed .*by=client code=1000"'
@@ -72,10 +88,8 @@ run "the model was told what was heard"  bash -c 'docker compose logs mind | gre
 run "mind on our own realtime"  env LAB_REALTIME_MODEL=cascade docker compose up -d --wait mind
 run "e2e: a call on cascade, hearing and speaking"  env LAB_REALTIME_MODEL=cascade E2E_ONLY=call docker compose run --rm e2e "$first_user" "$first_password"
 run "cascade: the page's ear and voice, heard, answered, talked over, truncated"  bash -c 'l=$(docker compose logs realtime); for w in "ear=fake-stt-b" "voice=fake-tts-b_irina" "type=speechrecog.recognition-complete" "msg=answered" "reason=turn_detected" "answer truncated" "type=conversation.item.truncated"; do echo "$l" | grep -q "$w" || { echo "no $w"; exit 1; }; done'
-run "the driver on a text-only model"  env LAB_LLM_MODEL=fake-text docker compose up -d --wait driver
-# The same LAB_LLM_MODEL, or compose puts the driver back on fake on the way.
-run "e2e: a picture to it is refused, said"  env LAB_LLM_MODEL=fake-text E2E_ONLY=refused docker compose run --rm e2e "$first_user" "$first_password"
-run "the driver back on fake"  docker compose up -d --wait driver
+run "e2e: handed to a text-only profile, a picture is refused, said"  env E2E_ONLY=refused docker compose run --rm e2e "$first_user" "$first_password"
+run "the pages gone, what they held lapses: nobody holds $first_user"  lapsed
 run "first account: its subjects after login, chat, mail"  docker compose run --rm demo "$first_user" "$first_password" mail
 run "reins keeps two subjects for it"  keep_steered
 run "gate, mind, face on new addresses"  ../../tools/move_address.sh gate mind face

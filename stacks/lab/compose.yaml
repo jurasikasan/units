@@ -149,17 +149,19 @@ services:
         condition: service_healthy
         required: false
 
-  # A chat model holding the first account's assistant's reins: woken when
-  # someone else says something in a thread it is in, it has the mind
-  # answer with LAB_LLM_MODEL and says the answer there as the subject; the
-  # pieces go on the bus (driver_events) for reins to relay as they come.
-  # LAB_DRIVER_HOLDS names others: <nick>=<model>,…
+  # Brains: a chat model holding avatars' reins as one of its profiles
+  # (LAB_PROFILES, <name>=<model>,…), whichever reins says each holds. Woken
+  # when someone else says something in a thread its avatar is in, it has
+  # the mind answer with the profile's model and says the answer there as
+  # the avatar; the pieces go on the bus (driver_events) for reins to relay
+  # as they come. It reads whom its profiles hold from reins' inner port.
   driver:
     build: ../../drivers/model
     image: units-drivers-model:local
     restart: unless-stopped
     environment:
-      HOLDS: ${LAB_DRIVER_HOLDS:-${LAB_FIRST_USER}-assistant=${LAB_LLM_MODEL:-fake}}
+      PROFILES: ${LAB_PROFILES:-fake=fake,fake-text=fake-text,chat=chat}
+      REINS_URL: http://reins:8088
       REDIS_ADDR: bus:6379
       THREADS_URL: http://threads:8085
       SUBJECTS_URL: http://subjects:8083
@@ -169,6 +171,7 @@ services:
       threads: {condition: service_healthy}
       subjects: {condition: service_healthy}
       mind: {condition: service_healthy}
+      reins: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8097/ready"]
       interval: 1s
@@ -251,6 +254,12 @@ services:
       SUBJECTS_URL: http://subjects:8083
       THREADS_URL: http://threads:8085
       REDIS_ADDR: bus:6379
+      # Who holds the reins: a principal's <login>-assistant is handed to
+      # this profile at its first visit; the profiles to hand to are the
+      # driver's; a page gone this long lets go of what it held.
+      DEFAULT_BRAIN: ${LAB_DEFAULT_BRAIN:-${LAB_LLM_MODEL:-fake}}
+      BRAINS_URL: http://driver:8097
+      HOLD_GRACE: ${LAB_HOLD_GRACE:-2m}
     networks: [default, reins-db]
     depends_on:
       reins-db:
@@ -442,6 +451,8 @@ services:
       E2E_VOICE_FILE: ${E2E_VOICE_FILE:-}
       E2E_TIMEOUT_MS: ${E2E_TIMEOUT_MS:-60000}
       E2E_ONLY: ${E2E_ONLY:-}
+      E2E_FIRST_LOGIN: ${E2E_FIRST_LOGIN:-}
+      E2E_SHOT: ${E2E_SHOT:-}
     depends_on:
       nginx:
         condition: service_healthy

@@ -28,7 +28,9 @@ expect "$USER_NAME logs in" "$(code -X POST "$B/auth/api/firstfactor" -H 'Conten
 mine=$(c "$B/api/reins/me/subjects")
 nicks=$(echo "$mine" | grep -o '"nick":"[^"]*"' | sed 's/"nick":"\(.*\)"/\1/' | sort | tr '\n' ' ')
 expect "$USER_NAME steers" "$nicks" "$USER_NAME $USER_NAME-assistant "
-expect "and the same ones again" "$(c "$B/api/reins/me/subjects")" "$mine"
+# The same subjects; who holds each may change between two reads.
+ids() { grep -o '"id":"[^"]*","name"' | sort; }
+expect "and the same ones again" "$(c "$B/api/reins/me/subjects" | ids | tr '\n' ' ')" "$(echo "$mine" | ids | tr '\n' ' ')"
 expect "the page" "$(c "$B/" | grep -o '<title>Chat</title>')" "<title>Chat</title>"
 out=$(run)
 expect "the chat answers" "$(echo "$out" | grep -c '"type":"TEXT_MESSAGE_CONTENT"' | sed 's/^[1-9][0-9]*$/yes/')" yes

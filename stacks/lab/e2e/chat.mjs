@@ -24,9 +24,18 @@
 //
 // The chats are threads: a new one is opened on its first words, the first
 // is all there when switched back to, and a reload keeps the conversation
-// (E2E_ONLY=threads). Two browsers, one as <user> and one as
-// <user>-assistant, each see the other's words without a reload
-// (E2E_ONLY=two).
+// (E2E_ONLY=threads).
+//
+// Who holds the reins: on the first login the assistant, held by the fake
+// profile, greets first in the thread it opened; the page takes the
+// person's own avatar up. Two browsers of the same person (E2E_ONLY=two):
+// the second takes <user>-assistant's reins and the two talk, each seeing
+// the other's words without a reload, no brain answering; the second may
+// not write as <user> (409, held on another device); it hands the
+// assistant to the fake profile, which answers; it takes it back, and the
+// brain says nothing more. A reply being written is stopped from the
+// composer's row: what was written is kept, and nothing when nothing was
+// (E2E_ONLY=stop).
 //
 // Sound, turn by turn: the mic records what the browser's fake mic plays
 // (a tone, or E2E_VOICE_FILE, a WAV) and the transcript lands in the
@@ -55,9 +64,10 @@
 // the other avatar's mouth and voice speak (E2E_ONLY=sound), and on
 // cascade they are the parts of a call.
 //
-// E2E_ONLY=refused is another round, on a driver holding the assistant with
-// a model that takes no pictures (fake-text): a picture sent ends the reply
-// with the mind's error, said while writing, and the page shows it.
+// E2E_ONLY=refused is another round: the assistant handed to a profile whose
+// model takes no pictures (fake-text), a picture sent ends the reply with
+// the mind's error, said while writing, and the page shows it; then back
+// to fake.
 import { chromium } from 'playwright'
 import { writeFileSync } from 'node:fs'
 
@@ -382,57 +392,163 @@ async function threadsRound() {
   }
 }
 
-// logIn logs a page in through the gate and waits for the chat.
-async function logIn(p) {
+// holders is the row above the chat: each avatar, and who holds its reins.
+const holders = (p) => p.getByRole('group', { name: 'Who holds the reins' })
+const chip = (p, nick) => holders(p).getByRole('button', { name: new RegExp(`^${nick}: `) }).first()
+
+// heldBy waits until the page shows the avatar held by `label` ("you,
+// here", "you, on another device", a profile, "offline").
+async function heldBy(p, nick, label) {
+  await holders(p).getByRole('button', { name: `${nick}: ${label}`, exact: true }).first().waitFor()
+}
+
+// reins does something with an avatar's reins, through its chip: "Take
+// the reins here", "Give back", "Hand to <profile>".
+async function reins(p, nick, action) {
+  await chip(p, nick).click()
+  await p.getByRole('button', { name: action, exact: true }).click()
+  await p.keyboard.press('Escape')
+}
+
+// logIn logs a page in through the gate and waits for the chat; then the
+// person's own avatar is held here (the page takes it up when nobody holds
+// it; held on a device gone, it is taken here), unless `watch`.
+async function logIn(p, watch = false) {
   await p.goto(url + '/')
   await p.locator('#username-textfield').fill(user)
   await p.locator('#password-textfield').fill(password)
   await p.locator('#sign-in-button').click()
   await p.getByRole('textbox', { name: 'Message input' }).waitFor()
+  await chip(p, user).waitFor()
+  if (watch) return
+  const shown = await chip(p, user).getAttribute('aria-label')
+  if (!shown.endsWith(': you, here') && !shown.endsWith(': offline')) await reins(p, user, 'Take the reins here')
+  await heldBy(p, user, 'you, here')
 }
 
-// twoRound: two browsers, one as the person's own avatar, one as the
-// other, each seeing what the other says as it is said, without a reload.
-// The page acts only as the avatar named by the login: the second browser
-// is logged in as the same person and acts as the other avatar through
-// reins' own route (POST /api/reins/threads/{id}/entries, "as" the other),
-// which is what a page acting as it would send; it watches the same chat
-// in the page. Both see the channel itself, whoever speaks.
+// greetRound: on the first login the newest chat is the first thread,
+// opened by the assistant, which speaks first: nothing said by the person.
+async function greetRound() {
+  const first = page.locator('[data-role="assistant"]').first()
+  await first.waitFor()
+  const mine = await page.locator('[data-role="user"]').count()
+  step('the assistant greets first', JSON.stringify((await first.innerText()).slice(0, 40)))
+  if (mine !== 0) {
+    step('FAIL', 'the person said something before the greeting')
+    failed = true
+  }
+}
+
+// twoRound: two browsers of the same person, the AC of UNIT-67. The
+// second watches <user> (held by the first) and takes <user>-assistant's
+// reins; the two talk, each seeing the other's words without a reload, on
+// the other side, and no brain answers. Writing as <user> from the second
+// is 409. The assistant handed to the fake profile answers; taken back,
+// the brain says nothing more, and the second writes as it again. Last,
+// the assistant goes back to the fake profile for the rounds after.
 async function twoRound() {
   const tag = Date.now().toString(36)
-  await page.getByRole('button', { name: 'New Thread' }).click()
+  const other = await browser.newContext({ ignoreHTTPSErrors: true })
+  const second = await other.newPage()
+  second.setDefaultTimeout(timeout)
+  await logIn(second, true)
+  await heldBy(second, user, 'you, on another device')
+  step(`${user} in the second browser`, 'held on another device: it watches')
+  await reins(second, assistant, 'Take the reins here')
+  await heldBy(second, assistant, 'you, here')
+  await heldBy(page, assistant, 'you, on another device')
+  step(`${assistant} taken in the second`, 'the first sees it held on another device')
+
+  await fresh()
   const opened = page.waitForResponse((r) => r.request().method() === 'POST' && /\/api\/reins\/threads\/[^/]+\/entries$/.test(r.url()))
   await page.getByRole('textbox', { name: 'Message input' }).fill(`two of us ${tag}`)
   await page.keyboard.press('Enter')
   const thread = (await (await opened).json()).thread
-
-  const other = await browser.newContext({ ignoreHTTPSErrors: true })
-  const watcher = await other.newPage()
-  watcher.setDefaultTimeout(timeout)
-  await logIn(watcher)
-  // The newest chat is shown: this one.
-  await watcher.getByText(`two of us ${tag}`).first().waitFor()
-
-  await page.getByRole('textbox', { name: 'Message input' }).fill(`from ${user} ${tag}`)
-  await page.keyboard.press('Enter')
-  await watcher.getByText(`from ${user} ${tag}`).first().waitFor()
+  await second.getByText(`two of us ${tag}`).first().click()
+  await second.locator('[data-role="assistant"]').filter({ hasText: `two of us ${tag}` }).first().waitFor()
   step(`${assistant}'s browser sees ${user}'s`, 'without a reload')
 
-  const avatars = await (await watcher.request.get(url + '/api/reins/me/subjects')).json()
-  const as = avatars.find((a) => a.nick === assistant)?.id
-  const said = await watcher.request.post(`${url}/api/reins/threads/${thread}/entries`, {
-    data: { as, content: [{ type: 'text', text: `from ${assistant} ${tag}` }] },
-  })
-  step(`${assistant} says, through reins`, said.status())
-  await page.getByText(`from ${assistant} ${tag}`).first().waitFor()
-  await watcher.getByText(`from ${assistant} ${tag}`).first().waitFor()
-  const side = await page.locator('[data-role="assistant"]').filter({ hasText: `from ${assistant} ${tag}` }).count()
-  step(`${user}'s browser sees ${assistant}'s`, `without a reload, on the other side: ${side}`)
-  if (said.status() !== 201 || side !== 1) {
-    step('FAIL', `${assistant}'s words not said, or shown as ${user}'s`)
+  const answers = await page.locator('[data-role="assistant"]').count()
+  await second.getByRole('textbox', { name: 'Message input' }).fill(`from ${assistant} ${tag}`)
+  await second.keyboard.press('Enter')
+  await page.locator('[data-role="assistant"]').filter({ hasText: `from ${assistant} ${tag}` }).first().waitFor()
+  const own = await second.locator('[data-role="user"]').filter({ hasText: `from ${assistant} ${tag}` }).count()
+  await page.waitForTimeout(3000)
+  const more = (await page.locator('[data-role="assistant"]').count()) - answers
+  step(`${user}'s browser sees ${assistant}'s`, `on the other side; its own side in the second: ${own}; others: ${more - 1}`)
+  if (own !== 1 || more !== 1) {
+    step('FAIL', `${assistant}'s words not shown as said, or a brain answered too`)
     failed = true
   }
+
+  const avatars = await (await second.request.get(url + '/api/reins/me/subjects')).json()
+  const device = await second.evaluate(() => localStorage.getItem('units.device'))
+  const refused = await second.request.post(`${url}/api/reins/threads/${thread}/entries`, {
+    headers: { 'X-Device-Id': device },
+    data: { as: avatars.find((a) => a.nick === user)?.id, content: [{ type: 'text', text: 'not mine to say' }] },
+  })
+  const why = (await refused.text()).trim()
+  step(`the second writes as ${user}`, `${refused.status()} ${why}`)
+  if (refused.status() !== 409 || why !== 'held by you on another device') {
+    step('FAIL', 'writing as an avatar held elsewhere was not refused')
+    failed = true
+  }
+
+  await reins(second, assistant, 'Hand to fake')
+  await heldBy(page, assistant, 'fake')
+  await heldBy(second, assistant, 'fake')
+  const brain = await say(`now the brain, please ${tag}`)
+  step(`${assistant} handed to fake, answers`, JSON.stringify(brain.slice(0, 40)))
+  if (!brain) {
+    step('FAIL', 'the brain did not answer')
+    failed = true
+  }
+
+  await reins(second, assistant, 'Take the reins here')
+  await heldBy(page, assistant, 'you, on another device')
+  const before = await page.locator('[data-role="assistant"]').count()
+  await page.getByRole('textbox', { name: 'Message input' }).fill(`anyone there? ${tag}`)
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(4000)
+  const silent = (await page.locator('[data-role="assistant"]').count()) === before && (await page.getByRole('status', { name: 'Writing' }).count()) === 0
+  await second.getByRole('textbox', { name: 'Message input' }).fill(`back as myself ${tag}`)
+  await second.keyboard.press('Enter')
+  await page.locator('[data-role="assistant"]').filter({ hasText: `back as myself ${tag}` }).first().waitFor()
+  step('taken back', silent ? 'the brain said nothing; the second writes as it' : 'the brain still spoke')
+  if (!silent) {
+    step('FAIL', 'the brain answered after the reins were taken back')
+    failed = true
+  }
+  if (process.env.E2E_SHOT) await second.screenshot({ path: process.env.E2E_SHOT.replace(/(\.png)?$/, '-second.png') })
   await other.close()
+  await reins(page, assistant, 'Hand to fake')
+  await heldBy(page, assistant, 'fake')
+}
+
+// stopRound: a reply being written is stopped from the composer's row, an
+// action on the brain through reins. What it wrote so far is kept as said;
+// stopped before it wrote anything, nothing is kept. Fake model only.
+async function stopRound() {
+  await fresh()
+  const box = page.getByRole('textbox', { name: 'Message input' })
+  await box.fill('Count for me. #slow')
+  await page.keyboard.press('Enter')
+  await page.locator('[data-role="assistant"]').filter({ hasText: 'Counting slowly: one' }).first().waitFor()
+  await page.getByRole('button', { name: /^Stop / }).click()
+  await page.getByRole('status', { name: 'Writing' }).waitFor({ state: 'detached' })
+  await box.fill('Take your time. #late')
+  await page.keyboard.press('Enter')
+  await page.getByRole('button', { name: /^Stop / }).click()
+  await page.getByRole('status', { name: 'Writing' }).waitFor({ state: 'detached' })
+  await page.waitForTimeout(1500)
+  await page.reload()
+  await page.getByText('Take your time. #late').first().waitFor()
+  const kept = await page.locator('[data-role="assistant"]').allInnerTexts()
+  step('stopped, after a reload', JSON.stringify(kept.map((t) => t.trim().slice(0, 40))))
+  if (kept.length !== 1 || !kept[0].includes('Counting slowly') || kept[0].includes('ten.')) {
+    step('FAIL', 'a stopped reply was not kept as far as it went, or an empty one was kept')
+    failed = true
+  }
 }
 
 // meRound: who is logged in, at the sidebar's foot, from gate's userinfo;
@@ -538,6 +654,8 @@ async function soundPickRound() {
 // picture its own way.
 async function refusedRound() {
   await fresh()
+  await reins(page, assistant, 'Hand to fake-text')
+  await heldBy(page, assistant, 'fake-text')
   await attach(dot)
   const said = await say('What is in the picture?')
   step('a picture to a text-only model', JSON.stringify(said.slice(0, 80)))
@@ -545,6 +663,8 @@ async function refusedRound() {
     step('FAIL', 'the page does not say the model takes no pictures')
     failed = true
   }
+  await reins(page, assistant, 'Hand to fake')
+  await heldBy(page, assistant, 'fake')
 }
 
 // fullRound: the conversation, tools, reasoning, attachments.
@@ -639,9 +759,12 @@ try {
   else if (only === 'sound') await soundPickRound()
   else if (only === 'me') await meRound()
   else if (only === 'two') await twoRound()
+  else if (only === 'stop') await stopRound()
   else if (only === 'failed') await failedRound()
   else {
+    if (process.env.E2E_FIRST_LOGIN) await greetRound()
     await fullRound()
+    if (fake) await stopRound()
     if (fake) await modelRound()
     await threadsRound()
     await voiceRound()

@@ -6,9 +6,10 @@ local run and a deployment are the same files; only `.env` differs.
 
 The application is a chat: [`faces/web_chat`](../../faces/web_chat/) at `/`,
 whose chats are threads written and followed through reins;
-[`drivers/model`](../../drivers/model/) holding the first account's
-assistant's reins with `LAB_LLM_MODEL` (`LAB_DRIVER_HOLDS` for others), which
-answers in those threads through [`minds/assistant`](../../minds/assistant/)
+[`drivers/model`](../../drivers/model/), the brains: its profiles
+(`LAB_PROFILES`) hold avatars' reins when a person hands them over in the
+page (each account's assistant starts held by `LAB_DEFAULT_BRAIN`), and
+answer in those threads through [`minds/assistant`](../../minds/assistant/)
 (also at `/api/` for any AG-UI client), and LiteLLM in front of the models; the model's tools come from the MCP servers `LAB_MCP_SERVERS`
 names, none by default. MCP's own reference server, `everything`, runs under
 its compose profile for the checks or to try a tool. The lab is no unit but a consumer of units:
@@ -24,10 +25,20 @@ bios and preferences there (`PATCH /api/reins/subjects/{id}`).
 [`threads`](../../threads/) keeps what happened where, each append
 announced on the bus (`threads_events`). Nothing reaches it from outside:
 reins is the face's door into it. The face's chats are threads: what the
-person says goes in as the avatar named by their login, and every entry of
-their threads comes back on `/api/reins/me/stream` (server-sent events) as
-it is appended, whoever said it, so a second browser sees the first's words
-without a reload, and a reload keeps the conversation.
+person says goes in as the avatar whose reins the page holds, and every
+entry of their threads comes back on `/api/reins/me/stream` (server-sent
+events) as it is appended, whoever said it, so a second browser sees the
+first's words without a reload, and a reload keeps the conversation.
+
+Who holds each avatar's reins is reins' too: one holder at a time, the
+person from a browser, a brain (one of the driver's profiles), or nobody.
+On the first login the assistant is the default brain's, and a first chat
+is opened by it, where it greets; the page takes up the person's own
+avatar. A row above the chat shows who holds each and takes, gives back
+or hands it to a brain; a brain's reply is stopped from the composer's
+row. A page gone longer than `LAB_HOLD_GRACE` lets go of what it held. The
+driver reads whom its profiles hold from reins' inner port (8088), which
+nginx never forwards.
 
 Who is logged in is gate's to say: `/api/v1/userinfo` is its
 `userinfo.conf`, and the face shows it at the foot of the sidebar with a
@@ -37,8 +48,8 @@ log-out that goes to gate's own `/auth/logout`.
 browser → nginx + gate ─ /      → face (static files)
                        ├ /api/v1/userinfo → gate itself: who is logged in, where to log out
                        ├ /api/reins/ → reins: the person's subjects → subjects; their threads → threads
-                       │          ↑ /me/stream follows the bus: threads_events, driver_events
-                       │  driver (holds <login>-assistant) ← threads_events; → threads, → mind
+                       │          ↑ /me/stream follows the bus: threads_events, driver_events, reins_events
+                       │  driver (profiles; holds what reins says, :8088) ← threads_events, reins_events; → threads, → mind
                        └ /api/  → mind ─┬→ LiteLLM ─┬→ fake_llm (answers from files)
                                         │           ├→ fake_realtime (a call, from a script)
                                         │           ├→ realtime (a call: hearing → a chat model → speaking)
@@ -48,9 +59,9 @@ browser → nginx + gate ─ /      → face (static files)
 
 ## Models
 
-`litellm/models.yaml` names them; the driver holds the assistant with
-`LAB_LLM_MODEL`: which model thinks is the brain holding its reins, not the
-page's (the composer has no pick). The
+`litellm/models.yaml` names them; the driver's profiles (`LAB_PROFILES`)
+each think with one: which model thinks is the brain holding an avatar's
+reins, handed in the page, not the page's own (the composer has no pick). The
 avatars' bodies are set in the page's settings (opened from who is logged
 in, at the sidebar's foot), the same on each: an ear (`LAB_STT_MODEL` when
 none), a mouth (`LAB_TTS_MODEL`) and the mouth's voices, where its engine
@@ -184,8 +195,10 @@ call.
 | `COMPOSE_PROFILES` | `mailpit` runs Mailpit locally; a deployment leaves it empty |
 | `LAB_SMTP_*` | where mail goes; with a relay, `LAB_SMTP_SKIP_VERIFY=false` |
 | `LAB_LLM_KEY` | LiteLLM's master key; the mind sends it |
-| `LAB_LLM_MODEL` | the model the driver holds the first account's assistant with, and the mind's own: `fake`, `chat`, `lite` |
-| `LAB_DRIVER_HOLDS` | whom the driver holds, with which model, `<nick>=<model>,…`; empty, `<LAB_FIRST_USER>-assistant=<LAB_LLM_MODEL>` |
+| `LAB_LLM_MODEL` | the mind's own model: `fake`, `chat`, `lite`; the default brain's when `LAB_DEFAULT_BRAIN` is empty |
+| `LAB_PROFILES` | the brains, the driver's profiles, `<name>=<model>,…`: `fake=fake,fake-text=fake-text,chat=chat` |
+| `LAB_DEFAULT_BRAIN` | the profile each account's assistant is handed to at its first login |
+| `LAB_HOLD_GRACE` | how long a page may be gone before what it held is let go: `2m` |
 | `LAB_LLM_CONFIG` | another model list than `./litellm/models.yaml` |
 | `LAB_STT_MODEL`, `LAB_TTS_MODEL` | the models the mind asks to transcribe and to speak when the page names none, shown first in the settings: `fake-stt`/`stt`/`whisper-gpu`, `fake-tts`/`tts`/`piper`/`silero`/`voxcpm`; empty, the page has no mic or read-aloud |
 | `LAB_TTS_VOICE` | `LAB_TTS_MODEL`'s voice when the page names none; OpenAI's speech wants one |
