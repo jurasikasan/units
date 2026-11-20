@@ -16,6 +16,8 @@ RUN pip3 install --no-cache-dir faster-whisper fastapi uvicorn python-multipart
 
 FROM base-${GPU} AS final
 WORKDIR /app
+# Log lines leave as they are printed, so their timestamps are the events' own.
+ENV PYTHONUNBUFFERED=1
 COPY server.py stt_rules.py .
 EXPOSE 8001
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]
