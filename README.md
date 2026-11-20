@@ -13,13 +13,13 @@ own `go.mod`, and its own check script.
 | [`auth_service`](auth_service/) | login and sessions behind nginx `auth_request`; applications see only a principal id |
 | [`subjects`](subjects/) | who exists: identities with a permanent nick, a type and free-form preferences, on their own Postgres |
 | [`threads`](threads/) | what happened where: threads as append-only journals of entries — ActivityStreams kinds, typed content blocks, no roles — on their own Postgres |
-| [`reins`](reins/) | where a principal holds the reins of its subjects: which subjects an account at the door may look into and take up, out of the world; a principal first seen is given `<login>` and `<login>-assistant` in `subjects`; on its own Postgres |
+| [`reins`](reins/) | where a principal holds the reins of its subjects: which subjects an account at the door may look into and take up, out of the world; a principal first seen is given `<login>` and `<login>-assistant` in `subjects`, and a steward changes their name, bio and preferences; on its own Postgres |
 | [`artifact_store`](artifact_store/) | named files in spaces: put, get, list, delete, read by sha256; identical bytes kept once, expiry per space; names in its own Postgres, bytes in MinIO or any S3 |
 | [`task_board`](task_board/) | tasks and their flow: per-project handles, statuses with the moves allowed between them, assignees by nick, dependencies and subtasks, on their own Postgres; every move published as an event. An agent connects from [AGENTS.md](task_board/AGENTS.md) |
 | [`job_runner`](job_runner/) | an isolated machine for agents: files in, a script runs under gVisor with no network unless asked, files out; answered when it ends, looked at with `peek` while it runs. An agent sets it up from [AGENTS.md](job_runner/AGENTS.md) |
 | [`minds/assistant`](minds/assistant/) | a chat assistant: an AG-UI run in, a model's answer streamed out as AG-UI events, through any OpenAI-shaped endpoint such as LiteLLM; keeps nothing |
 | [`minds/realtime`](minds/realtime/) | a call in OpenAI's Realtime schema made of organs: hearing hears, a chat model answers through any OpenAI-shaped endpoint, speaking says it; barge-in and truncate included |
-| [`faces/web_chat`](faces/web_chat/) | a chat page built from assistant-ui, speaking AG-UI to whatever answers at `/api/run`; static files, no server |
+| [`faces/web_chat`](faces/web_chat/) | a chat page built from assistant-ui, speaking AG-UI to whatever answers at `/api/run`, with settings for the person's avatars (profile and preferences, through `reins`); static files, no server |
 | [`engines`](engines/) | speech engines behind OpenAI's audio API: piper, silero, voxcpm (TTS), whisper (STT); and [`vad/silero`](engines/vad/silero/), speech detection per 32 ms window |
 | [`senses/hearing`](senses/hearing/) | takes a sound stream in as RTP, finds the utterances, has them transcribed, reports them as MRCP recognizer events |
 | [`abilities/speaking`](abilities/speaking/) | a mouth: text in through MCP, audio out as RTP through a TTS engine, MRCP synthesizer events saying what was spoken |
