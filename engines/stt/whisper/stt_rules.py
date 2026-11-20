@@ -34,3 +34,37 @@ def audio_fields(audio_s, elapsed_ms: float) -> str:
     if audio_s > 0:
         out += f" RTF={elapsed_ms / 1000 / audio_s:.2f}x"
     return out
+
+
+def wait_turn(slot, gone, poll_s: float = 0.25) -> bool:
+    """Takes slot (a threading.Semaphore) for one decode. A caller that leaves
+    while it waits never decodes: False, and the slot is not held. True means
+    the slot is held and must be released."""
+    while not slot.acquire(timeout=poll_s):
+        if gone():
+            return False
+    if gone():
+        slot.release()
+        return False
+    return True
+
+
+def collect(segments, gone):
+    """Pulls segments from faster-whisper's lazy generator, asking gone()
+    before each next one: decoding happens inside next(), so a caller that left
+    stops the work at the next segment. Returns (segments, cancelled); on cancel
+    the generator is closed and nothing more is pulled from it."""
+    out = []
+    it = iter(segments)
+    try:
+        while True:
+            if gone():
+                return out, True
+            try:
+                out.append(next(it))
+            except StopIteration:
+                return out, False
+    finally:
+        close = getattr(it, "close", None)
+        if close:
+            close()
