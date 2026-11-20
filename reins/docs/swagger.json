@@ -95,7 +95,7 @@
         },
         "/me/subjects": {
             "get": {
-                "description": "The subjects whose reins the principal in X-Principal-Id holds,\nread from `subjects` (deleted ones left out), oldest first. The\nfirst call for a principal makes what is missing of its two\npersonas: nick `\u003clogin\u003e` (subject_type human) and\n`\u003clogin\u003e-assistant` (assistant), names empty. A nick taken by\nanother subject is never adopted.",
+                "description": "The subjects whose reins the principal in X-Principal-Id holds,\nread from `subjects` (deleted ones left out), oldest first. The\nfirst call for a principal makes what is missing of its two\npersonas: nick `\u003clogin\u003e` and\n`\u003clogin\u003e-assistant`, names empty. A nick taken by\nanother subject is never adopted.",
                 "produces": [
                     "application/json"
                 ],
@@ -739,9 +739,6 @@
                 },
                 "preferences": {
                     "type": "object"
-                },
-                "subject_type": {
-                    "type": "string"
                 }
             }
         },

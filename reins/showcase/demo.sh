@@ -22,7 +22,6 @@ expect() {
 step "alice's first visit: her two personas are made"
 A1=$(mine alice); echo "$A1"
 expect "alice steers" "$(echo "$A1" | nicks)" "alice alice-assistant"
-expect "types" "$(echo "$A1" | grep -o '"subject_type":"[^"]*"' | sort | tr '\n' ' ')" '"subject_type":"assistant" "subject_type":"human" '
 
 step "alice again: the same subjects, nothing new made"
 A2=$(mine alice); echo "$A2"
@@ -33,14 +32,14 @@ ASSISTANT=$(echo "$A1" | grep -o '{[^{}]*"nick":"alice-assistant"[^{}]*}' | sed 
 
 step "alice changes her assistant: name, bio, preferences merged"
 # Another reader's key, put straight into subjects, must survive her change.
-curl -s -o /dev/null -X PUT "$S/subjects/$ASSISTANT" -d '{"subject_type":"assistant","preferences":{"theirs":1,"voice":"denis"}}'
+curl -s -o /dev/null -X PUT "$S/subjects/$ASSISTANT" -d '{"preferences":{"theirs":1,"voice":"denis"}}'
 C=$(as alice -X PATCH "$R/subjects/$ASSISTANT" -d '{"name":"Alice'"'"'s helper","bio":"Answers.","preferences":{"ear":"fake-stt-b","voice":null}}'); echo "$C"
 expect "her name" "$(echo "$C" | grep -o '"name":"[^"]*"')" '"name":"Alice'"'"'s helper"'
 # subjects keeps preferences as JSONB, in its own key order: compared sorted.
 expect "preferences merged, voice taken out" "$(echo "$C" | grep -o '"preferences":{[^}]*}' | sed 's/"preferences":{\(.*\)}/\1/' | tr ',' '\n' | sort | tr '\n' ' ')" '"ear":"fake-stt-b" "theirs":1 '
 G=$(as alice "$R/subjects/$ASSISTANT"); echo "$G"
 expect "read back, the same" "$G" "$C"
-expect "in subjects, nick and type as stored" "$(curl -s $S/subjects/$ASSISTANT | grep -o '"nick":"[^"]*","bio":"[^"]*","subject_type":"[^"]*"')" '"nick":"alice-assistant","bio":"Answers.","subject_type":"assistant"'
+expect "in subjects, nick and bio as stored" "$(curl -s $S/subjects/$ASSISTANT | grep -o '"nick":"[^"]*","bio":"[^"]*"')" '"nick":"alice-assistant","bio":"Answers."'
 expect "the nick never changes" "$(as alice -o /dev/null -w '%{http_code}' -X PATCH "$R/subjects/$ASSISTANT" -d '{"nick":"eve"}')" 400
 expect "bob may not look" "$(as bob -o /dev/null -w '%{http_code}' "$R/subjects/$ASSISTANT")" 403
 expect "bob may not change it" "$(as bob -o /dev/null -w '%{http_code}' -X PATCH "$R/subjects/$ASSISTANT" -d '{"name":"mine"}')" 403
@@ -76,7 +75,7 @@ expect "alice's assistant was not made anew" "$(curl -s $S/subjects | nicks)" "a
 
 step "refused"
 expect "handover by one who does not steer it" "$(as alice -o /dev/null -w '%{http_code}' -X POST "$R/subjects/$ASSISTANT/handover" -d '{"to":"dave"}')" 403
-curl -s -o /dev/null -X POST $S/subjects -d '{"nick":"carol","subject_type":"human"}'
+curl -s -o /dev/null -X POST $S/subjects -d '{"nick":"carol"}'
 expect "carol's nick is someone else's" "$(as carol -w ' %{http_code}' $R/me/subjects | tr -d '\n')" 'nick "carol" is taken by another subject; it is not adopted 409'
 expect "a login that cannot be a nick" "$(as j.doe -o /dev/null -w '%{http_code}' $R/me/subjects)" 422
 expect "no principal" "$(curl -s -o /dev/null -w '%{http_code}' $R/me/subjects)" 401

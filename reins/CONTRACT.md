@@ -32,8 +32,7 @@ reached only through the door.
 - `GET /me/subjects` — the subjects the caller steers, as `subjects` returns
   them, oldest stewardship first; deleted ones left out.
   The first call for a principal makes its two personas in `subjects`: nick
-  `<login>` (subject_type `human`) and `<login>-assistant` (`assistant`),
-  names empty, and records that the principal steers both.
+  `<login>` and `<login>-assistant`, names empty, and records that the principal steers both.
   - 409 when a persona's nick is taken by another subject. It is never adopted:
     that would hand someone's avatar to whoever logs in with a matching name.
   - 422 when the login cannot become both nicks (`subjects`' rules: 2–32

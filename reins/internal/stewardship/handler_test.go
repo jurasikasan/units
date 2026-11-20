@@ -60,7 +60,7 @@ func TestMySubjectsNeedsAPrincipal(t *testing.T) {
 }
 
 func TestMySubjectsAnswers(t *testing.T) {
-	f := &fakeReins{subs: []Subject{{ID: uuid.New(), Nick: "alice", SubjectType: TypeHuman}}}
+	f := &fakeReins{subs: []Subject{{ID: uuid.New(), Nick: "alice"}}}
 	rec := serve(f, http.MethodGet, "/me/subjects", "alice", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), `"nick":"alice"`)

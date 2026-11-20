@@ -104,7 +104,7 @@ func (s *Service) provision(ctx context.Context, principal string) error {
 			if err := l.Record(ctx, sub.ID); err != nil {
 				return err
 			}
-			log.Printf("reins: principal %q steers new subject %s (%s, %s)", principal, sub.ID, sub.Nick, sub.SubjectType)
+			log.Printf("reins: principal %q steers new subject %s (%s)", principal, sub.ID, sub.Nick)
 		}
 		return l.Settle(ctx)
 	})

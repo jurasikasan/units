@@ -28,8 +28,6 @@ definitions:
         type: string
       preferences:
         type: object
-      subject_type:
-        type: string
     type: object
   world.OpenRequest:
     properties:
@@ -148,8 +146,8 @@ paths:
         The subjects whose reins the principal in X-Principal-Id holds,
         read from `subjects` (deleted ones left out), oldest first. The
         first call for a principal makes what is missing of its two
-        personas: nick `<login>` (subject_type human) and
-        `<login>-assistant` (assistant), names empty. A nick taken by
+        personas: nick `<login>` and
+        `<login>-assistant`, names empty. A nick taken by
         another subject is never adopted.
       parameters:
       - description: who is asking, as the door sets it

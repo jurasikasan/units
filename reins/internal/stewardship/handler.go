@@ -50,8 +50,8 @@ func principal(w http.ResponseWriter, r *http.Request) (string, bool) {
 // @Description  The subjects whose reins the principal in X-Principal-Id holds,
 // @Description  read from `subjects` (deleted ones left out), oldest first. The
 // @Description  first call for a principal makes what is missing of its two
-// @Description  personas: nick `<login>` (subject_type human) and
-// @Description  `<login>-assistant` (assistant), names empty. A nick taken by
+// @Description  personas: nick `<login>` and
+// @Description  `<login>-assistant`, names empty. A nick taken by
 // @Description  another subject is never adopted.
 // @Tags         reins
 // @Produce      json

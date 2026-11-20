@@ -153,7 +153,7 @@ func (r *fakeRegistry) Replace(_ context.Context, id uuid.UUID, raw map[string]j
 	extra := map[string]json.RawMessage{}
 	for k, v := range raw {
 		switch k {
-		case "id", "name", "nick", "bio", "subject_type", "preferences":
+		case "id", "name", "nick", "bio", "preferences":
 		default:
 			extra[k] = v
 		}
@@ -180,7 +180,7 @@ func (r *fakeRegistry) Create(_ context.Context, n NewSubject) (Subject, error) 
 			return Subject{}, ErrNickTaken
 		}
 	}
-	s := Subject{ID: uuid.New(), Nick: n.Nick, Name: n.Name, SubjectType: n.SubjectType}
+	s := Subject{ID: uuid.New(), Nick: n.Nick, Name: n.Name}
 	r.byID[s.ID] = s
 	r.created++
 	return s, nil
@@ -189,7 +189,7 @@ func (r *fakeRegistry) Create(_ context.Context, n NewSubject) (Subject, error) 
 func nicks(subs []Subject) []string {
 	out := []string{}
 	for _, s := range subs {
-		out = append(out, s.Nick+"/"+s.SubjectType)
+		out = append(out, s.Nick)
 	}
 	return out
 }
@@ -201,7 +201,7 @@ func TestFirstVisitMakesBothPersonasOnce(t *testing.T) {
 
 	first, err := svc.MySubjects(ctx, "alice")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"alice/human", "alice-assistant/assistant"}, nicks(first))
+	assert.Equal(t, []string{"alice", "alice-assistant"}, nicks(first))
 	assert.Empty(t, first[0].Name, "names are left empty")
 
 	again, err := svc.MySubjects(ctx, "alice")
@@ -250,12 +250,12 @@ func TestRunCutBeforeTheSecondPersonaCompletes(t *testing.T) {
 	svc := NewService(store, reg)
 	ctx := context.Background()
 	// A run that made `alice` and stopped before the assistant.
-	s, _ := reg.Create(ctx, NewSubject{Nick: "alice", SubjectType: TypeHuman})
+	s, _ := reg.Create(ctx, NewSubject{Nick: "alice"})
 	store.rows["alice"] = []uuid.UUID{s.ID}
 
 	subs, err := svc.MySubjects(ctx, "alice")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"alice/human", "alice-assistant/assistant"}, nicks(subs))
+	assert.Equal(t, []string{"alice", "alice-assistant"}, nicks(subs))
 	assert.Equal(t, s.ID, subs[0].ID, "what was made is kept, not made again")
 	assert.True(t, store.settled["alice"])
 }
@@ -264,7 +264,7 @@ func TestTakenNickIsRefusedNotAdopted(t *testing.T) {
 	store, reg := newFakeStore(), newFakeRegistry()
 	svc := NewService(store, reg)
 	ctx := context.Background()
-	someone, _ := reg.Create(ctx, NewSubject{Nick: "carol", SubjectType: TypeHuman})
+	someone, _ := reg.Create(ctx, NewSubject{Nick: "carol"})
 
 	_, err := svc.MySubjects(ctx, "carol")
 	var ref *Refusal
@@ -303,10 +303,10 @@ func TestHandoverMovesTheSubjectAndNothingIsMadeAgain(t *testing.T) {
 
 	a, err := svc.MySubjects(ctx, "alice")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"alice/human"}, nicks(a), "alice is settled: her assistant is not made anew")
+	assert.Equal(t, []string{"alice"}, nicks(a), "alice is settled: her assistant is not made anew")
 	b, err := svc.MySubjects(ctx, "bob")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"alice-assistant/assistant", "bob/human", "bob-assistant/assistant"}, nicks(b))
+	assert.Equal(t, []string{"alice-assistant", "bob", "bob-assistant"}, nicks(b))
 	assert.Equal(t, 4, reg.created)
 }
 
@@ -331,7 +331,7 @@ func TestDeletedSubjectsAreLeftOut(t *testing.T) {
 
 	subs, err := svc.MySubjects(ctx, "alice")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"alice-assistant/assistant"}, nicks(subs))
+	assert.Equal(t, []string{"alice-assistant"}, nicks(subs))
 }
 
 func TestSubjectOnlyForASteward(t *testing.T) {
@@ -374,7 +374,6 @@ func TestChangeKeepsWhatItDoesNotTouch(t *testing.T) {
 	assert.Equal(t, name, got.Name)
 	assert.Equal(t, "alice-assistant", got.Nick)
 	assert.Equal(t, "was here first", got.Bio, "a bio left out is kept")
-	assert.Equal(t, TypeAssistant, got.SubjectType, "the type goes back as stored")
 	assert.JSONEq(t, `{"ear":"fake-stt-b","voice":"irina","theirs":{"x":1}}`, string(got.Preferences),
 		"preferences are merged: another reader's key survives")
 	assert.JSONEq(t, `"2026-11-20"`, string(reg.put["born"]), "a field reins does not know goes back as it came")

@@ -20,15 +20,13 @@ type Subject struct {
 	Name        string          `json:"name"`
 	Nick        string          `json:"nick"`
 	Bio         string          `json:"bio,omitempty"`
-	SubjectType string          `json:"subject_type"`
 	Preferences json.RawMessage `json:"preferences,omitempty" swaggertype:"object"`
 }
 
 // NewSubject is what reins asks `subjects` to make.
 type NewSubject struct {
-	Nick        string `json:"nick"`
-	Name        string `json:"name"`
-	SubjectType string `json:"subject_type"`
+	Nick string `json:"nick"`
+	Name string `json:"name"`
 }
 
 // Change is what a steward may change of a subject: its name, its bio, its
@@ -46,13 +44,6 @@ type Change struct {
 type HandoverRequest struct {
 	To string `json:"to" example:"bob"`
 }
-
-// The subject types of the two personas: whoever drives them, a person is
-// `human` and an assistant is a role, not "ai".
-const (
-	TypeHuman     = "human"
-	TypeAssistant = "assistant"
-)
 
 // AssistantSuffix makes the second persona's nick from the login.
 const AssistantSuffix = "-assistant"
@@ -77,8 +68,8 @@ func Wanted(login string) ([]NewSubject, error) {
 			"login %q is too long for its assistant's nick %q: a nick is at most 32 characters", login, assistant)}
 	}
 	return []NewSubject{
-		{Nick: login, SubjectType: TypeHuman},
-		{Nick: assistant, SubjectType: TypeAssistant},
+		{Nick: login},
+		{Nick: assistant},
 	}, nil
 }
 
