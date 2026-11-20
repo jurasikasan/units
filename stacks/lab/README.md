@@ -11,6 +11,13 @@ names, none by default. MCP's own reference server, `everything`, runs under
 its compose profile for the checks or to try a tool. The lab is no unit but a consumer of units:
 its own check is its showcase.
 
+Who exists and who steers them: [`subjects`](../../subjects/) keeps the
+subjects, [`reins`](../../reins/) at `/api/reins/` which of them a principal
+(gate's username) steers. The first `GET /api/reins/me/subjects` after a
+login gives the person two: `<login>` and `<login>-assistant`; later calls
+answer the same ones. Each keeps its own Postgres on a network only it
+joins. The face does not ask yet.
+
 Who is logged in is gate's to say: `/api/v1/userinfo` is its
 `userinfo.conf`, and the face shows it at the foot of the sidebar with a
 log-out that goes to gate's own `/auth/logout`.
@@ -18,6 +25,7 @@ log-out that goes to gate's own `/auth/logout`.
 ```
 browser → nginx + gate ─ /      → face (static files)
                        ├ /api/v1/userinfo → gate itself: who is logged in, where to log out
+                       ├ /api/reins/ → reins: the person's subjects → subjects
                        └ /api/  → mind ─┬→ LiteLLM ─┬→ fake_llm (answers from files)
                                         │           ├→ fake_realtime (a call, from a script)
                                         │           ├→ realtime (a call: hearing → a chat model → speaking)
@@ -106,9 +114,11 @@ one) puts what the fake ear heard into the composer and an answer is read
 aloud to the end; on the mind recreated to ask
 `fake-text`, a picture is refused and the page says the model takes none
 (`E2E_ONLY=refused`); the chat
-refuses someone not logged in; a person gets mail, a second account is added, a backup is taken,
+refuses someone not logged in; after the first login the person steers
+`alice` and `alice-assistant`, and the same two on the next call; a person gets mail, a second account is added, a backup is taken,
 everything is deleted with its volumes, the backup is restored, and the
-second account logs in again.
+second account logs in again, and the first steers the same subjects as
+before.
 
 The same browser against a running lab and whatever model it asks, a real
 one included (the answer is then the model's, so give it time):
@@ -175,8 +185,11 @@ docker compose run --rm --no-deps -T gate gate-user add bob bob@example.com "Bob
 
 The archive holds gate's `/data` (accounts, passkeys, second factors) and
 `/secrets` (its keys) together: gate does not start on one without the
-other. Gate stops for the seconds the copy takes, so its database is copied
-whole. Sessions are not kept; a restore logs everyone out.
+other; and `pg/`, dumps of subjects' and reins' databases. Gate, subjects
+and reins stop for the seconds the copy takes, so each is copied whole and
+the two databases agree. An archive from before they joined restores gate
+and leaves their databases as they are. Sessions are not kept; a restore
+logs everyone out.
 
 ## Not here yet
 

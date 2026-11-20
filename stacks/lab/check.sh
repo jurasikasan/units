@@ -9,10 +9,13 @@
 # 429 or 500 ends one with the mind's error on the page;
 # on a model declared to take words only, a picture is refused in words;
 # the foot of the sidebar shows who is logged in and its log-out ends the
-# session; the chat is closed to nobody, a person gets mail; gate, mind and face are
+# session; the chat is closed to nobody; after the first login the person
+# steers their two subjects (reins, subjects), the same ones on the next
+# visit; a person gets mail; gate, mind and face are
 # recreated on new addresses and the site still reaches them without touching
 # nginx; a second account is added, a backup is taken,
-# everything is deleted, the backup restored, and the second account logs in.
+# everything is deleted, the backup restored, the second account logs in, and
+# the first steers the same subjects as before.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -49,6 +52,10 @@ add_carol() { echo carol-lab | docker compose run --rm --no-deps -T gate gate-us
 backup() { ./backup.sh "$work/backups" > "$work/archive"; }
 wipe() { docker compose --profile '*' down -v; }
 restore() { ./restore.sh "$(cat "$work/archive")"; }
+# Which subjects the first account steers, as reins keeps it.
+steered() { docker compose exec -T reins-db psql -U reins -tAc "SELECT subject_id FROM stewardship WHERE principal_id = '$first_user' ORDER BY subject_id"; }
+keep_steered() { steered > "$work/steered"; [ "$(wc -l < "$work/steered")" = 2 ] || { cat "$work/steered"; exit 1; }; }
+same_steered() { [ "$(steered)" = "$(cat "$work/steered")" ] || { echo "before:"; cat "$work/steered"; echo "after:"; steered; exit 1; }; }
 
 run "build"          docker compose --profile e2e build -q
 run "up"             docker compose up -d --wait
@@ -65,7 +72,8 @@ run "mind on a text-only model"  env LAB_LLM_MODEL=fake-text docker compose up -
 # The same LAB_LLM_MODEL, or compose puts the mind back on fake on the way.
 run "e2e: a picture to it is refused, said"  env LAB_LLM_MODEL=fake-text E2E_ONLY=refused docker compose run --rm e2e "$first_user" "$first_password"
 run "mind back on fake"  docker compose up -d --wait mind
-run "first account: chat, mail"  docker compose run --rm demo "$first_user" "$first_password" mail
+run "first account: its subjects after login, chat, mail"  docker compose run --rm demo "$first_user" "$first_password" mail
+run "reins keeps two subjects for it"  keep_steered
 run "gate, mind, face on new addresses"  ../../tools/move_address.sh gate mind face
 run "nginx finds them there"  docker compose run --rm demo "$first_user" "$first_password"
 run "add carol"      add_carol
@@ -73,6 +81,8 @@ run "backup"         backup
 run "wipe"           wipe
 run "restore"        restore
 run "carol is back"  docker compose run --rm demo carol carol-lab
+run "the first account steers the same subjects"  same_steered
+run "and finds them through the door"  docker compose run --rm demo "$first_user" "$first_password"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

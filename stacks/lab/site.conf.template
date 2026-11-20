@@ -44,6 +44,14 @@ server {
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
     }
+    # reins: which subjects the person steers; /api/reins/me/subjects
+    # reaches it as /me/subjects.
+    location /api/reins/ {
+        include /etc/nginx/gate/api.conf;
+        set $reins reins:8087;
+        rewrite ^/api/reins/(.*)$ /$1 break;
+        proxy_pass http://$reins;
+    }
     location /api/ {
         include /etc/nginx/gate/api.conf;
         client_max_body_size 16m;

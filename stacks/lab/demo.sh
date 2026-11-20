@@ -1,6 +1,8 @@
 #!/bin/sh
-# demo.sh <user> <password> [mail] — that person logs in through the gate and
-# the chat answers them; with `mail`, a one-time code reaches them in Mailpit.
+# demo.sh <user> <password> [mail] — that person logs in through the gate,
+# steers their two subjects (<user> and <user>-assistant, made on the first
+# visit) and the chat answers them; with `mail`, a one-time code reaches them
+# in Mailpit.
 set -u
 USER_NAME=$1 PASSWORD=$2
 B=$LAB_URL
@@ -19,9 +21,14 @@ expect() {
 run() { c -N "$B/api/run" -H 'Content-Type: application/json' -d "$RUN"; }
 
 expect "no session: the login page" "$(code "$B/")" 302
+expect "no session: no subjects" "$(code "$B/api/reins/me/subjects")" 401
 expect "no session: the chat is closed" "$(code "$B/api/run" -H 'Content-Type: application/json' -d "$RUN")" 401
 expect "$USER_NAME logs in" "$(code -X POST "$B/auth/api/firstfactor" -H 'Content-Type: application/json' \
   -d "{\"username\":\"$USER_NAME\",\"password\":\"$PASSWORD\"}")" 200
+mine=$(c "$B/api/reins/me/subjects")
+nicks=$(echo "$mine" | grep -o '"nick":"[^"]*"' | sed 's/"nick":"\(.*\)"/\1/' | sort | tr '\n' ' ')
+expect "$USER_NAME steers" "$nicks" "$USER_NAME $USER_NAME-assistant "
+expect "and the same ones again" "$(c "$B/api/reins/me/subjects")" "$mine"
 expect "the page" "$(c "$B/" | grep -o '<title>Chat</title>')" "<title>Chat</title>"
 out=$(run)
 expect "the chat answers" "$(echo "$out" | grep -c '"type":"TEXT_MESSAGE_CONTENT"' | sed 's/^[1-9][0-9]*$/yes/')" yes
