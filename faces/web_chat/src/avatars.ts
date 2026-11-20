@@ -10,8 +10,8 @@ const ONE = (id: string) => `/api/reins/subjects/${encodeURIComponent(id)}`
 // voices); one left out is the agent's own.
 export type Preferences = { ear?: string; mouth?: string; voice?: string; [other: string]: unknown }
 
-// An avatar: a subject the principal steers, as reins answers it. Its
-// subject_type is not read: avatars are all alike (UNIT-56 drops it).
+// An avatar: a subject the principal steers, as reins answers it. Avatars
+// are all alike: none is a human or a machine by kind.
 export type Avatar = { id: string; nick: string; name: string; bio?: string; preferences?: Preferences }
 
 // A change of one avatar, as reins takes it: a field left out is kept,
