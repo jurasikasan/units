@@ -1,0 +1,6 @@
+# Pinned 2026-11-20. Nothing heavy: the pictures are drawn at Cloudflare.
+fastapi==0.162.0
+uvicorn==0.54.0
+httpx==0.28.1
+pillow==13.0.0
+python-multipart==0.0.34

@@ -1,6 +1,7 @@
 # engines
 
-Speech engines behind OpenAI's audio API, one image each. Any OpenAI client, or
+Speech engines behind OpenAI's audio API, and picture engines behind its
+Images API, one image each. Any OpenAI client, or
 a router such as LiteLLM, talks to them as models; none of them knows about the
 others or about a router.
 
@@ -10,9 +11,10 @@ others or about a router.
 | [`tts/silero`](tts/silero/) | `POST /v1/audio/speech` | Silero v4 on CPU (or Intel XPU / CUDA), 48 kHz |
 | [`tts/voxcpm`](tts/voxcpm/) | `POST /v1/audio/speech` | VoxCPM2 on a CUDA GPU, voices cloned from mounted samples |
 | [`stt/whisper`](stt/whisper/) | `POST /v1/audio/transcriptions` | faster-whisper, CPU or CUDA |
+| [`images/cloudflare`](images/cloudflare/) | `POST /v1/images/generations`, `/edits` | Cloudflare Workers AI's image models (FLUX, Leonardo, SDXL), each request built from the model's schema |
 | [`vad/silero`](vad/silero/) | `POST /vad/{session}` | Silero VAD: speech probability per 32 ms window; its own API, OpenAI has none for this |
 
-What the speech engines (all but `vad`) share beyond OpenAI's shape:
+What the speech engines (`tts`, `stt`) share beyond OpenAI's shape:
 
 - `GET /v1/audio/voices` → `{"voices":[{"id","gender","langs":[]}]}` — OpenAI has
   no voice list; this is ours. `voice` in a speech request is one of these ids.

@@ -1,0 +1,28 @@
+# Manifest: what a reader outside the unit reads instead of its code.
+# Meaning lives in README.md; this is what a validator and an assembler read.
+
+unit: engines/images/cloudflare
+kind: engine
+summary: OpenAI's Images API (generations, edits) in front of Cloudflare Workers AI's image models, each model's request built from its own schema.
+contract: README.md
+maturity: probe
+
+provides:
+  http:
+    port: 8000
+    calls: ["POST /v1/images/generations", "POST /v1/images/edits", "GET /health"]
+  health: GET :8000/health
+
+consumes:
+  outside: [http]   # Cloudflare Workers AI: GET .../ai/models/schema, POST .../ai/run/{model}
+
+wire: []
+
+config:
+  optional:
+    IMAGES_MODEL: "@cf/black-forest-labs/flux-2-klein-4b"  # when a request names none
+    IMAGES_TIMEOUT: "120"                                   # seconds per call to Cloudflare
+    CLOUDFLARE_API_URL: "https://api.cloudflare.com/client/v4"
+  secrets:
+    CLOUDFLARE_ACCOUNT_ID: the Cloudflare account Workers AI is billed to
+    CLOUDFLARE_API_KEY: an API token with Workers AI read

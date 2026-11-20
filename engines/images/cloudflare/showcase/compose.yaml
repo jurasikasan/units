@@ -1,0 +1,54 @@
+name: images-cloudflare-showcase
+
+# Needs a Cloudflare account with Workers AI (the free 10k neurons a day do):
+#   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_KEY=... docker compose up --build --exit-code-from demo
+# The pictures land in ./out.
+
+services:
+  images:
+    build: ..
+    environment:
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:?set CLOUDFLARE_ACCOUNT_ID}
+      CLOUDFLARE_API_KEY: ${CLOUDFLARE_API_KEY:?set CLOUDFLARE_API_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 3s
+      start_period: 20s
+
+  # Through the OpenAI door only: a picture from a JSON model with no size of
+  # its own (flux-1-schnell), one sized and turned into PNG (flux-2-klein-4b),
+  # then an edit of that one, and a refusal in OpenAI's error shape.
+  demo:
+    image: python:3.12-alpine
+    depends_on:
+      images:
+        condition: service_healthy
+    volumes:
+      - ./out:/out
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import base64, json, urllib.error, urllib.request as u
+        D = "http://images:8000/v1/images"
+        def post(path, body, ctype="application/json"):
+            r = u.Request(D + path, data=body, headers={"Content-Type": ctype})
+            try:
+                return json.load(u.urlopen(r, timeout=180))
+            except urllib.error.HTTPError as e:
+                return {"status": e.code, **json.load(e)}
+        def keep(name, a):
+            data = base64.b64decode(a["data"][0]["b64_json"])
+            open(f"/out/{name}.{a['output_format']}", "wb").write(data)
+            print(f"{name:8} {a['size']:>9} {a['output_format']:4} {len(data):>8} bytes")
+            return data
+        prompt = "a red fox in snow, watercolor"
+        keep("schnell", post("/generations", json.dumps({"model": "@cf/black-forest-labs/flux-1-schnell", "prompt": prompt}).encode()))
+        fox = keep("klein", post("/generations", json.dumps({"model": "black-forest-labs/flux-2-klein-4b", "prompt": prompt, "size": "768x512", "output_format": "png"}).encode()))
+        b = "showcase"
+        form = (f'--{b}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\nthe same fox, at night under the northern lights\r\n'
+                f'--{b}\r\nContent-Disposition: form-data; name="size"\r\n\r\n768x512\r\n'
+                f'--{b}\r\nContent-Disposition: form-data; name="image[]"; filename="fox.png"\r\nContent-Type: image/png\r\n\r\n').encode() + fox + f"\r\n--{b}--\r\n".encode()
+        keep("edit", post("/edits", form, f"multipart/form-data; boundary={b}"))
+        print("refused:", post("/generations", json.dumps({"prompt": prompt, "size": "huge"}).encode()))
