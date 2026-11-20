@@ -9,9 +9,11 @@ import { SpeechEndpointAdapter, TranscriptionDictationAdapter } from '@/voice'
 import { VoiceNotice } from '@/VoiceNotice'
 import { RealtimeCallAdapter } from '@/realtime'
 import { Call } from '@/Call'
-import { Models, useModels, type SoundPick } from '@/Models'
+import { RunModel, useModels, type SoundPick } from '@/Models'
 import { ChatSidebar } from '@/Sidebar'
 import { Me, useMe } from '@/Me'
+import { Settings } from '@/Settings'
+import { classic, picks, useAvatars } from '@/avatars'
 import { useThreads } from '@/threads'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/upstream/components/ui/sidebar'
 
@@ -70,18 +72,27 @@ function useVoice(sound: SoundPick) {
 }
 
 // The face keeps its conversations in memory, and sends the current one whole with each
-// run to whatever answers AG-UI at /api/run, attachments included, with the
-// model picked among those offered at /api/v1/models (src/Models.tsx); the
-// page's chats and the pickers sit in a sidebar (src/Sidebar.tsx,
-// src/threads.ts), who is logged in at its foot (src/Me.tsx). Sound
-// goes to OpenAI's audio API on the same origin (src/voice.ts), and a call
-// to its Realtime API there (src/realtime.ts).
+// run to whatever answers AG-UI at /api/run, attachments included. The
+// page's chats sit in a sidebar (src/Sidebar.tsx, src/threads.ts), who is
+// logged in at its foot (src/Me.tsx), which opens the settings: the
+// avatars the principal steers, from reins (src/avatars.ts,
+// src/Settings.tsx). Their preferences, among the models offered at
+// /api/v1/models (src/Models.tsx), are what a run, the mic, read-aloud and
+// a call are asked with. Sound goes to OpenAI's audio API on the same
+// origin (src/voice.ts), and a call to its Realtime API there
+// (src/realtime.ts).
 export default function App() {
   const agent = useMemo(() => new HttpAgent({ url: '/api/run', fetch: fetchOrLogIn, threadId: crypto.randomUUID() }), [])
   const sound = useMemo<SoundPick>(() => ({}), [])
   const { dictation, speech, call } = useVoice(sound)
   const offers = useModels(fetchOrLogIn)
   const me = useMe(fetchOrLogIn)
+  const { avatars, save } = useAvatars(fetchOrLogIn)
+  const pair = classic(avatars, me?.preferred_username)
+  // The adapters read sound at each call; a change saved in the settings
+  // is in the next request.
+  Object.assign(sound, picks(pair))
+  const [settings, setSettings] = useState(false)
   const threads = useThreads(agent)
   const runtime = useAgUiRuntime({ agent, adapters: { attachments, dictation, speech, voice: call, threadList: threads.adapter } })
   const { bind } = threads
@@ -91,12 +102,14 @@ export default function App() {
     <AssistantRuntimeProvider runtime={runtime}>
       <TooltipProvider>
         <SidebarProvider>
-          <ChatSidebar settings={<Models offers={offers} sound={sound} />} me={me && <Me me={me} />} />
+          <RunModel name={sound.chat} />
+          <ChatSidebar me={me && <Me me={me} onSettings={avatars ? () => setSettings(true) : undefined} />} />
           <SidebarInset className="h-dvh">
             <SidebarTrigger className="absolute top-2 left-2 z-10" />
             <Thread components={call ? { ComposerExtra: Call } : undefined} />
           </SidebarInset>
         </SidebarProvider>
+        {avatars && <Settings open={settings} onOpenChange={setSettings} avatars={avatars} pair={pair} offers={offers} save={save} />}
         <VoiceNotice />
       </TooltipProvider>
     </AssistantRuntimeProvider>

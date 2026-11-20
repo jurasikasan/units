@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { ModelSelector, type ModelOption } from '@/upstream/components/assistant-ui/elements/model-selector.aui'
+import { useAui } from '@assistant-ui/react'
+import type { ModelOption } from '@/upstream/components/assistant-ui/elements/model-selector'
 import { ModelSelectorContent, ModelSelectorRoot, ModelSelectorTrigger } from '@/upstream/components/assistant-ui/elements/model-selector'
 
 const MODELS = '/api/v1/models'
@@ -9,8 +10,9 @@ const MODELS = '/api/v1/models'
 // not said).
 export type Offer = { id: string; mode: string; voices: string[] }
 
-// What the person picked for sound, and the chat model for a call; the
-// voice adapters read it at each call. Empty: the agent's own.
+// What a run, the mic, read-aloud and a call are asked with, from the
+// avatars' preferences (src/avatars.ts); the adapters read it at each
+// call. Empty: the agent's own.
 export type SoundPick = { chat?: string; stt?: string; tts?: string; voice?: string }
 
 // useModels is what the agent offers; [] when nothing answers there, and
@@ -34,62 +36,28 @@ export function useModels(fetcher: typeof fetch) {
 
 const options = (ids: string[]): ModelOption[] => ids.map((id) => ({ id, name: id }))
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-muted-foreground text-xs">{label}</span>
-      {children}
-    </div>
-  )
-}
-
-// Pick is one of the agent's lists, the first chosen, outside the
-// runtime: what it is for is the caller's.
-function Pick({ label, ids, value, onChange }: { label: string; ids: string[]; value?: string; onChange: (v: string) => void }) {
+// Pick is one of the agent's lists, assistant-ui's model selector without
+// the runtime (its props-driven elements), the first shown when nothing is
+// picked: the agent's own. What it is for is the caller's.
+export function Pick({ id, label, ids, value, onChange }: { id?: string; label: string; ids: string[]; value?: string; onChange: (v: string) => void }) {
   if (ids.length === 0) return null
   return (
-    <Row label={label}>
-      <ModelSelectorRoot models={options(ids)} value={value ?? ids[0]} onValueChange={onChange}>
-        <ModelSelectorTrigger variant="ghost" size="sm" aria-label={`${label}: ${value ?? ids[0]}`} />
-        <ModelSelectorContent />
-      </ModelSelectorRoot>
-    </Row>
+    <ModelSelectorRoot models={options(ids)} value={value ?? ids[0]} onValueChange={onChange}>
+      <ModelSelectorTrigger id={id} variant="outline" size="sm" className="w-fit" aria-label={`${label}: ${value ?? ids[0]}`} />
+      <ModelSelectorContent />
+    </ModelSelectorRoot>
   )
 }
 
-// Models: the pickers in the sidebar, each list's first chosen. The chat
-// model is assistant-ui's own model selector: its pick goes into the
-// runtime's model context, which the AG-UI runtime sends as the run's
-// forwardedProps (modelName). Speech to text, text to speech and the voice
-// go into sound, which the voice adapters send as OpenAI's model and voice;
-// a new speech model brings its first voice, the one shown.
-export function Models({ offers, sound }: { offers: Offer[]; sound: SoundPick }) {
-  const [, redraw] = useState(0)
-  const set = (p: SoundPick) => {
-    Object.assign(sound, p)
-    redraw((n) => n + 1)
-  }
-  const of = (mode: string) => offers.filter((o) => o.mode === mode)
-  const chat = options(of('chat').map((o) => o.id))
-  const ears = of('audio_transcription').map((o) => o.id)
-  const mouths = of('audio_speech')
-  const mouth = mouths.find((o) => o.id === sound.tts) ?? mouths[0]
-  // What is shown is what is used: a call (src/realtime.ts) names each
-  // part, and a list's first is the one shown when nothing was picked.
-  sound.chat ??= chat[0]?.id
-  sound.stt ??= ears[0]
-  sound.tts ??= mouth?.id
-  sound.voice ??= mouth?.voices[0]
-  return (
-    <div className="flex flex-col gap-1">
-      {chat.length > 0 && (
-        <Row label="Model">
-          <ModelSelector models={chat} defaultValue={chat[0].id} onValueChange={(c) => set({ chat: c })} variant="ghost" size="sm" />
-        </Row>
-      )}
-      <Pick label="Speech to text" ids={ears} value={sound.stt} onChange={(stt) => set({ stt })} />
-      <Pick label="Text to speech" ids={mouths.map((o) => o.id)} value={sound.tts} onChange={(tts) => set({ tts, voice: mouths.find((o) => o.id === tts)?.voices[0] })} />
-      <Pick label="Voice" ids={mouth?.voices ?? []} value={sound.voice} onChange={(voice) => set({ voice })} />
-    </div>
-  )
+// RunModel puts the chat model into the runtime's model context, as
+// assistant-ui's own model selector does: the AG-UI runtime sends it with
+// each run as forwardedProps.modelName. None: the agent's own.
+export function RunModel({ name }: { name?: string }) {
+  const api = useAui()
+  useEffect(() => {
+    if (!name) return
+    const config = { config: { modelName: name } }
+    return api.modelContext.register({ getModelContext: () => config })
+  }, [api, name])
+  return null
 }

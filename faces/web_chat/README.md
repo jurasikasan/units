@@ -15,7 +15,8 @@ its registry. React, Vite, Tailwind.
 | | |
 |---|---|
 | `src/App.tsx`, `src/main.tsx`, `index.html` | ours: the runtime wired to `/api/run`, the theme |
-| `src/Sidebar.tsx`, `src/threads.ts` | ours: the sidebar (upstream's thread list, the selectors below it) and the chats it lists, kept in memory |
+| `src/Sidebar.tsx`, `src/threads.ts` | ours: the sidebar (upstream's thread list, who is logged in at its foot) and the chats it lists, kept in memory |
+| `src/Settings.tsx`, `src/avatars.ts`, `src/Models.tsx` | ours: the settings (the avatars, their profiles and preferences), the avatars from reins and the classic chat's wiring, the models offered |
 | `src/upstream/` | **generated**: what assistant-ui's registry gives today (the thread, its parts, shadcn's base components, the stylesheet). Never edited by hand |
 | `patches/` | our changes to upstream, each with why; applied on top of it |
 | `upstream.sh` | `src/upstream` again from the registry, patches on top |
@@ -37,7 +38,8 @@ is about the UI's edge, not to learn the face.
 | | |
 |---|---|
 | `POST /api/run` | an AG-UI agent: `RunAgentInput` in, events out as SSE; text messages are what it shows now |
-| `GET /api/v1/models` | OpenAI's list of models, with `mode` and a speech model's `voices` beside OpenAI's fields; each mode's first is the agent's own. The pickers show only when this answers |
+| `GET /api/v1/models` | OpenAI's list of models, with `mode` and a speech model's `voices` beside OpenAI's fields; each mode's first is the agent's own. The preferences show in the settings only when this answers |
+| `GET /api/reins/me/subjects`, `PATCH /api/reins/subjects/{id}` | [reins](../../reins/CONTRACT.md): the avatars the person steers, and a change of one's name, bio or preferences. The settings show only when this answers |
 | `POST /api/v1/audio/transcriptions` | OpenAI's: a recording in, `{text}` out. The mic shows only when this is answered |
 | `POST /api/v1/audio/speech` | OpenAI's: `{input}` in, a sound out. Read-aloud shows only when this is answered |
 | `GET /api/v1/realtime` | OpenAI's Realtime API, a WebSocket: a call. The call button shows only when this is answered |
@@ -55,6 +57,34 @@ button that goes to `end_session_endpoint`. All of it comes from
 stands in front answers there (`gate` does, with its `userinfo.conf`),
 and where nothing does, nothing is shown. assistant-ui has no element for
 this; shadcn's sidebar menu and avatar, which upstream brings, make it.
+Where reins answers, the row opens the settings.
+
+## Settings: the avatars
+
+The person's avatars are the subjects they steer, as reins answers at
+`GET /api/reins/me/subjects` (`src/avatars.ts`): the first login gives
+`<login>` and `<login>-assistant`. The settings (`src/Settings.tsx`) are
+shadcn's "sidebar in a dialog" block (`sidebar-13`) made ours: the avatars
+on the left, the one chosen on the right with a breadcrumb, a form of
+shadcn's field, input and textarea; on a phone the avatars go above it.
+assistant-ui has nothing for settings. The block itself is demo content, so
+`upstream.sh` brings what it is built of (dialog, sidebar, breadcrumb, and
+field for the form), not the block.
+
+Each avatar shows its nick, which never changes, its name and its bio, and
+its preferences, among what `GET /api/v1/models` offers:
+
+- the assistant (`<login>-assistant`): its **chat model**, and its voice:
+  **text to speech** (the mouth) and one of the mouth's **voices**;
+- the person (`<login>`): its **ear**, **speech to text**.
+
+Save sends what changed (`PATCH /api/reins/subjects/{id}`): a name or bio,
+and the preferences changed, merged by reins into the stored ones; a mouth
+and its voice go together, and a new mouth brings its first voice. What is
+saved is in the next request and survives a reload. A list's first is
+shown when nothing is set: the agent's own. A refusal is said beside Save,
+in reins' words. Which keys each preference is stored under is in reins'
+contract. The subject's type is not read or shown.
 
 ## Chats
 
@@ -65,29 +95,34 @@ switching, rename, archive, delete. Each chat is an AG-UI thread: its id is
 the `threadId` of its runs, and only its own messages go with them. They
 live in the page's memory (`src/threads.ts`, through the AG-UI runtime's
 `threadList` adapter) and are gone on reload, until a store holds them.
-Below the chats sit the selectors; those settings move to the subject's
-page once there is one. Collapsed by the button at the top left, a sheet
+Collapsed by the button at the top left, a sheet
 on a phone.
 
 ## Which model, ear, mouth and voice
 
-Pickers in the sidebar offer what `GET /api/v1/models` lists (OpenAI's
-list; for the lab's mind, LiteLLM's groups), each list's first chosen
-(`src/Models.tsx`). The agent's entries say what each is for in `mode`
-(`chat` when not said, `audio_transcription`, `audio_speech`) and a speech
-model's `voices`, fields of its own beside OpenAI's.
+What each request is asked with is what the avatars prefer, wired for the
+classic chat, where `<login>` speaks and `<login>-assistant` answers
+(`src/avatars.ts`), until something that keeps the conversation reads the
+preferences itself. The pair is found by nick: the login's from userinfo,
+else the first avatar whose assistant is also steered.
 
-- **Model**: assistant-ui's own `model-selector`; the pick goes into the
-  runtime's model context, which the AG-UI runtime sends with each run as
+- **Chat model** (the assistant's `chat_model`): into the runtime's model
+  context, as assistant-ui's own model selector puts it (`src/Models.tsx`,
+  `RunModel`), which the AG-UI runtime sends with each run as
   `forwardedProps.modelName`.
-- **Speech to text**, **Text to speech**, **Voice**: the same selector
-  without the runtime (its props-driven elements); the mic sends the pick
-  as the transcription's `model` (before the sound), read-aloud as the
-  speech's `model` and `voice`. A new speech model brings its first voice;
-  the voice picker shows only when the model's voices are known.
+- **Ear** (the person's `ear`): the mic's transcription `model` (before
+  the sound).
+- **Mouth** and **voice** (the assistant's `mouth`, `voice`): read-aloud's
+  `model` and `voice`.
+- A call names all of them (below).
 
-Picks hold while the page is open; a reload is the first ones again.
-Nothing answers there: no pickers, and the agent's own.
+A preference not set is not sent: the agent's own. The agent's entries at
+`GET /api/v1/models` (OpenAI's list; for the lab's mind, LiteLLM's groups)
+say what each is for in `mode` (`chat` when not said,
+`audio_transcription`, `audio_speech`) and a speech model's `voices`,
+fields of its own beside OpenAI's; the settings offer each mode's list
+with assistant-ui's model selector, without the runtime. No reins: no
+settings, and the agent's own.
 
 ## Attachments
 
@@ -104,8 +139,8 @@ its reason when pointed at, and nothing is sent while it is there.
 The mic in the composer records until it is pressed again, then the
 recording is transcribed whole and its text lands in the composer, to read
 and send; a button on an answer reads it aloud (`src/voice.ts`). Both go to
-OpenAI's audio API on the same origin, which picks the model and the
-voice; the face sends no `model`. assistant-ui's own adapters for this are
+OpenAI's audio API on the same origin, with the model and voice the
+avatars prefer (above); none preferred, the endpoint picks. assistant-ui's own adapters for this are
 the browser's Web Speech, which sends the sound wherever the browser's maker
 chose, so they are not used. Each button shows only where the page is
 answered (a `HEAD` that is not 404). Nothing is heard or played while it is
@@ -123,7 +158,7 @@ own session; its own adapters go to a provider with a key in the page). The
 mic goes out as PCM16 at 24 kHz every 100 ms, echo cancelled by the
 browser; the answer's sound plays as it comes. The page asks for the
 session's formats, the model's own turn detection and a transcript of what
-was said, and names what is picked in the sidebar when the call starts:
+was said, and names what the avatars prefer when the call starts:
 the ear as `audio.input.transcription.model`, the voice as
 `audio.output.voice` (`<mouth>_<voice>`, `piper_irina`), the chat model as
 `chat_model` (ours: the schema's model is the realtime model itself). A

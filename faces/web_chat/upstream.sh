@@ -30,7 +30,7 @@ printf '@import "tailwindcss";\n' > src/upstream/index.css
 quiet npx --yes "$SHADCN" init -y -f --no-reinstall -b base -p nova -t vite --no-monorepo --no-rtl
 rm -rf src/components src/lib
 cp "$keep" components.json
-quiet npx --yes "$SHADCN" add -y utils button sidebar "$THREAD" "$MODELS" "$THREADS"
+quiet npx --yes "$SHADCN" add -y utils button sidebar breadcrumb field "$THREAD" "$MODELS" "$THREADS"
 
 for p in patches/*.patch; do
   patch -p1 --forward --no-backup-if-mismatch -s < "$p" || { echo "$p: does not apply, upstream changed there"; exit 1; }
