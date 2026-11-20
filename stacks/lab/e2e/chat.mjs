@@ -42,6 +42,13 @@
 // E2E_ONLY=call runs this alone. Last, the sidebar's foot shows who is
 // logged in, and its log-out ends the session (E2E_ONLY=me).
 //
+// What a run and the sound are asked with is set in the settings, opened
+// from the sidebar's foot, on the person's avatars (kept in subjects,
+// through reins): the assistant's chat model, set and then reloaded, is the
+// group that answers (E2E_ONLY=model); the person's ear and the
+// assistant's mouth and voice are the ones that hear and speak
+// (E2E_ONLY=sound), and on cascade the parts of a call.
+//
 // E2E_ONLY=refused is another round, on a mind asking a model that takes no
 // pictures (fake-text): a picture sent ends the run with the mind's error,
 // and the page shows it.
@@ -49,6 +56,7 @@ import { chromium } from 'playwright'
 import { writeFileSync } from 'node:fs'
 
 const [user, password] = process.argv.slice(2)
+const assistant = `${user}-assistant`
 const url = process.env.LAB_URL
 const first = process.env.E2E_FIRST ?? 'даром за амбаром'
 const question = 'What was my very first message in this chat? Repeat it word for word. #first_message'
@@ -226,31 +234,31 @@ async function callRound() {
   }
   const count = (list, type) => list.filter((e) => e.type === type).length
 
-  // Ours is made of parts, and they are the ones picked in the sidebar:
-  // the second fake ear, the second fake mouth in its voice irina.
+  // Ours is made of parts, and they are the ones the avatars prefer: the
+  // person's ear the second fake one, the assistant's mouth the second
+  // fake one in its voice irina.
   if (realtime === 'cascade') {
-    await choose('Speech to text', 'fake-stt-b')
-    await choose('Text to speech', 'fake-tts-b')
-    await choose('Voice', 'irina')
-    step('picked for the call', 'fake-stt-b, fake-tts-b irina')
+    await settings(user, { 'Speech to text': 'fake-stt-b' })
+    await settings(assistant, { 'Text to speech': 'fake-tts-b', Voice: 'irina' })
+    step('preferred for the call', 'fake-stt-b, fake-tts-b irina')
   }
   await page.getByRole('button', { name: 'Start a call' }).click()
   await page.getByRole('button', { name: 'Hang up' }).waitFor()
   await until('session', () => count(got, 'session.created') > 0)
   step('a call, opened', `${got.find((e) => e.type === 'session.created').session?.model ?? '?'}`)
 
-  const user = page.locator('[data-slot="aui_spoken-message-root"][data-role="user"]')
-  const assistant = page.locator('[data-slot="aui_spoken-message-root"][data-role="assistant"]')
-  await user.first().waitFor()
-  await assistant.first().waitFor()
+  const saidBy = page.locator('[data-slot="aui_spoken-message-root"][data-role="user"]')
+  const answeredBy = page.locator('[data-slot="aui_spoken-message-root"][data-role="assistant"]')
+  await saidBy.first().waitFor()
+  await answeredBy.first().waitFor()
   await until('a whole answer', () => count(got, 'response.done') > 0)
-  const heard = (await user.first().innerText()).trim(), answered = (await assistant.first().innerText()).trim()
+  const heard = (await saidBy.first().innerText()).trim(), answered = (await answeredBy.first().innerText()).trim()
   step('what was heard, in the thread', JSON.stringify(heard.slice(-60)))
   step('what was answered, in the thread', JSON.stringify(answered.slice(-60)))
   const sound = count(got, 'response.output_audio.delta')
   step('sound out, sound back', `${count(sent, 'input_audio_buffer.append')} chunks out, ${sound} back`)
   // The scripted fakes answer from their script; ours (cascade) is the
-  // picked ear's words and the fake model's answer, through hearing and speaking.
+  // preferred ear's words and the fake model's answer, through hearing and speaking.
   const [ear, mouth] = realtime === 'cascade' ? ['second fake ear heard', 'fake LLM'] : ['capital of France', 'Paris']
   if (!heard.includes(ear) || !answered.includes(mouth) || !sound) {
     step('FAIL', 'the call did not carry both sides')
@@ -279,36 +287,47 @@ async function callRound() {
 
   await page.getByRole('button', { name: 'Hang up' }).click()
   await page.getByRole('button', { name: 'Start a call' }).waitFor()
-  step('hung up', `${await user.count()} heard, ${await assistant.count()} answered in the thread`)
+  step('hung up', `${await saidBy.count()} heard, ${await answeredBy.count()} answered in the thread`)
 }
 
-// modelRound: the picker offers the lab's chat groups, the mind's default
-// chosen; a pick is the group that answers, and picking back the default
-// goes back to it. In a conversation of its own (a reload: the page keeps
-// it in memory), since a picture said before would be refused by fake-text.
+// modelRound: the assistant's chat model, set in the settings, is the
+// group that answers after a reload; the settings offer the lab's chat
+// groups, the mind's default shown when nothing is set. Its name, set
+// there too, is still there after the reload. Set back to the default, the
+// next answer is the default's, no reload needed. Last the preference is
+// taken out through reins, so later rounds ask the agent's own again. In a
+// conversation of its own (a reload: the page keeps it in memory), since a
+// picture said before would be refused by fake-text.
 async function modelRound() {
   await page.reload()
   await page.getByRole('textbox', { name: 'Message input' }).waitFor()
-  const picker = page.getByRole('combobox', { name: /^Model:/ })
-  const chosen = await picker.getAttribute('aria-label')
-  await picker.click()
-  const offered = await page.getByRole('option').allInnerTexts()
-  step('offered, chosen', `${offered.join(' ')}; ${chosen}`)
-  if (chosen !== 'Model: fake' || !offered.includes('fake') || !offered.includes('fake-text') || offered.some((m) => m.includes('stt') || m.includes('realtime'))) {
-    step('FAIL', 'not the chat groups, or not fake chosen')
+  const set = await settings(assistant, { 'Chat model': 'fake-text' }, { Name: 'Lab helper' })
+  const offered = set.offered['Chat model']
+  step('offered, shown', `${offered.join(' ')}; ${set.was['Chat model']}`)
+  if (set.was['Chat model'] !== 'Chat model: fake' || !offered.includes('fake') || !offered.includes('fake-text') || offered.some((m) => m.includes('stt') || m.includes('realtime'))) {
+    step('FAIL', 'not the chat groups, or not fake shown')
     failed = true
   }
-  await page.getByRole('option', { name: 'fake-text', exact: true }).click()
+  await page.reload()
+  await page.getByRole('textbox', { name: 'Message input' }).waitFor()
   const picked = await say('Which model are you? #which_model')
-  step('picked fake-text, answered', JSON.stringify(picked))
-  await picker.click()
-  await page.getByRole('option', { name: 'fake', exact: true }).click()
+  step('set fake-text, reloaded, answered', JSON.stringify(picked))
+  const kept = await settings(assistant, { 'Chat model': 'fake' }, {}, ['Name'])
+  step('after the reload, the settings show', `${kept.was['Chat model']}, name ${JSON.stringify(kept.read.Name)}`)
   const back = await say('And now? #which_model')
-  step('picked fake again, answered', JSON.stringify(back))
+  step('set fake again, answered', JSON.stringify(back))
   if (!picked.includes('fake-text-1') || !back.includes('fake-1') || back.includes('fake-text')) {
-    step('FAIL', 'the pick did not decide which group answered')
+    step('FAIL', 'the preference did not decide which group answered')
     failed = true
   }
+  if (kept.was['Chat model'] !== 'Chat model: fake-text' || kept.read.Name !== 'Lab helper') {
+    step('FAIL', 'what was saved did not survive the reload')
+    failed = true
+  }
+  const mine = await (await page.request.get(url + '/api/reins/me/subjects')).json()
+  const id = mine.find((a) => a.nick === assistant)?.id
+  const out = await page.request.patch(`${url}/api/reins/subjects/${id}`, { data: { preferences: { chat_model: null } } })
+  step('the preference taken out', out.status())
 }
 
 // threadsRound: the sidebar's chats. A new one starts empty and runs as a
@@ -359,8 +378,7 @@ async function meRound() {
   }
 }
 
-// choose picks name in the sidebar's picker called label and returns what
-// it offered.
+// choose picks name in the picker called label and returns what it offered.
 async function choose(label, name) {
   await page.getByRole('combobox', { name: new RegExp(`^${label}:`) }).click()
   const offered = await page.getByRole('option').allInnerTexts()
@@ -369,12 +387,41 @@ async function choose(label, name) {
   return offered
 }
 
-// soundPickRound: the second fake ear and mouth picked in the sidebar, and a
-// voice of the mouth's own: what comes back is theirs.
+// settings opens the settings from the sidebar's foot, goes to nick's
+// avatar, fills its text fields and picks its preferences (label → what),
+// saves when anything changed, and closes. It returns what each picker
+// showed before and offered, and the text of the fields named in read.
+async function settings(nick, picks = {}, text = {}, read = []) {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  await dialog.waitFor()
+  await dialog.getByRole('button', { name: nick, exact: true }).click()
+  const form = dialog.getByRole('form', { name: `Avatar ${nick}` })
+  await form.waitFor()
+  const got = { was: {}, offered: {}, read: {} }
+  for (const label of read) got.read[label] = await form.getByLabel(label, { exact: true }).inputValue()
+  for (const [label, value] of Object.entries(text)) await form.getByLabel(label, { exact: true }).fill(value)
+  for (const [label, name] of Object.entries(picks)) {
+    got.was[label] = await form.getByRole('combobox', { name: new RegExp(`^${label}:`) }).getAttribute('aria-label')
+    got.offered[label] = await choose(label, name)
+  }
+  const save = form.getByRole('button', { name: 'Save' })
+  if (await save.isEnabled()) {
+    await save.click()
+    await form.getByRole('status').filter({ hasText: 'Saved' }).waitFor()
+  }
+  await page.keyboard.press('Escape')
+  await dialog.waitFor({ state: 'detached' })
+  return got
+}
+
+// soundPickRound: the person's ear and the assistant's mouth set to the
+// second fake ones in the settings, and a voice of the mouth's own: what
+// comes back is theirs.
 async function soundPickRound() {
   await page.reload()
   await page.getByRole('textbox', { name: 'Message input' }).waitFor()
-  const ears = await choose('Speech to text', 'fake-stt-b')
+  const ears = (await settings(user, { 'Speech to text': 'fake-stt-b' })).offered['Speech to text']
   step('ears offered', ears.join(' '))
   const box = page.getByRole('textbox', { name: 'Message input' })
   await page.getByRole('button', { name: 'Start voice input' }).click()
@@ -385,8 +432,9 @@ async function soundPickRound() {
   const heard = await box.inputValue()
   step('the second ear heard', JSON.stringify(heard))
 
-  const mouths = await choose('Text to speech', 'fake-tts-b')
-  const voices = await choose('Voice', 'irina')
+  const set = await settings(assistant, { 'Text to speech': 'fake-tts-b', Voice: 'irina' })
+  const mouths = set.offered['Text to speech']
+  const voices = set.offered.Voice
   step('mouths, its voices', `${mouths.join(' ')}; ${voices.join(' ')}`)
   await say(heard || 'Say something.')
   const answer = page.locator('[data-role="assistant"]').last()

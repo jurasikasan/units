@@ -272,7 +272,7 @@ services:
   # words, a chat model through LiteLLM answers, speaking says it. LiteLLM
   # reaches it as `cascade` (litellm/models.yaml); the organs' events go on
   # a Redis of their own (bus). Its ear, chat model and voice are what the
-  # page picks in the sidebar; LAB_CASCADE_* when it names none. The
+  # page's avatars prefer (its settings); LAB_CASCADE_* when it names none. The
   # language is found by STT in each utterance.
   realtime:
     build: ../../minds/realtime
