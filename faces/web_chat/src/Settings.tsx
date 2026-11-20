@@ -193,7 +193,7 @@ function AvatarForm({ avatar, offers, save }: { avatar: Avatar; offers: Offer[];
         </FieldSet>
       )}
 
-      <div className="sticky bottom-0 -mb-6 flex items-center gap-3 py-3">
+      <div className="flex items-center gap-3">
         <Button type="submit" size="sm" disabled={!dirty || state.saving}>
           {state.saving ? 'Saving…' : 'Save'}
         </Button>
