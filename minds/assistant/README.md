@@ -43,6 +43,8 @@ docker compose run --rm demo
 
 The mind and LiteLLM with a mock model that needs no key; the demo sends one
 run the way an AG-UI client does and prints the events as they arrive, then
+one carrying a picture of 1.8 MB (2.4 MB as base64, a file name beginning
+with a space), which reaches the model, then
 shows that a request with nobody named is refused. A real model: change
 `showcase/litellm.yaml` (an example is in it) and `docker compose restart litellm`.
 
