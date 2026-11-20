@@ -1,0 +1,8 @@
+# Pinned 2026-11-20. torch comes from the base (Intel's image) or its own
+# index (cuda), never from here.
+diffusers==0.43.0
+transformers==5.23.0
+accelerate==1.16.0
+fastapi==0.162.0
+uvicorn==0.54.0
+python-multipart==0.0.34

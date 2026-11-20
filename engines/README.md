@@ -12,6 +12,7 @@ others or about a router.
 | [`tts/voxcpm`](tts/voxcpm/) | `POST /v1/audio/speech` | VoxCPM2 on a CUDA GPU, voices cloned from mounted samples |
 | [`stt/whisper`](stt/whisper/) | `POST /v1/audio/transcriptions` | faster-whisper, CPU or CUDA |
 | [`images/cloudflare`](images/cloudflare/) | `POST /v1/images/generations`, `/edits` | Cloudflare Workers AI's image models (FLUX, Leonardo, SDXL), each request built from the model's schema |
+| [`images/diffusers`](images/diffusers/) | `POST /v1/images/generations`, `/edits` | one diffusers pipeline (FLUX.2 klein, SDXL, ...) from mounted weights, on Intel XPU or CUDA, offline |
 | [`vad/silero`](vad/silero/) | `POST /vad/{session}` | Silero VAD: speech probability per 32 ms window; its own API, OpenAI has none for this |
 
 What the speech engines (`tts`, `stt`) share beyond OpenAI's shape:

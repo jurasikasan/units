@@ -1,0 +1,29 @@
+# Manifest: what a reader outside the unit reads instead of its code.
+# Meaning lives in README.md; this is what a validator and an assembler read.
+
+unit: engines/images/diffusers
+kind: engine
+summary: One diffusers pipeline (FLUX.2 klein, SDXL, Qwen-Image, ...) from a mounted model directory behind OpenAI's Images API, on Intel XPU, CUDA or CPU; no network.
+contract: README.md
+maturity: probe
+
+provides:
+  http:
+    port: 8000
+    calls: ["POST /v1/images/generations", "POST /v1/images/edits", "GET /health"]
+  health: GET :8000/health
+
+consumes:
+  infra: [gpu]   # an Intel GPU (/dev/dri) or an NVIDIA one; CPU works, slowly
+
+wire: []
+
+config:
+  optional:
+    IMAGES_MODEL_DIR: "/models/model"   # a diffusers model directory (model_index.json)
+    IMAGES_MODEL_NAME: ""               # what /health calls it; the directory's name when empty
+    IMAGES_DEVICE: "auto"               # auto: xpu, then cuda, then cpu
+    IMAGES_DTYPE: "bfloat16"
+    IMAGES_OFFLOAD: "none"              # none | model | sequential (diffusers' CPU offload)
+    IMAGES_STEPS: ""                    # the model's own default when empty; 4 for FLUX.2 klein
+    IMAGES_GUIDANCE: ""                 # likewise; 1.0 for FLUX.2 klein

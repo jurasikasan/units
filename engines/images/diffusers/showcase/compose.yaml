@@ -1,0 +1,72 @@
+name: images-diffusers-showcase
+
+# A model directory in diffusers' layout on the host (model_index.json in it),
+# e.g. black-forest-labs/FLUX.2-klein-4B fetched with `hf download`:
+#   IMAGES_MODEL=/path/to/FLUX.2-klein-4B docker compose up --build --exit-code-from demo
+# Intel GPU by default (/dev/dri); ACCEL=cuda with an NVIDIA one (see README).
+# Pictures land in ./out. The engine sees no network: weights are all it has.
+
+services:
+  images:
+    build:
+      context: ..
+      args: {ACCEL: "${ACCEL:-xpu}"}
+    devices: ["/dev/dri:/dev/dri"]
+    networks: [inner]
+    environment:
+      IMAGES_STEPS: "${IMAGES_STEPS:-4}"
+      IMAGES_GUIDANCE: "${IMAGES_GUIDANCE:-1.0}"
+      UR_L0_ENABLE_RELAXED_ALLOCATION_LIMITS: "1"   # Intel: allocations over 4 GB
+    volumes:
+      - ${IMAGES_MODEL:?set IMAGES_MODEL to a diffusers model directory}:/models/model:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      start_period: 600s
+      retries: 120
+
+  # Through the door only: a picture at 512, one at 1024 with a seed, an
+  # edit of the first, and two refusals in OpenAI's error shape.
+  demo:
+    image: python:3.12-alpine
+    networks: [inner]
+    depends_on:
+      images:
+        condition: service_healthy
+    volumes:
+      - ./out:/out
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import base64, json, time, urllib.error, urllib.request as u
+        D = "http://images:8000"
+        print("engine:", json.load(u.urlopen(D + "/health")))
+        def post(path, body, ctype="application/json"):
+            r = u.Request(D + "/v1/images" + path, data=body, headers={"Content-Type": ctype})
+            t = time.time()
+            try:
+                return json.load(u.urlopen(r, timeout=1800)), time.time() - t
+            except urllib.error.HTTPError as e:
+                return {"status": e.code, **json.load(e)}, time.time() - t
+        def keep(name, got):
+            a, took = got
+            data = base64.b64decode(a["data"][0]["b64_json"])
+            open(f"/out/{name}.{a['output_format']}", "wb").write(data)
+            print(f"{name:6} {a['size']:>9} {a['output_format']:4} {len(data):>8} bytes  {took:6.1f} s")
+            return data
+        prompt = "a red fox in snow, watercolor, a wooden sign that reads 'units'"
+        fox = keep("512", post("/generations", json.dumps({"prompt": prompt, "size": "512x512"}).encode()))
+        keep("1024", post("/generations", json.dumps({"prompt": prompt, "size": "1024x1024", "seed": 7, "output_format": "jpeg"}).encode()))
+        b = "showcase"
+        form = (f'--{b}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\nthe same fox, at night under the northern lights\r\n'
+                f'--{b}\r\nContent-Disposition: form-data; name="size"\r\n\r\n512x512\r\n'
+                f'--{b}\r\nContent-Disposition: form-data; name="image[]"; filename="fox.png"\r\nContent-Type: image/png\r\n\r\n').encode() + fox + f"\r\n--{b}--\r\n".encode()
+        keep("edit", post("/edits", form, f"multipart/form-data; boundary={b}"))
+        print("refused:", post("/generations", json.dumps({"prompt": prompt, "size": "1000x1000"}).encode())[0])
+        print("refused:", post("/generations", json.dumps({"prompt": prompt, "response_format": "url"}).encode())[0])
+
+networks:
+  inner:
+    internal: true   # no way out: the engine runs on its weights alone
