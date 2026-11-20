@@ -21,7 +21,8 @@ docker compose run --rm demo
 
 Authelia with Redis for sessions, Mailpit catching its mail, nginx with a
 self-signed certificate, and a page behind it that says hello to whoever
-passed. A one-shot `seed` makes the accounts, alice and bob. The demo walks
+passed. A one-shot `seed` makes the accounts: alice and bob, people, and
+robot, a program's. The demo walks
 through with curl:
 
 ```
@@ -31,6 +32,13 @@ no session
   a forged X-Principal-Id changes nothing    401
   who is logged in: nobody                   401
   a 2 MB upload answers 401, not 500         401
+a program, robot, with its password as HTTP Basic
+  X-Principal-Id (client sent mallory)       robot
+  Authorization                              []
+  wrong password on an API                   401
+  a page does not open, to the login page    302
+  who is logged in: nobody                   401
+  a person's password does not open a page   302
 log in
   wrong password                             401
   alice                                      200
@@ -59,7 +67,7 @@ It ends logged in again; `docker compose restart gate` and then
 `docker compose run --rm demo session` show the session outlives the restart.
 
 In a browser: https://gate.localhost:8443/, `alice` / `alice-showcase` or
-`bob` / `bob-showcase` (showcase passwords, in `showcase/compose.yaml`). The certificate is
+`bob` / `bob-showcase`; a program's is `robot` / `robot-showcase` (showcase passwords, in `showcase/compose.yaml`). The certificate is
 self-signed, so the browser asks first. Mail lands in Mailpit,
 http://localhost:8025. `GATE_PORT` and `MAILPIT_PORT` move the ports.
 
@@ -73,7 +81,12 @@ demo and the restart on free ports.
 - Neither `Cookie` nor `Authorization` travels past the gate.
 - A page without a session is sent to the login page and comes back after
   it; a login started on the login page itself ends in the application, at
-  `GATE_URL/`. A program gets a plain 401.
+  `GATE_URL/`. An API answers a plain 401.
+- A program is a principal like a person: an account of its own, and behind
+  the gate `X-Principal-Id` is that account's name. It passes on API paths
+  only (`api.conf`), with its password as HTTP Basic (temporary, see
+  [Programs](#programs)). Only a session opens a page or userinfo; an
+  `Authorization` header there is not looked at.
 - Who is logged in is told to the person's own page, not to the
   application: where the site includes `userinfo.conf`, OpenID Connect's
   UserInfo claims (`sub` and `preferred_username` the username, `name`,
@@ -123,6 +136,35 @@ How large a body may be is the protected location's own
 it: the subrequest gets no body and takes any size, since nginx would
 otherwise answer a larger one with 413 there, and `auth_request` turns that
 into 500.
+
+## Programs
+
+A program (a script, an agent, this repo's Claude) gets an account, as a
+person does, named for it, and sends that account's password as HTTP Basic
+on every API request:
+
+```bash
+docker compose run --rm gate gate-user add claude-units claude-units@example.com < password.txt
+curl -u "claude-units:$PASSWORD" https://site.example/api/…
+```
+
+It can do what that account steers and nothing else; applications cannot
+tell it from a person and need not. Adding a program is adding an account;
+removing one is deleting its entry from `/data/users.yml`.
+
+This is temporary. What was settled is a short-lived token (OAuth 2.0) from
+gate's own Authelia, held by the program and refreshed on its own, but
+Authelia 4.39 cannot give one that names an account at the door: a
+`client_credentials` token passes the check with no `Remote-User`, and a
+token that the check accepts (scope `authelia.bearer.authz`) may only come
+from `authorization_code`, `refresh_token` or `client_credentials`, not from
+the device flow. Until then, what Basic costs:
+
+- the password travels on every request (inside TLS) and is checked every
+  time, an argon2 hash, some 45 ms;
+- a wrong password counts as a failed login: after Authelia's default three
+  in two minutes the account is refused for five, even with the right one;
+- there is no expiry; a password is changed by replacing the account.
 
 ## Configuration
 

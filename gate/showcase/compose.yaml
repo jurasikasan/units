@@ -30,7 +30,8 @@ services:
       interval: 1s
       retries: 60
 
-  # The accounts, made once: alice / alice-showcase and bob / bob-showcase, showcase passwords.
+  # The accounts, made once: alice / alice-showcase and bob / bob-showcase,
+  # and robot / robot-showcase, a program's; showcase passwords.
   seed:
     <<: *gate
     entrypoint:
@@ -40,6 +41,7 @@ services:
         [ -s /data/users.yml ] && exit 0
         echo alice-showcase | gate-user add alice alice@example.com Alice
         echo bob-showcase | gate-user add bob bob@example.com Bob
+        echo robot-showcase | gate-user add robot robot@example.com Robot
     restart: "no"
 
   # A self-signed certificate, made once; Authelia refuses a login URL that is not https.

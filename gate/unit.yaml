@@ -3,7 +3,7 @@
 
 unit: gate
 kind: gateway
-summary: The door in front of applications. Authelia keeps accounts and sessions, nginx asks it before serving; the application behind gets X-Principal-Id and nothing else.
+summary: The door in front of applications. Authelia keeps accounts and sessions, nginx asks it before serving; the application behind gets X-Principal-Id and nothing else. A program is an account like a person's.
 contract: README.md
 maturity: probe
 
@@ -15,8 +15,8 @@ provides:
   nginx:                   # snippets a site includes; they reach the unit as gate:9091
     - nginx/authz.conf
     - nginx/portal.conf
-    - nginx/page.conf
-    - nginx/api.conf
+    - nginx/page.conf      # a session only; Authorization is not looked at
+    - nginx/api.conf       # a session, or a program's account as HTTP Basic (temporary)
     - nginx/userinfo.conf  # who is logged in, as OIDC UserInfo, plus end_session_endpoint; for the person's page
   health: GET :9091/auth/api/health
 

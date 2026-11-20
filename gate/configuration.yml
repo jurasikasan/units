@@ -1,6 +1,17 @@
 # Rendered by Authelia's template filter from the environment at start.
 server:
   address: tcp://:9091/auth
+  endpoints:
+    authz:
+      # nginx's auth_request asks here. HTTP Basic is how a program passes
+      # for now (temporary, see README); pages ask without the Authorization
+      # header, so only a session opens them.
+      auth-request:
+        implementation: AuthRequest
+        authn_strategies:
+          - name: HeaderAuthorization
+            schemes: [Basic]
+          - name: CookieSession
 
 log:
   level: info

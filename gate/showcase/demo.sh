@@ -14,6 +14,9 @@ expect() {
   if [ "$2" = "$3" ]; then printf '  %-42s %s\n' "$1" "$2"
   else printf '  %-42s got %s, want %s\n' "$1" "$2" "$3"; FAILED=1; fi
 }
+# A program: no cookie jar, its account's password on every request.
+p() { curl -sk --connect-to "gate.localhost:$GATE_PORT:nginx:443" "$@"; }
+pcode() { p -o /dev/null -w '%{http_code}' "$@"; }
 login() {
   code -X POST "$B/auth/api/firstfactor" -H 'Content-Type: application/json' \
     -d "{\"username\":\"$1\",\"password\":\"$2\",\"keepMeLoggedIn\":false}"
@@ -39,6 +42,15 @@ expect "who is logged in: nobody" "$(code -H 'Remote-User: alice' "$B/api/v1/use
 # hold it to that, or auth_request answers 500.
 head -c 2000000 /dev/zero > /tmp/big
 expect "a 2 MB upload answers 401, not 500" "$(code -X POST --data-binary @/tmp/big "$B/api/upload")" 401
+
+echo "a program, robot, with its password as HTTP Basic"
+seen=$(p -u robot:robot-showcase -H 'X-Principal-Id: mallory' "$B/api/whoami.txt")
+expect "X-Principal-Id (client sent mallory)" "$(echo "$seen" | sed -n 's/^principal=//p')" robot
+expect "Authorization" "[$(echo "$seen" | sed -n 's/^authorization=//p')]" "[]"
+expect "wrong password on an API" "$(pcode -u robot:wrong "$B/api/whoami.txt")" 401
+expect "a page does not open, to the login page" "$(pcode -u robot:robot-showcase "$B/")" 302
+expect "who is logged in: nobody" "$(pcode -u robot:robot-showcase "$B/api/v1/userinfo")" 401
+expect "a person's password does not open a page" "$(pcode -u alice:alice-showcase "$B/")" 302
 
 echo "log in"
 expect "wrong password" "$(login alice wrong)" 401
