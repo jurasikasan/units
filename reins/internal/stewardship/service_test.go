@@ -2,6 +2,7 @@ package stewardship
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -31,6 +32,12 @@ func (f *fakeStore) Steered(_ context.Context, p string) ([]uuid.UUID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]uuid.UUID{}, f.rows[p]...), nil
+}
+
+func (f *fakeStore) Steers(_ context.Context, p string, s uuid.UUID) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return indexOf(f.rows[p], s) >= 0, nil
 }
 
 func (f *fakeStore) Settled(_ context.Context, p string) (bool, error) {
@@ -93,15 +100,66 @@ func (l *fakeLocked) Settle(context.Context) error {
 }
 
 // fakeRegistry is `subjects`: nicks unique forever, deleted ones included.
+// extra holds fields reins does not know, which a change must keep.
 type fakeRegistry struct {
 	mu      sync.Mutex
 	byID    map[uuid.UUID]Subject
+	extra   map[uuid.UUID]map[string]json.RawMessage
 	deleted map[uuid.UUID]bool
 	created int
+	put     map[string]json.RawMessage // the last PUT body
 }
 
 func newFakeRegistry() *fakeRegistry {
-	return &fakeRegistry{byID: map[uuid.UUID]Subject{}, deleted: map[uuid.UUID]bool{}}
+	return &fakeRegistry{byID: map[uuid.UUID]Subject{}, extra: map[uuid.UUID]map[string]json.RawMessage{}, deleted: map[uuid.UUID]bool{}}
+}
+
+func (r *fakeRegistry) Raw(_ context.Context, id uuid.UUID) (map[string]json.RawMessage, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.byID[id]
+	if !ok || r.deleted[id] {
+		return nil, false, nil
+	}
+	b, _ := json.Marshal(s)
+	raw := map[string]json.RawMessage{}
+	_ = json.Unmarshal(b, &raw)
+	for k, v := range r.extra[id] {
+		raw[k] = v
+	}
+	return raw, true, nil
+}
+
+// Replace is subjects' PUT: the body replaces the subject, and a nick in it
+// must be the stored one.
+func (r *fakeRegistry) Replace(_ context.Context, id uuid.UUID, raw map[string]json.RawMessage) (Subject, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	stored, ok := r.byID[id]
+	if !ok || r.deleted[id] {
+		return Subject{}, ErrNoSubject
+	}
+	r.put = raw
+	b, _ := json.Marshal(raw)
+	var s Subject
+	if err := json.Unmarshal(b, &s); err != nil {
+		return Subject{}, err
+	}
+	if s.Nick != "" && s.Nick != stored.Nick {
+		return Subject{}, errors.New("subjects: 400 nick cannot be changed")
+	}
+	s.ID, s.Nick = id, stored.Nick
+	r.byID[id] = s
+	extra := map[string]json.RawMessage{}
+	for k, v := range raw {
+		switch k {
+		case "id", "name", "nick", "bio", "subject_type", "preferences":
+		default:
+			extra[k] = v
+		}
+	}
+	r.extra[id] = extra
+	return s, nil
 }
 
 func (r *fakeRegistry) Get(_ context.Context, id uuid.UUID) (Subject, bool, error) {
@@ -274,4 +332,72 @@ func TestDeletedSubjectsAreLeftOut(t *testing.T) {
 	subs, err := svc.MySubjects(ctx, "alice")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alice-assistant/assistant"}, nicks(subs))
+}
+
+func TestSubjectOnlyForASteward(t *testing.T) {
+	store, reg := newFakeStore(), newFakeRegistry()
+	svc := NewService(store, reg)
+	mine, err := svc.MySubjects(context.Background(), "alice")
+	require.NoError(t, err)
+
+	got, err := svc.Subject(context.Background(), "alice", mine[1].ID)
+	require.NoError(t, err)
+	assert.Equal(t, "alice-assistant", got.Nick)
+
+	_, err = svc.Subject(context.Background(), "mallory", mine[1].ID)
+	assert.ErrorIs(t, err, ErrNotSteward)
+
+	reg.deleted[mine[1].ID] = true
+	_, err = svc.Subject(context.Background(), "alice", mine[1].ID)
+	assert.ErrorIs(t, err, ErrNoSubject)
+}
+
+func TestChangeKeepsWhatItDoesNotTouch(t *testing.T) {
+	store, reg := newFakeStore(), newFakeRegistry()
+	svc := NewService(store, reg)
+	ctx := context.Background()
+	mine, err := svc.MySubjects(ctx, "alice")
+	require.NoError(t, err)
+	id := mine[1].ID
+	reg.extra[id] = map[string]json.RawMessage{"born": json.RawMessage(`"2026-11-20"`)}
+	s := reg.byID[id]
+	s.Bio = "was here first"
+	s.Preferences = json.RawMessage(`{"chat_model":"fake","theirs":{"x":1}}`)
+	reg.byID[id] = s
+
+	name := "Alice's assistant"
+	got, err := svc.Change(ctx, "alice", id, Change{
+		Name:        &name,
+		Preferences: map[string]json.RawMessage{"chat_model": json.RawMessage(`"fake-text"`), "voice": json.RawMessage(`"irina"`)},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, name, got.Name)
+	assert.Equal(t, "alice-assistant", got.Nick)
+	assert.Equal(t, "was here first", got.Bio, "a bio left out is kept")
+	assert.Equal(t, TypeAssistant, got.SubjectType, "the type goes back as stored")
+	assert.JSONEq(t, `{"chat_model":"fake-text","voice":"irina","theirs":{"x":1}}`, string(got.Preferences),
+		"preferences are merged: another reader's key survives")
+	assert.JSONEq(t, `"2026-11-20"`, string(reg.put["born"]), "a field reins does not know goes back as it came")
+	assert.JSONEq(t, `"alice-assistant"`, string(reg.put["nick"]), "the nick goes back as stored")
+
+	got, err = svc.Change(ctx, "alice", id, Change{Preferences: map[string]json.RawMessage{"voice": json.RawMessage(`null`)}})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"chat_model":"fake-text","theirs":{"x":1}}`, string(got.Preferences), "null takes a key out")
+	assert.Equal(t, name, got.Name, "a name left out is kept")
+
+	_, err = svc.Change(ctx, "mallory", id, Change{Name: &name})
+	assert.ErrorIs(t, err, ErrNotSteward)
+	assert.Equal(t, name, reg.byID[id].Name)
+}
+
+func TestChangeOfAStoredPreferencesThatIsNoObject(t *testing.T) {
+	store, reg := newFakeStore(), newFakeRegistry()
+	svc := NewService(store, reg)
+	ctx := context.Background()
+	mine, _ := svc.MySubjects(ctx, "alice")
+	s := reg.byID[mine[0].ID]
+	s.Preferences = json.RawMessage(`[1]`)
+	reg.byID[mine[0].ID] = s
+	_, err := svc.Change(ctx, "alice", mine[0].ID, Change{Preferences: map[string]json.RawMessage{"ear": json.RawMessage(`"fake-stt"`)}})
+	assert.ErrorIs(t, err, ErrBadChange)
 }

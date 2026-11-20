@@ -31,6 +31,17 @@ type NewSubject struct {
 	SubjectType string `json:"subject_type"`
 }
 
+// Change is what a steward may change of a subject: its name, its bio, its
+// preferences. A field left out is kept. Preferences are merged key by key
+// into the stored ones: a key given replaces that key, a key given as null
+// takes it out, a key not given is kept, so one reader's keys survive
+// another's change. The nick is not here: it never changes.
+type Change struct {
+	Name        *string                    `json:"name,omitempty" example:"Alice"`
+	Bio         *string                    `json:"bio,omitempty" example:"Writes the release notes."`
+	Preferences map[string]json.RawMessage `json:"preferences,omitempty" swaggertype:"object"`
+}
+
 // HandoverRequest names the principal who takes the reins.
 type HandoverRequest struct {
 	To string `json:"to" example:"bob"`
@@ -84,6 +95,10 @@ func (r *Refusal) Error() string { return r.Reason }
 var (
 	// ErrNotSteward: the caller does not hold the reins of that subject.
 	ErrNotSteward = errors.New("you do not steer this subject")
+	// ErrNoSubject: the caller steers it, but `subjects` has it no more.
+	ErrNoSubject = errors.New("no such subject")
+	// ErrBadChange: preferences that cannot be merged into the stored ones.
+	ErrBadChange = errors.New("bad change")
 	// ErrBadHandover: no one to hand over to, or the caller themself.
 	ErrBadHandover = errors.New(`"to" must name another principal`)
 	// ErrNickTaken: `subjects` answered 409 for a nick.

@@ -1,4 +1,15 @@
 definitions:
+  stewardship.Change:
+    properties:
+      bio:
+        example: Writes the release notes.
+        type: string
+      name:
+        example: Alice
+        type: string
+      preferences:
+        type: object
+    type: object
   stewardship.HandoverRequest:
     properties:
       to:
@@ -115,6 +126,107 @@ paths:
       summary: 'Readiness probe: can this instance reach its Postgres'
       tags:
       - health
+  /subjects/{id}:
+    get:
+      description: As `subjects` returns it. Only a steward may look.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: subject id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/stewardship.Subject'
+        "400":
+          description: A bad id
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "403":
+          description: The caller does not steer this subject
+          schema:
+            type: string
+        "404":
+          description: The caller steers it, but subjects has it no more
+          schema:
+            type: string
+        "502":
+          description: subjects or the database did not answer
+          schema:
+            type: string
+      summary: One subject the caller steers
+      tags:
+      - reins
+    patch:
+      consumes:
+      - application/json
+      description: |-
+        A field left out is kept. Preferences are merged key by key
+        into the stored ones: a key given replaces it, a key given as
+        null takes it out, the rest are kept. Written to `subjects`
+        whole (its PUT), the nick and every other field as stored. The
+        nick is not in the body: it never changes, and a body naming
+        it, or any field but these three, is refused.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: subject id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: what changes
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/stewardship.Change'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/stewardship.Subject'
+        "400":
+          description: A bad id or body, or preferences that are not an object
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "403":
+          description: The caller does not steer this subject
+          schema:
+            type: string
+        "404":
+          description: The caller steers it, but subjects has it no more
+          schema:
+            type: string
+        "502":
+          description: subjects or the database did not answer
+          schema:
+            type: string
+      summary: Change the name, bio or preferences of a subject the caller steers
+      tags:
+      - reins
   /subjects/{id}/handover:
     post:
       consumes:

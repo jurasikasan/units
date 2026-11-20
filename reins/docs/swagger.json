@@ -122,6 +122,148 @@
                 }
             }
         },
+        "/subjects/{id}": {
+            "get": {
+                "description": "As `subjects` returns it. Only a steward may look.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "reins"
+                ],
+                "summary": "One subject the caller steers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "who is asking, as the door sets it",
+                        "name": "X-Principal-Id",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "subject id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/stewardship.Subject"
+                        }
+                    },
+                    "400": {
+                        "description": "A bad id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "No X-Principal-Id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "The caller does not steer this subject",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "The caller steers it, but subjects has it no more",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "502": {
+                        "description": "subjects or the database did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "description": "A field left out is kept. Preferences are merged key by key\ninto the stored ones: a key given replaces it, a key given as\nnull takes it out, the rest are kept. Written to `subjects`\nwhole (its PUT), the nick and every other field as stored. The\nnick is not in the body: it never changes, and a body naming\nit, or any field but these three, is refused.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "reins"
+                ],
+                "summary": "Change the name, bio or preferences of a subject the caller steers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "who is asking, as the door sets it",
+                        "name": "X-Principal-Id",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "subject id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "what changes",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/stewardship.Change"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/stewardship.Subject"
+                        }
+                    },
+                    "400": {
+                        "description": "A bad id or body, or preferences that are not an object",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "No X-Principal-Id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "The caller does not steer this subject",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "The caller steers it, but subjects has it no more",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "502": {
+                        "description": "subjects or the database did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/subjects/{id}/handover": {
             "post": {
                 "description": "Only a current steward may. The caller stops steering the\nsubject and `to` starts. Nothing is written to `subjects` or\n`threads`: who steers a subject is not a world event.",
@@ -190,6 +332,22 @@
         }
     },
     "definitions": {
+        "stewardship.Change": {
+            "type": "object",
+            "properties": {
+                "bio": {
+                    "type": "string",
+                    "example": "Writes the release notes."
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Alice"
+                },
+                "preferences": {
+                    "type": "object"
+                }
+            }
+        },
         "stewardship.HandoverRequest": {
             "type": "object",
             "properties": {

@@ -1,6 +1,7 @@
 #!/bin/sh
 # alice comes for the first time and is given her two personas; she comes
-# again and gets the same ones; she hands her assistant to bob, and it leaves
+# again and gets the same ones; she names her assistant and sets its chat
+# model, and another reader's preference and the nick stay; she hands her assistant to bob, and it leaves
 # her list for his. Refusals: a nick taken by someone else, a login that
 # cannot be a nick, a handover by someone who does not steer the subject.
 set -u
@@ -26,8 +27,23 @@ A2=$(mine alice); echo "$A2"
 expect "the same answer" "$A2" "$A1"
 expect "subjects holds two" "$(curl -s $S/subjects | nicks)" "alice alice-assistant"
 
-step "alice hands her assistant to bob"
 ASSISTANT=$(echo "$A1" | grep -o '{[^{}]*"nick":"alice-assistant"[^{}]*}' | sed 's/.*"id":"\([^"]*\)".*/\1/')
+
+step "alice changes her assistant: name, bio, preferences merged"
+# Another reader's key, put straight into subjects, must survive her change.
+curl -s -o /dev/null -X PUT "$S/subjects/$ASSISTANT" -d '{"subject_type":"assistant","preferences":{"theirs":1,"voice":"denis"}}'
+C=$(as alice -X PATCH "$R/subjects/$ASSISTANT" -d '{"name":"Alice'"'"'s helper","bio":"Answers.","preferences":{"chat_model":"fake-text","voice":null}}'); echo "$C"
+expect "her name" "$(echo "$C" | grep -o '"name":"[^"]*"')" '"name":"Alice'"'"'s helper"'
+# subjects keeps preferences as JSONB, in its own key order.
+expect "preferences merged, voice taken out" "$(echo "$C" | grep -o '"preferences":{[^}]*}' | tr -d ' ')" '"preferences":{"theirs":1,"chat_model":"fake-text"}'
+G=$(as alice "$R/subjects/$ASSISTANT"); echo "$G"
+expect "read back, the same" "$G" "$C"
+expect "in subjects, nick and type as stored" "$(curl -s $S/subjects/$ASSISTANT | grep -o '"nick":"[^"]*","bio":"[^"]*","subject_type":"[^"]*"')" '"nick":"alice-assistant","bio":"Answers.","subject_type":"assistant"'
+expect "the nick never changes" "$(as alice -o /dev/null -w '%{http_code}' -X PATCH "$R/subjects/$ASSISTANT" -d '{"nick":"eve"}')" 400
+expect "bob may not look" "$(as bob -o /dev/null -w '%{http_code}' "$R/subjects/$ASSISTANT")" 403
+expect "bob may not change it" "$(as bob -o /dev/null -w '%{http_code}' -X PATCH "$R/subjects/$ASSISTANT" -d '{"name":"mine"}')" 403
+
+step "alice hands her assistant to bob"
 expect "handover" "$(as alice -o /dev/null -w '%{http_code}' -X POST "$R/subjects/$ASSISTANT/handover" -d '{"to":"bob"}')" 204
 expect "alice steers" "$(mine alice | nicks)" "alice"
 expect "bob steers (his own made on his first visit)" "$(mine bob | nicks)" "alice-assistant bob bob-assistant"

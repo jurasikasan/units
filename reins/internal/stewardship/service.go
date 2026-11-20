@@ -1,7 +1,9 @@
 package stewardship
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -121,4 +123,93 @@ func (s *Service) Handover(ctx context.Context, caller string, subject uuid.UUID
 	}
 	log.Printf("reins: subject %s handed over from %q to %q", subject, caller, to)
 	return nil
+}
+
+// steward is ErrNotSteward unless the caller holds the reins of subject.
+func (s *Service) steward(ctx context.Context, caller string, subject uuid.UUID) error {
+	ok, err := s.store.Steers(ctx, caller, subject)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNotSteward
+	}
+	return nil
+}
+
+// Subject is one subject the caller steers, as `subjects` has it.
+// ErrNotSteward when the caller does not steer it, ErrNoSubject when
+// `subjects` has it no more.
+func (s *Service) Subject(ctx context.Context, caller string, subject uuid.UUID) (Subject, error) {
+	if err := s.steward(ctx, caller, subject); err != nil {
+		return Subject{}, err
+	}
+	sub, found, err := s.registry.Get(ctx, subject)
+	if err != nil {
+		return Subject{}, err
+	}
+	if !found {
+		return Subject{}, ErrNoSubject
+	}
+	return sub, nil
+}
+
+// Change writes a steward's change of name, bio or preferences to
+// `subjects`. Its PUT replaces a subject whole, so the subject is read as
+// `subjects` sent it and only those three are touched: the nick, the type
+// and any field reins does not know go back as they were stored.
+// Preferences are merged key by key (see Change).
+//
+// Read, then written: two changes at once may lose one; the last write wins.
+func (s *Service) Change(ctx context.Context, caller string, subject uuid.UUID, c Change) (Subject, error) {
+	if err := s.steward(ctx, caller, subject); err != nil {
+		return Subject{}, err
+	}
+	raw, found, err := s.registry.Raw(ctx, subject)
+	if err != nil {
+		return Subject{}, err
+	}
+	if !found {
+		return Subject{}, ErrNoSubject
+	}
+	if c.Name != nil {
+		raw["name"], _ = json.Marshal(*c.Name)
+	}
+	if c.Bio != nil {
+		raw["bio"], _ = json.Marshal(*c.Bio)
+	}
+	if c.Preferences != nil {
+		prefs := map[string]json.RawMessage{}
+		if stored, ok := raw["preferences"]; ok && !isNull(stored) {
+			if err := json.Unmarshal(stored, &prefs); err != nil {
+				return Subject{}, fmt.Errorf("%w: the stored preferences are not an object", ErrBadChange)
+			}
+		}
+		for k, v := range c.Preferences {
+			if isNull(v) {
+				delete(prefs, k)
+			} else {
+				prefs[k] = v
+			}
+		}
+		raw["preferences"], _ = json.Marshal(prefs)
+	}
+	if _, err := s.registry.Replace(ctx, subject, raw); err != nil {
+		return Subject{}, err
+	}
+	// Read back: the subject as `subjects` stored it (its JSONB orders the
+	// preferences its own way), the same a GET answers.
+	sub, found, err := s.registry.Get(ctx, subject)
+	if err != nil {
+		return Subject{}, err
+	}
+	if !found {
+		return Subject{}, ErrNoSubject
+	}
+	log.Printf("reins: %q changed subject %s (%s)", caller, subject, sub.Nick)
+	return sub, nil
+}
+
+func isNull(v json.RawMessage) bool {
+	return len(v) == 0 || bytes.Equal(bytes.TrimSpace(v), []byte("null"))
 }

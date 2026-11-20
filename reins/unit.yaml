@@ -3,7 +3,7 @@
 
 unit: reins
 kind: service
-summary: Where a principal holds the reins of its subjects — which subjects an account at the door may look into and take up, out of the world; a principal first seen is given `<login>` and `<login>-assistant` in subjects. Own database; each compose runs its own.
+summary: Where a principal holds the reins of its subjects — which subjects an account at the door may look into and take up, out of the world; a principal first seen is given `<login>` and `<login>-assistant` in subjects, and a steward changes their name, bio and preferences. Own database; each compose runs its own.
 contract: CONTRACT.md
 maturity: probe
 
@@ -13,16 +13,18 @@ provides:
     spec: docs/swagger.yaml
     routes:
       - "GET /me/subjects"
+      - "GET /subjects/{id}"
+      - "PATCH /subjects/{id}"
       - "POST /subjects/{id}/handover"
   health: GET :8087/health
   ready: GET :8087/ready
 
 consumes:
   units:
-    - unit: subjects    # the registry; reins reads its subjects and makes a principal's two personas
+    - unit: subjects    # the registry; reins reads its subjects, makes a principal's two personas, writes a steward's changes
       via: http
       env: SUBJECTS_URL
-      calls: ["GET /subjects/{id}", "POST /subjects"]
+      calls: ["GET /subjects/{id}", "POST /subjects", "PUT /subjects/{id}"]
   gate: X-Principal-Id  # who is asking; trusted, so reins is reached only through the door
   infra: [postgres]     # its own, on a network only it joins
 

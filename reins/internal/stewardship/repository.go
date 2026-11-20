@@ -15,6 +15,8 @@ import (
 type Store interface {
 	// Steered is the subjects a principal holds the reins of, oldest first.
 	Steered(ctx context.Context, principal string) ([]uuid.UUID, error)
+	// Steers is whether a principal holds the reins of one subject.
+	Steers(ctx context.Context, principal string, subject uuid.UUID) (bool, error)
 	// Settled is whether the principal's first subjects were all made.
 	Settled(ctx context.Context, principal string) (bool, error)
 	// Provisioning runs fn while holding the principal's lock, so two first
@@ -48,6 +50,17 @@ func NewPGXRepository(pool *pgxpool.Pool) *PGXRepository { return &PGXRepository
 
 func (r *PGXRepository) Steered(ctx context.Context, principal string) ([]uuid.UUID, error) {
 	return steered(ctx, r.pool, principal)
+}
+
+func (r *PGXRepository) Steers(ctx context.Context, principal string, subject uuid.UUID) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM stewardship WHERE principal_id = $1 AND subject_id = $2)`,
+		principal, subject).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("read stewardship: %w", err)
+	}
+	return ok, nil
 }
 
 func (r *PGXRepository) Settled(ctx context.Context, principal string) (bool, error) {

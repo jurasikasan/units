@@ -40,12 +40,46 @@ reached only through the door.
     or a login over 22 characters).
   - Both are logged with the reason, and the body says it.
   - 502 when `subjects` or the database does not answer.
+- `GET /subjects/{id}` — one subject the caller steers, as `subjects`
+  returns it. 403 when the caller does not steer it; 404 when it does but
+  `subjects` has it no more; 502 when `subjects` or the database does not
+  answer.
+- `PATCH /subjects/{id} {"name"?, "bio"?, "preferences"?}` — 200 with the
+  subject as changed. A field left out is kept. Preferences are merged key by
+  key into the stored ones: a key given replaces it, a key given as `null`
+  takes it out, the rest are kept, so one reader's keys survive another's
+  change. Written to `subjects` with its `PUT`, which replaces a subject
+  whole, so reins sends back every field as it was stored (the nick, the
+  type, any field reins does not know) with only these three changed. The
+  nick never changes: a body naming it, or any other field, is 400, as are
+  preferences that are not an object. 403, 404 and 502 as above. Read, then
+  written: two changes at once may lose one, the last write winning.
 - `POST /subjects/{id}/handover {"to": "<principal>"}` — 204: the caller stops
   steering the subject and `to` starts. 403 when the caller does not steer it;
   400 when `to` is empty or the caller. Nothing is written to `subjects` or
   `threads`.
 
 The full shapes are the swagger spec in `docs/`.
+
+### Preferences
+
+A subject's `preferences` is a JSON object `subjects` keeps without looking
+in; its keys belong to whoever reads them. These are the ones read now, each
+the `id` of a model the agent lists at OpenAI's `GET /v1/models` (a voice:
+one of that speech model's `voices`). A key left out means the agent's own
+choice.
+
+| Key | On whom | Read by | For |
+|---|---|---|---|
+| `chat_model` | an assistant | the face: a run's `forwardedProps.modelName`, a call's `chat_model` | the model it answers with |
+| `mouth` | an assistant | the face: read-aloud's `model`; a call's voice | the speech model it speaks with |
+| `voice` | an assistant | the face: read-aloud's `voice`; a call's `audio.output.voice` as `<mouth>_<voice>` | one of the mouth's voices |
+| `ear` | a person | the face: the mic's transcription `model`, a call's `audio.input.transcription.model` | the speech-to-text model its words are heard with |
+
+Which avatar's preference feeds which request is the face's wiring for the
+classic chat, where `<login>` speaks and `<login>-assistant` answers, until
+the conversation is kept here and reins reads them itself. reins does not
+check the values: which models exist is the agent's to say.
 
 ## 3. Provisioning
 
@@ -69,3 +103,5 @@ The full shapes are the swagger spec in `docs/`.
 - It holds no rows of its own making: which principal steers what is the
   deployment's data.
 - It publishes no events and has no MCP.
+- Of a subject it changes only what a steward may: name, bio, preferences.
+  Its nick and type are `subjects`' rules; who drives it is not written there.

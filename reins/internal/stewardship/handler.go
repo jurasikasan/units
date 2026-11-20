@@ -21,6 +21,8 @@ const PrincipalHeader = "X-Principal-Id"
 type Reins interface {
 	MySubjects(ctx context.Context, principal string) ([]Subject, error)
 	Handover(ctx context.Context, caller string, subject uuid.UUID, to string) error
+	Subject(ctx context.Context, caller string, subject uuid.UUID) (Subject, error)
+	Change(ctx context.Context, caller string, subject uuid.UUID, c Change) (Subject, error)
 }
 
 type Handler struct{ svc Reins }
@@ -29,6 +31,8 @@ func NewHandler(svc Reins) *Handler { return &Handler{svc: svc} }
 
 func RegisterRoutes(r *mux.Router, h *Handler) {
 	r.HandleFunc("/me/subjects", h.MySubjects).Methods(http.MethodGet)
+	r.HandleFunc("/subjects/{id}", h.Subject).Methods(http.MethodGet)
+	r.HandleFunc("/subjects/{id}", h.Change).Methods(http.MethodPatch)
 	r.HandleFunc("/subjects/{id}/handover", h.Handover).Methods(http.MethodPost)
 }
 
@@ -119,4 +123,97 @@ func (h *Handler) Handover(w http.ResponseWriter, r *http.Request) {
 		log.Printf("reins: handover of %s by %q: %v", id, p, err)
 		http.Error(w, "handover failed", http.StatusInternalServerError)
 	}
+}
+
+// steeredFailed answers an error from reading or changing one subject.
+func steeredFailed(w http.ResponseWriter, p string, id uuid.UUID, err error) {
+	switch {
+	case errors.Is(err, ErrNotSteward):
+		http.Error(w, err.Error(), http.StatusForbidden)
+	case errors.Is(err, ErrNoSubject):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	case errors.Is(err, ErrBadChange):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	default:
+		log.Printf("reins: subject %s for %q: %v", id, p, err)
+		http.Error(w, "subjects could not be read or written", http.StatusBadGateway)
+	}
+}
+
+// Subject godoc
+// @Summary      One subject the caller steers
+// @Description  As `subjects` returns it. Only a steward may look.
+// @Tags         reins
+// @Produce      json
+// @Param        X-Principal-Id header string true "who is asking, as the door sets it"
+// @Param        id   path  string true "subject id"
+// @Success      200  {object}  stewardship.Subject
+// @Failure      400  {string}  string "A bad id"
+// @Failure      401  {string}  string "No X-Principal-Id"
+// @Failure      403  {string}  string "The caller does not steer this subject"
+// @Failure      404  {string}  string "The caller steers it, but subjects has it no more"
+// @Failure      502  {string}  string "subjects or the database did not answer"
+// @Router       /subjects/{id} [get]
+func (h *Handler) Subject(w http.ResponseWriter, r *http.Request) {
+	p, ok := principal(w, r)
+	if !ok {
+		return
+	}
+	id, err := uuid.Parse(mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(w, "invalid subject id", http.StatusBadRequest)
+		return
+	}
+	sub, err := h.svc.Subject(r.Context(), p, id)
+	if err != nil {
+		steeredFailed(w, p, id, err)
+		return
+	}
+	httpHelper.RespondWithJSON(w, http.StatusOK, sub)
+}
+
+// Change godoc
+// @Summary      Change the name, bio or preferences of a subject the caller steers
+// @Description  A field left out is kept. Preferences are merged key by key
+// @Description  into the stored ones: a key given replaces it, a key given as
+// @Description  null takes it out, the rest are kept. Written to `subjects`
+// @Description  whole (its PUT), the nick and every other field as stored. The
+// @Description  nick is not in the body: it never changes, and a body naming
+// @Description  it, or any field but these three, is refused.
+// @Tags         reins
+// @Accept       json
+// @Produce      json
+// @Param        X-Principal-Id header string true "who is asking, as the door sets it"
+// @Param        id   path  string true "subject id"
+// @Param        body body  stewardship.Change true "what changes"
+// @Success      200  {object}  stewardship.Subject
+// @Failure      400  {string}  string "A bad id or body, or preferences that are not an object"
+// @Failure      401  {string}  string "No X-Principal-Id"
+// @Failure      403  {string}  string "The caller does not steer this subject"
+// @Failure      404  {string}  string "The caller steers it, but subjects has it no more"
+// @Failure      502  {string}  string "subjects or the database did not answer"
+// @Router       /subjects/{id} [patch]
+func (h *Handler) Change(w http.ResponseWriter, r *http.Request) {
+	p, ok := principal(w, r)
+	if !ok {
+		return
+	}
+	id, err := uuid.Parse(mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(w, "invalid subject id", http.StatusBadRequest)
+		return
+	}
+	var c Change
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&c); err != nil {
+		http.Error(w, "invalid request body: only name, bio and preferences change: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sub, err := h.svc.Change(r.Context(), p, id, c)
+	if err != nil {
+		steeredFailed(w, p, id, err)
+		return
+	}
+	httpHelper.RespondWithJSON(w, http.StatusOK, sub)
 }

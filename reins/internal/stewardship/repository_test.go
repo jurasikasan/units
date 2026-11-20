@@ -103,7 +103,14 @@ func TestLiveHandover(t *testing.T) {
 	require.NoError(t, repo.Provisioning(ctx, a, func(l Locked) error { return l.Record(ctx, s) }))
 
 	require.ErrorIs(t, repo.Handover(ctx, s, b, a), ErrNotSteward)
+	steers, err := repo.Steers(ctx, a, s)
+	require.NoError(t, err)
+	assert.True(t, steers)
 	require.NoError(t, repo.Handover(ctx, s, a, b))
+	steers, _ = repo.Steers(ctx, a, s)
+	assert.False(t, steers, "a former steward steers it no more")
+	steers, _ = repo.Steers(ctx, b, s)
+	assert.True(t, steers)
 
 	ids, _ := repo.Steered(ctx, a)
 	assert.Empty(t, ids)
