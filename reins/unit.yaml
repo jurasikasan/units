@@ -1,0 +1,37 @@
+# Manifest — what a reader outside reins reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: reins
+kind: service
+summary: Where a principal holds the reins of its subjects — which subjects an account at the door may look into and take up, out of the world; a principal first seen is given `<login>` and `<login>-assistant` in subjects. Own database; each compose runs its own.
+contract: CONTRACT.md
+maturity: probe
+
+provides:
+  rest:
+    port: 8087
+    spec: docs/swagger.yaml
+    routes:
+      - "GET /me/subjects"
+      - "POST /subjects/{id}/handover"
+  health: GET :8087/health
+  ready: GET :8087/ready
+
+consumes:
+  units:
+    - unit: subjects    # the registry; reins reads its subjects and makes a principal's two personas
+      via: http
+      env: SUBJECTS_URL
+      calls: ["GET /subjects/{id}", "POST /subjects"]
+  gate: X-Principal-Id  # who is asking; trusted, so reins is reached only through the door
+  infra: [postgres]     # its own, on a network only it joins
+
+wire: []
+
+config:
+  required:
+    DATABASE_URL: its own Postgres; the schema is migrated on boot
+    SUBJECTS_URL: the subjects service, e.g. http://subjects:8083
+  optional:
+    PORT: "8087"
+  secrets: {}

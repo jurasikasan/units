@@ -1,0 +1,93 @@
+// Package stewardship is which principal holds the reins of which subject:
+// a relation out of the world, between an account at the door and a
+// character in `subjects`. Nothing here is a world event, and nothing here is
+// written into `subjects` beyond the two personas a principal first seen is
+// given.
+package stewardship
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+
+	"github.com/google/uuid"
+)
+
+// Subject is a subject as `subjects` keeps it, passed on as it came.
+type Subject struct {
+	ID          uuid.UUID       `json:"id"`
+	Name        string          `json:"name"`
+	Nick        string          `json:"nick"`
+	Bio         string          `json:"bio,omitempty"`
+	SubjectType string          `json:"subject_type"`
+	Preferences json.RawMessage `json:"preferences,omitempty" swaggertype:"object"`
+}
+
+// NewSubject is what reins asks `subjects` to make.
+type NewSubject struct {
+	Nick        string `json:"nick"`
+	Name        string `json:"name"`
+	SubjectType string `json:"subject_type"`
+}
+
+// HandoverRequest names the principal who takes the reins.
+type HandoverRequest struct {
+	To string `json:"to" example:"bob"`
+}
+
+// The subject types of the two personas: whoever drives them, a person is
+// `human` and an assistant is a role, not "ai".
+const (
+	TypeHuman     = "human"
+	TypeAssistant = "assistant"
+)
+
+// AssistantSuffix makes the second persona's nick from the login.
+const AssistantSuffix = "-assistant"
+
+// The nick rules as `subjects` holds them (subjects/CONTRACT.md); checked
+// here first so that a login that cannot become a nick is refused with a
+// reason before anything is made.
+var nickPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,31}$`)
+
+// Wanted is what a principal first seen is given: `<login>` and
+// `<login>-assistant`, names empty. A login that cannot become both nicks is
+// refused, never bent into one: a nick made from a changed login would read
+// as somebody else's.
+func Wanted(login string) ([]NewSubject, error) {
+	if !nickPattern.MatchString(login) {
+		return nil, &Refusal{Status: 422, Reason: fmt.Sprintf(
+			"login %q cannot be a nick: a nick is 2-32 characters of a-z, 0-9, - and _, starting with a letter", login)}
+	}
+	assistant := login + AssistantSuffix
+	if !nickPattern.MatchString(assistant) {
+		return nil, &Refusal{Status: 422, Reason: fmt.Sprintf(
+			"login %q is too long for its assistant's nick %q: a nick is at most 32 characters", login, assistant)}
+	}
+	return []NewSubject{
+		{Nick: login, SubjectType: TypeHuman},
+		{Nick: assistant, SubjectType: TypeAssistant},
+	}, nil
+}
+
+// Refusal is a principal's provisioning refused for a reason the principal
+// can be told: a nick taken by another subject (409), a login that breaks the
+// nick rules (422).
+type Refusal struct {
+	Status int
+	Reason string
+}
+
+func (r *Refusal) Error() string { return r.Reason }
+
+var (
+	// ErrNotSteward: the caller does not hold the reins of that subject.
+	ErrNotSteward = errors.New("you do not steer this subject")
+	// ErrBadHandover: no one to hand over to, or the caller themself.
+	ErrBadHandover = errors.New(`"to" must name another principal`)
+	// ErrNickTaken: `subjects` answered 409 for a nick.
+	ErrNickTaken = errors.New("nick is taken")
+	// ErrNickRefused: `subjects` answered 400 for a nick.
+	ErrNickRefused = errors.New("nick refused by subjects")
+)

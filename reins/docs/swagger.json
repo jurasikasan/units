@@ -1,0 +1,226 @@
+{
+    "schemes": [
+        "http"
+    ],
+    "swagger": "2.0",
+    "info": {
+        "description": "Where a principal holds the reins of its subjects: which\nsubjects an account at the door may look into and take up.\nA principal first seen is given two personas in `subjects`.\nReached only through the door (X-Principal-Id). Own database\non its own network.",
+        "title": "Reins",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8087",
+    "paths": {
+        "/health": {
+            "get": {
+                "description": "Answers if the process is serving HTTP at all, and says nothing\nabout Postgres or subjects; scripts/stack_version.py reads the version.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Liveness probe and build version",
+                "responses": {
+                    "200": {
+                        "description": "status and version",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/me/subjects": {
+            "get": {
+                "description": "The subjects whose reins the principal in X-Principal-Id holds,\nread from `subjects` (deleted ones left out), oldest first. The\nfirst call for a principal makes what is missing of its two\npersonas: nick `\u003clogin\u003e` (subject_type human) and\n`\u003clogin\u003e-assistant` (assistant), names empty. A nick taken by\nanother subject is never adopted.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "reins"
+                ],
+                "summary": "The subjects the caller steers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "who is asking, as the door sets it",
+                        "name": "X-Principal-Id",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/stewardship.Subject"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "No X-Principal-Id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "409": {
+                        "description": "A persona's nick is taken by another subject",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "422": {
+                        "description": "The login cannot become a nick",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "502": {
+                        "description": "subjects or the database did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/ready": {
+            "get": {
+                "description": "200 when a ping to Postgres succeeds, 503 when it does not;\nthe compose healthcheck asks this one.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Readiness probe: can this instance reach its Postgres",
+                "responses": {
+                    "200": {
+                        "description": "status ok",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "status unavailable and the ping error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/subjects/{id}/handover": {
+            "post": {
+                "description": "Only a current steward may. The caller stops steering the\nsubject and `to` starts. Nothing is written to `subjects` or\n`threads`: who steers a subject is not a world event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "reins"
+                ],
+                "summary": "Hand the reins of a subject to another principal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "who is asking, as the door sets it",
+                        "name": "X-Principal-Id",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "subject id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "who takes the reins",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/stewardship.HandoverRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "A bad id or body, or `to` empty or the caller",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "No X-Principal-Id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "The caller does not steer this subject",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "The database failed",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "stewardship.HandoverRequest": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "example": "bob"
+                }
+            }
+        },
+        "stewardship.Subject": {
+            "type": "object",
+            "properties": {
+                "bio": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "nick": {
+                    "type": "string"
+                },
+                "preferences": {
+                    "type": "object"
+                },
+                "subject_type": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

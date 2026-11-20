@@ -1,0 +1,167 @@
+definitions:
+  stewardship.HandoverRequest:
+    properties:
+      to:
+        example: bob
+        type: string
+    type: object
+  stewardship.Subject:
+    properties:
+      bio:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      nick:
+        type: string
+      preferences:
+        type: object
+      subject_type:
+        type: string
+    type: object
+host: localhost:8087
+info:
+  contact: {}
+  description: |-
+    Where a principal holds the reins of its subjects: which
+    subjects an account at the door may look into and take up.
+    A principal first seen is given two personas in `subjects`.
+    Reached only through the door (X-Principal-Id). Own database
+    on its own network.
+  title: Reins
+  version: "1.0"
+paths:
+  /health:
+    get:
+      description: |-
+        Answers if the process is serving HTTP at all, and says nothing
+        about Postgres or subjects; scripts/stack_version.py reads the version.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: status and version
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Liveness probe and build version
+      tags:
+      - health
+  /me/subjects:
+    get:
+      description: |-
+        The subjects whose reins the principal in X-Principal-Id holds,
+        read from `subjects` (deleted ones left out), oldest first. The
+        first call for a principal makes what is missing of its two
+        personas: nick `<login>` (subject_type human) and
+        `<login>-assistant` (assistant), names empty. A nick taken by
+        another subject is never adopted.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/stewardship.Subject'
+            type: array
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "409":
+          description: A persona's nick is taken by another subject
+          schema:
+            type: string
+        "422":
+          description: The login cannot become a nick
+          schema:
+            type: string
+        "502":
+          description: subjects or the database did not answer
+          schema:
+            type: string
+      summary: The subjects the caller steers
+      tags:
+      - reins
+  /ready:
+    get:
+      description: |-
+        200 when a ping to Postgres succeeds, 503 when it does not;
+        the compose healthcheck asks this one.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: status ok
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: status unavailable and the ping error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 'Readiness probe: can this instance reach its Postgres'
+      tags:
+      - health
+  /subjects/{id}/handover:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Only a current steward may. The caller stops steering the
+        subject and `to` starts. Nothing is written to `subjects` or
+        `threads`: who steers a subject is not a world event.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: subject id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: who takes the reins
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/stewardship.HandoverRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: A bad id or body, or `to` empty or the caller
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "403":
+          description: The caller does not steer this subject
+          schema:
+            type: string
+        "500":
+          description: The database failed
+          schema:
+            type: string
+      summary: Hand the reins of a subject to another principal
+      tags:
+      - reins
+schemes:
+- http
+swagger: "2.0"
