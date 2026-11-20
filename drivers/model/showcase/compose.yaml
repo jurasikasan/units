@@ -1,9 +1,10 @@
 name: driver-showcase
 
-# The driver holding alice-assistant's reins with a mock model: the journal
-# (threads) and the registry (subjects) on their own Postgres, the bus, the
-# mind it asks (minds/assistant) and LiteLLM answering for the model. The
-# demo plays alice straight into threads, as reins would write her words.
+# The driver with a mock profile, holding alice-assistant's reins when reins
+# hands it to it (at alice's first visit, DEFAULT_BRAIN): the journal
+# (threads), the registry (subjects) and reins on their own Postgres, the
+# bus, the mind it asks (minds/assistant) and LiteLLM answering for the
+# model. The demo plays alice through reins, as a door would.
 x-pg: &pg
   image: postgres:16-alpine
   healthcheck:
@@ -43,6 +44,23 @@ services:
       test: ["CMD", "wget", "-qO-", "http://localhost:8085/ready"]
       interval: 1s
       retries: 30
+  reins-db:
+    <<: *pg
+    environment: {POSTGRES_USER: reins, POSTGRES_PASSWORD: reins, POSTGRES_DB: reins}
+  reins:
+    build: ../../../reins
+    environment:
+      DATABASE_URL: postgres://reins:reins@reins-db:5432/reins?sslmode=disable
+      SUBJECTS_URL: http://subjects:8083
+      THREADS_URL: http://threads:8085
+      REDIS_ADDR: bus:6379
+      DEFAULT_BRAIN: mock
+      BRAINS_URL: http://driver:8097
+    depends_on: {reins-db: {condition: service_healthy}, subjects: {condition: service_healthy}, threads: {condition: service_healthy}, bus: {condition: service_healthy}}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8087/ready"]
+      interval: 1s
+      retries: 30
   litellm:
     image: ghcr.io/berriai/litellm:v1.108.0
     command: ["--config", "/config.yaml", "--port", "4000"]
@@ -68,8 +86,10 @@ services:
       THREADS_URL: http://threads:8085
       SUBJECTS_URL: http://subjects:8083
       MIND_URL: http://mind:8088/run
-      HOLDS: alice-assistant=mock
+      REINS_URL: http://reins:8088
+      PROFILES: mock=mock
     depends_on:
+      reins: {condition: service_healthy}
       bus: {condition: service_healthy}
       threads: {condition: service_healthy}
       subjects: {condition: service_healthy}

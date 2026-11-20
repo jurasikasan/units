@@ -37,12 +37,20 @@ type Block struct {
 	Transcript string `json:"transcript,omitempty"`
 }
 
+// ThreadInfo is a thread as the driver reads it: who opened it, who is in
+// it now.
+type ThreadInfo struct {
+	ID       uuid.UUID   `json:"id"`
+	OpenedBy *uuid.UUID  `json:"opened_by,omitempty"`
+	Members  []uuid.UUID `json:"members"`
+}
+
 // Journal is what the driver needs of threads.
 type Journal interface {
-	// Threads is the threads the subject is a member of.
-	Threads(ctx context.Context, subject uuid.UUID) ([]uuid.UUID, error)
-	// Members is who is in the thread now.
-	Members(ctx context.Context, thread uuid.UUID) ([]uuid.UUID, error)
+	// Threads is the threads the subject is a member of, without members.
+	Threads(ctx context.Context, subject uuid.UUID) ([]ThreadInfo, error)
+	// Thread is one thread: who opened it, who is in it now.
+	Thread(ctx context.Context, thread uuid.UUID) (ThreadInfo, error)
 	// Tail is the last n entries of the thread, oldest first.
 	Tail(ctx context.Context, thread uuid.UUID, n int) ([]Entry, error)
 	// Say appends a create entry sent by the subject; the entry as stored.
@@ -104,28 +112,20 @@ func NewHTTPThreads(base string) *HTTPThreads {
 	return &HTTPThreads{client{strings.TrimRight(base, "/"), &http.Client{Timeout: 30 * time.Second}}}
 }
 
-func (t *HTTPThreads) Threads(ctx context.Context, subject uuid.UUID) ([]uuid.UUID, error) {
-	var ts []struct {
-		ID uuid.UUID `json:"id"`
-	}
+func (t *HTTPThreads) Threads(ctx context.Context, subject uuid.UUID) ([]ThreadInfo, error) {
+	var ts []ThreadInfo
 	if err := t.c.do(ctx, http.MethodGet, "/threads?member="+subject.String(), nil, &ts); err != nil {
 		return nil, fmt.Errorf("threads: %w", err)
 	}
-	out := make([]uuid.UUID, 0, len(ts))
-	for _, th := range ts {
-		out = append(out, th.ID)
-	}
-	return out, nil
+	return ts, nil
 }
 
-func (t *HTTPThreads) Members(ctx context.Context, thread uuid.UUID) ([]uuid.UUID, error) {
-	var th struct {
-		Members []uuid.UUID `json:"members"`
-	}
+func (t *HTTPThreads) Thread(ctx context.Context, thread uuid.UUID) (ThreadInfo, error) {
+	var th ThreadInfo
 	if err := t.c.do(ctx, http.MethodGet, "/threads/"+thread.String(), nil, &th); err != nil {
-		return nil, fmt.Errorf("threads: %w", err)
+		return ThreadInfo{}, fmt.Errorf("threads: %w", err)
 	}
-	return th.Members, nil
+	return th, nil
 }
 
 func (t *HTTPThreads) Tail(ctx context.Context, thread uuid.UUID, n int) ([]Entry, error) {
@@ -202,4 +202,30 @@ func (s *HTTPSubjects) Name(ctx context.Context, id uuid.UUID) string {
 	s.names[id] = named{name, time.Now()}
 	s.mu.Unlock()
 	return name
+}
+
+// Reins is what the driver needs of reins: which subjects the brains hold.
+type Reins interface {
+	BrainHolds(ctx context.Context) ([]BrainHold, error)
+}
+
+// BrainHold is one subject a brain holds, as reins says it.
+type BrainHold struct {
+	Subject uuid.UUID `json:"subject"`
+	Profile string    `json:"profile"`
+}
+
+// HTTPReins reads reins' inner GET /holds: never through the door.
+type HTTPReins struct{ c client }
+
+func NewHTTPReins(base string) *HTTPReins {
+	return &HTTPReins{client{strings.TrimRight(base, "/"), &http.Client{Timeout: 10 * time.Second}}}
+}
+
+func (r *HTTPReins) BrainHolds(ctx context.Context) ([]BrainHold, error) {
+	var hs []BrainHold
+	if err := r.c.do(ctx, http.MethodGet, "/holds", nil, &hs); err != nil {
+		return nil, fmt.Errorf("reins: %w", err)
+	}
+	return hs, nil
 }

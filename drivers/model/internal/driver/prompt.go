@@ -47,6 +47,24 @@ func Prompt(ctx context.Context, subject uuid.UUID, tail []Entry, names Registry
 	return out, true
 }
 
+// Greeting is the context a subject speaks first from, in a thread it
+// opened where nothing is said yet: no words of anyone's, only a cue
+// naming who is there. Not journaled: what is said is the greeting.
+func Greeting(ctx context.Context, subject uuid.UUID, members []uuid.UUID, names Registry) []types.Message {
+	var who []string
+	for _, m := range members {
+		if m != subject {
+			who = append(who, names.Name(ctx, m))
+		}
+	}
+	cue := "Nobody has said anything yet in this conversation, which you opened"
+	if len(who) > 0 {
+		cue += "; " + strings.Join(who, ", ") + " " + map[bool]string{true: "is", false: "are"}[len(who) == 1] + " here"
+	}
+	cue += ". Speak first: greet them."
+	return []types.Message{{ID: uuid.NewString(), Role: types.RoleUser, Content: "(" + cue + ")"}}
+}
+
 // ownWords is what the subject said before, as words: its text blocks, a
 // sound by its transcript.
 func ownWords(blocks []Block) string {

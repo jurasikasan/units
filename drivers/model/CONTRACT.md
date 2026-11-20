@@ -2,16 +2,42 @@
 
 A chat model holding a subject's reins. A subject is a character in
 `subjects`, whoever drives it; a person drives theirs through `reins`, and a
-driver is the other kind of brain: it holds a subject with a chat model.
-Which model thinks for a subject is the driver's, not the subject's body.
-Which subjects it holds, and with which model, is configuration for now
-(`HOLDS`); handing the reins between a person and a driver ("act or
-watch") comes later.
+driver is the other kind of brain. It can be any of its **profiles**
+(`PROFILES`, `<name>=<chat model>,…`): a brain in the broad sense, who
+moves into an avatar. Each profile carries only its chat model now; the
+shape leaves room for choices by context later (a realtime model in a
+call, vision or text only, agent work). Which model thinks for a subject
+is the brain's, not the subject's body.
+
+Which subjects it holds, and as which profile, is `reins`' to say: a
+steward hands an avatar to a profile there, and takes it back (reins'
+CONTRACT.md, section 5). The subject's context is one whichever brain is in
+it: the prompt is built from the journal, so another profile changes only
+who thinks.
 
 It keeps nothing: what was said is `threads`', what is being written goes by
 on the bus and is gone.
 
-## 1. When it answers
+## 1. Whom it holds
+
+At boot, on each `reins.hold.changed` on `reins_events` and every 30 s (an
+event missed), it reads reins' inner `GET /holds` (`REINS_URL`, never
+through the door): every subject a brain holds, by profile. It holds those
+of its own profiles; another driver's are not its. The event only wakes:
+the truth is read back.
+
+- A subject **gained** is caught up with: in each thread it is in
+  (`?member=`), where the last thing said is someone else's and at most
+  `CATCHUP` old (2 min), it answers (said while nobody held it); and where
+  it opened the thread and nothing is said yet, it greets (below).
+- A subject **lost** (taken back, handed to another, given to nobody): a
+  reply being written as it is cut, and **nothing is said**: the subject
+  is another's now (`driver.reply.stopped`, `why: taken`). A reply that
+  finished meanwhile is not said either.
+- `GET /profiles` says its profiles, `[{name, model}]`, for reins to list
+  (`GET /brains`).
+
+## 2. When it answers
 
 It reads `threads_events` through a consumer group of its own (`GROUP`,
 `drivers-model`), so a restart goes on where it stopped. For each
@@ -30,18 +56,21 @@ answer. Answers in one thread for one subject come one at a time; what is
 said while one is written is answered after it, from the tail as it is
 then. A wake-up is acknowledged once what it woke is answered.
 
-A subject it cannot find yet (not made yet: `<login>-assistant` is made at
-the login's first visit) is looked for again every 5 s; until then it holds
-nothing for it, and the wake-ups for it are acknowledged unanswered. So,
-on taking a subject's reins, it answers in each thread the subject is in
-(`?member=`) where the last thing said is someone else's and at most
-`CATCHUP` old (2 min): what was said while it looked. Older words are left
-as they are: a restart does not answer a thread anew.
+A wake-up for a subject it does not hold is acknowledged unanswered; what
+was said to it lately is answered when it is taken (section 1). Older
+words are left as they are: a restart does not answer a thread anew.
 
-Two drivers holding two subjects of one thread would answer each other
-without end: nothing guards against it yet.
+**It speaks first** in a thread its subject opened where nothing is said
+yet (no `create` in the thread): woken by someone else's `join` there, or
+on taking the subject (section 1). Reins opens a principal's first thread
+so: by `<login>-assistant`, with `<login>` in it. The prompt is then one
+cue, not journaled: nobody has said anything in this conversation it
+opened, who is there, greet them. What it says is journaled as any reply.
 
-## 2. The prompt
+Two brains holding two subjects of one thread would answer each other
+without end: nothing guards against it yet (UNIT-70).
+
+## 3. The prompt
 
 Built from the tail, the first filter being identity's: `threads` knows no
 roles, they are computed here.
@@ -57,17 +86,18 @@ roles, they are computed here.
 - Joins, leaves and renames are left out. No system prompt of its own: the
   mind's is first.
 
-## 3. The answer
+## 4. The answer
 
 The prompt goes to `minds/assistant` as an ordinary AG-UI run (`POST
 MIND_URL`, the protocol's Go SDK as the client): `threadId` the thread's
 id, `runId` a new reply id, `messages` the prompt,
-`forwardedProps.modelName` the model it holds the subject with. The mind
+`forwardedProps.modelName` the chat model of the profile holding the
+subject. The mind
 stays stateless; the driver names itself to it as `X-Principal-Id:
 drivers/model` (it is reached inside the stack, not through the door).
 
 - Each `TEXT_MESSAGE_CONTENT` and `REASONING_MESSAGE_CONTENT` is published as
-  it comes (section 4). Tools are the mind's: their calls and results are not
+  it comes (section 5). Tools are the mind's: their calls and results are not
   read here, only the words said after them.
 - `RUN_FINISHED`: the reply is said in the thread as the subject: one
   `create` entry (`POST /threads/{id}/entries`), one `text` block per text
@@ -76,8 +106,14 @@ drivers/model` (it is reached inside the stack, not through the door).
   no words: **nothing is journaled** — the journal holds what was said. The
   failure is published (`driver.reply.failed`, the mind's `code` and
   `message`) and logged.
+- **Stopped**: a `reins.reply.stop` for the thread and the subject (a
+  steward asked reins) cancels the run. What was written so far is said as
+  it stands, one `text` block, when there is any text (those watching saw
+  it: a sentence cut off); when there is none, nothing is journaled.
+  `driver.reply.stopped`, `why: stopped`, with `seq` when it was said.
+  What came meanwhile is not answered on its own: the next word wakes it.
 
-## 4. Events
+## 5. Events
 
 Published on the Redis stream `driver_events`, in the envelope of
 [`contracts/events.md`](../../contracts/events.md), source `/drivers/model`,
@@ -87,18 +123,21 @@ people who see the thread (its `GET /me/stream`, event `writing`).
 
 | `type` | `data` |
 |---|---|
-| `driver.reply.delta` | `thread`, `sender` (the subject), `reply`, `part` (`text` or `reasoning`), `text` (the piece) |
+| `driver.reply.started` | `thread`, `sender` (the subject), `reply`: a run begun, nothing of it yet |
+| `driver.reply.delta` | `thread`, `sender`, `reply`, `part` (`text` or `reasoning`), `text` (the piece) |
 | `driver.reply.failed` | `thread`, `sender`, `reply`, `code`, `message` |
 | `driver.reply.finished` | `thread`, `sender`, `reply`, `seq` (the entry said) |
+| `driver.reply.stopped` | `thread`, `sender`, `reply`, `why` (`stopped`: asked; `taken`: the reins went to another), `seq` when what was written was said |
 
 `reply` is one reply's id, the run's `runId`; a reader puts its pieces
-together by it, and drops them when the entry comes (or `finished`).
+together by it, and drops them when the entry comes (or `finished`,
+`stopped`).
 
-## 5. Boundaries
+## 6. Boundaries
 
-- No database and no routes of its own but `/health` and `/ready` (the bus
-  answers; the subjects it holds, with their models).
-- It writes into `threads` only as a subject it holds, and only `create`
-  entries.
-- It does not check who may drive a subject: holding is configuration, not
-  stewardship (that is `reins`').
+- No database. Its routes: `GET /profiles`, `/health` and `/ready` (the bus
+  answers; the subjects it holds, by profile).
+- It writes into `threads` only as a subject one of its profiles holds, as
+  reins says, and only `create` entries.
+- It does not check who may drive a subject: who holds what is `reins`',
+  and it follows it.

@@ -1,5 +1,6 @@
-// drivers/model: a chat model holding subjects' reins. Woken by threads'
-// events when someone else says something in a thread its subject is in,
+// drivers/model: a chat model holding subjects' reins, as one of its
+// profiles, when reins says so. Woken by threads' events when someone else
+// says something in a thread its subject is in,
 // it builds the prompt from the thread's tail, has minds/assistant answer
 // as an AG-UI run with the model it holds the subject with, streams the
 // answer's pieces on driver_events, and says the answer in the thread as
@@ -43,10 +44,11 @@ func envOr(name, fallback string) string {
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	holds, err := driver.ParseHolds(mustEnv("HOLDS"))
+	profiles, err := driver.ParseProfiles(mustEnv("PROFILES"))
 	if err != nil {
 		log.Fatal(err)
 	}
+	reinsURL := mustEnv("REINS_URL")
 	tail, err := strconv.Atoi(envOr("TAIL", "50"))
 	if err != nil || tail < 1 || tail > 1000 {
 		log.Fatal("TAIL is 1…1000")
@@ -67,23 +69,31 @@ func main() {
 	rdb := sharedredis.GetRedisClient(ctx)
 
 	d := &driver.Driver{
-		Journal: driver.NewHTTPThreads(threadsURL),
-		Names:   driver.NewHTTPSubjects(subjectsURL),
-		Mind:    driver.NewAGUI(mindURL, "drivers/model"),
-		Bus:     driver.RedisPublisher{Client: rdb},
-		Tail:    tail,
-		Catchup: catchup,
-		Log:     logger,
+		Journal:  driver.NewHTTPThreads(threadsURL),
+		Names:    driver.NewHTTPSubjects(subjectsURL),
+		Mind:     driver.NewAGUI(mindURL, "drivers/model"),
+		Bus:      driver.RedisPublisher{Client: rdb},
+		Reins:    driver.NewHTTPReins(reinsURL),
+		Profiles: profiles,
+		Tail:     tail,
+		Catchup:  catchup,
+		Log:      logger,
 	}
-	go d.Take(ctx, holds, 5*time.Second)
+	go d.FollowReins(ctx, rdb, 30*time.Second)
 
 	mux := http.NewServeMux()
+	// The brains it can be, for reins to relay: a profile's name and its
+	// chat model.
+	mux.HandleFunc("GET /profiles", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(profiles)
+	})
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": version})
 	})
-	// Ready when the bus answers; holding nobody yet is not a failure (the
-	// subject may not exist yet), and /ready says whom it holds.
+	// Ready when the bus answers; holding nobody is not a failure (reins
+	// says whom its profiles hold), and /ready says whom it holds.
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		c, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -95,7 +105,7 @@ func main() {
 		}
 		held := map[string]string{}
 		for _, h := range d.Holds() {
-			held[h.Subject.Nick] = h.Model
+			held[h.Subject.Nick] = h.Profile
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "holds": held})
 	})
