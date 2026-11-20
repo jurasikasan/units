@@ -175,17 +175,25 @@ function AvatarForm({ avatar, offers, save }: { avatar: Avatar; offers: Offer[];
                 <Pick id={fid('mouth')} label="Text to speech" ids={mouths.map((o) => o.id)} value={mouth?.id} onChange={pickMouth} />
               </Field>
             )}
-            {(mouth?.voices.length ?? 0) > 0 && (
+            {mouth && (
               <Field orientation="horizontal">
                 <FieldLabel htmlFor={fid('voice')}>Voice</FieldLabel>
-                <Pick id={fid('voice')} label="Voice" ids={mouth!.voices} value={voice} onChange={pickVoice} />
+                {mouth.voices.length > 0 ? (
+                  <Pick id={fid('voice')} label="Voice" ids={mouth.voices} value={voice} onChange={pickVoice} />
+                ) : (
+                  // A speech model whose engine lists no voices (not
+                  // reachable, or one voice only): it speaks with its own.
+                  <span id={fid('voice')} className="text-muted-foreground text-sm">
+                    {mouth.id} lists none: its own
+                  </span>
+                )}
               </Field>
             )}
           </FieldGroup>
         </FieldSet>
       )}
 
-      <div className="bg-background sticky bottom-0 -mb-6 flex items-center gap-3 py-3">
+      <div className="sticky bottom-0 -mb-6 flex items-center gap-3 py-3">
         <Button type="submit" size="sm" disabled={!dirty || state.saving}>
           {state.saving ? 'Saving…' : 'Save'}
         </Button>

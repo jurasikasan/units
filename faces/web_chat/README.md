@@ -73,7 +73,8 @@ field for the form), not the block.
 
 Each avatar shows its nick, which never changes, its name and its bio, and
 its body, among what `GET /api/v1/models` offers: its **ear** (speech to
-text), its **mouth** (text to speech) and one of the mouth's **voices**.
+text), its **mouth** (text to speech) and one of the mouth's **voices**
+(a mouth whose engine lists none says so, and speaks with its own).
 Every avatar shows the same, whoever is in it: nothing in a nick says what
 an avatar is for. Which model thinks is not the body's (below).
 
