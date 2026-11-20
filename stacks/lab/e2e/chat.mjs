@@ -376,6 +376,59 @@ async function threadsRound() {
   }
 }
 
+// logIn logs a page in through the gate and waits for the chat.
+async function logIn(p) {
+  await p.goto(url + '/')
+  await p.locator('#username-textfield').fill(user)
+  await p.locator('#password-textfield').fill(password)
+  await p.locator('#sign-in-button').click()
+  await p.getByRole('textbox', { name: 'Message input' }).waitFor()
+}
+
+// twoRound: two browsers, one as the person's own avatar, one as the
+// other, each seeing what the other says as it is said, without a reload.
+// The page acts only as the avatar named by the login: the second browser
+// is logged in as the same person and acts as the other avatar through
+// reins' own route (POST /api/reins/threads/{id}/entries, "as" the other),
+// which is what a page acting as it would send; it watches the same chat
+// in the page. Both see the channel itself, whoever speaks.
+async function twoRound() {
+  const tag = Date.now().toString(36)
+  await page.getByRole('button', { name: 'New Thread' }).click()
+  const opened = page.waitForResponse((r) => r.request().method() === 'POST' && /\/api\/reins\/threads\/[^/]+\/entries$/.test(r.url()))
+  await page.getByRole('textbox', { name: 'Message input' }).fill(`two of us ${tag}`)
+  await page.keyboard.press('Enter')
+  const thread = (await (await opened).json()).thread
+
+  const other = await browser.newContext({ ignoreHTTPSErrors: true })
+  const watcher = await other.newPage()
+  watcher.setDefaultTimeout(timeout)
+  await logIn(watcher)
+  // The newest chat is shown: this one.
+  await watcher.getByText(`two of us ${tag}`).first().waitFor()
+
+  await page.getByRole('textbox', { name: 'Message input' }).fill(`from ${user} ${tag}`)
+  await page.keyboard.press('Enter')
+  await watcher.getByText(`from ${user} ${tag}`).first().waitFor()
+  step(`${assistant}'s browser sees ${user}'s`, 'without a reload')
+
+  const avatars = await (await watcher.request.get(url + '/api/reins/me/subjects')).json()
+  const as = avatars.find((a) => a.nick === assistant)?.id
+  const said = await watcher.request.post(`${url}/api/reins/threads/${thread}/entries`, {
+    data: { as, content: [{ type: 'text', text: `from ${assistant} ${tag}` }] },
+  })
+  step(`${assistant} says, through reins`, said.status())
+  await page.getByText(`from ${assistant} ${tag}`).first().waitFor()
+  await watcher.getByText(`from ${assistant} ${tag}`).first().waitFor()
+  const side = await page.locator('[data-role="assistant"]').filter({ hasText: `from ${assistant} ${tag}` }).count()
+  step(`${user}'s browser sees ${assistant}'s`, `without a reload, on the other side: ${side}`)
+  if (said.status() !== 201 || side !== 1) {
+    step('FAIL', `${assistant}'s words not said, or shown as ${user}'s`)
+    failed = true
+  }
+  await other.close()
+}
+
 // meRound: who is logged in, at the sidebar's foot, from gate's userinfo;
 // its log-out ends the session and lands on the login page. Last, since
 // it logs out. E2E_SHOT names a file for a picture of the page before.
@@ -563,10 +616,7 @@ async function fullRound() {
 try {
   await page.goto(url + '/')
   step('no session: the login page', new URL(page.url()).pathname)
-  await page.locator('#username-textfield').fill(user)
-  await page.locator('#password-textfield').fill(password)
-  await page.locator('#sign-in-button').click()
-  await page.getByRole('textbox', { name: 'Message input' }).waitFor()
+  await logIn(page)
   step(`${user} logs in, the chat`, await page.title())
 
   if (only === 'refused') await refusedRound()
@@ -576,6 +626,7 @@ try {
   else if (only === 'threads') await threadsRound()
   else if (only === 'sound') await soundPickRound()
   else if (only === 'me') await meRound()
+  else if (only === 'two') await twoRound()
   else {
     await fullRound()
     if (fake) await modelRound()

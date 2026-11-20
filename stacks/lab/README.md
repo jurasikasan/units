@@ -19,8 +19,12 @@ answer the same ones. Each keeps its own Postgres on a network only it
 joins. The face asks for them in its settings, and changes their names,
 bios and preferences there (`PATCH /api/reins/subjects/{id}`).
 [`threads`](../../threads/) keeps what happened where, each append
-announced on the bus (`threads_events`); nothing reaches it from outside
-yet, reins will put the face in front of it.
+announced on the bus (`threads_events`). Nothing reaches it from outside:
+reins is the face's door into it. The face's chats are threads: what the
+person says goes in as the avatar named by their login, and every entry of
+their threads comes back on `/api/reins/me/stream` (server-sent events) as
+it is appended, whoever said it, so a second browser sees the first's words
+without a reload, and a reload keeps the conversation.
 
 Who is logged in is gate's to say: `/api/v1/userinfo` is its
 `userinfo.conf`, and the face shows it at the foot of the sidebar with a

@@ -119,7 +119,7 @@ services:
       interval: 1s
       retries: 30
 
-  # The page: static files that speak AG-UI to /api/run.
+  # The page: static files whose chats are threads, through reins.
   face:
     build: ../../faces/web_chat
     image: units-faces-web-chat:local
@@ -149,7 +149,10 @@ services:
 
   # Who exists (subjects) and which of them a principal steers (reins,
   # behind /api/reins/): a principal first seen is given <login> and
-  # <login>-assistant. Each on its own Postgres, on a network only it joins.
+  # <login>-assistant. reins is also the face's door into the world: it
+  # writes into threads as an avatar the principal steers, and streams the
+  # threads its avatars are in, following the bus. Each on its own Postgres,
+  # on a network only it joins.
   subjects:
     build: ../../subjects
     image: units-subjects:local
@@ -166,7 +169,7 @@ services:
       retries: 30
   # What happened where: threads as journals, each append announced on the
   # bus (threads_events) for whoever follows them. Nobody reaches it from
-  # outside yet; reins puts the face in front of it (UNIT-59).
+  # outside: reins is the face's door into it.
   threads:
     build: ../../threads
     image: units-threads:local
@@ -219,11 +222,15 @@ services:
     environment:
       DATABASE_URL: postgres://reins:reins@reins-db:5432/reins?sslmode=disable
       SUBJECTS_URL: http://subjects:8083
+      THREADS_URL: http://threads:8085
+      REDIS_ADDR: bus:6379
     networks: [default, reins-db]
     depends_on:
       reins-db:
         condition: service_healthy
       subjects:
+        condition: service_healthy
+      threads:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8087/ready"]
