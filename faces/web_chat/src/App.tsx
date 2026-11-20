@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AssistantRuntimeProvider, useExternalStoreRuntime, type ThreadMessageLike } from '@assistant-ui/react'
 import { Thread } from '@/upstream/components/assistant-ui/elements/thread.aui'
 import { TooltipProvider } from '@/upstream/components/ui/tooltip'
@@ -12,6 +12,8 @@ import { Me, useMe } from '@/Me'
 import { Settings } from '@/Settings'
 import { picks, useAvatars, wiring } from '@/avatars'
 import { ComposerContext, ComposerRow } from '@/Composer'
+import { Holders } from '@/Holders'
+import { withDevice } from '@/device'
 import { useWorld } from '@/world'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/upstream/components/ui/sidebar'
 
@@ -21,6 +23,21 @@ const fetchOrLogIn: typeof fetch = async (input, init) => {
   const resp = await fetch(input, init)
   if (resp.status === 401) window.location.reload()
   return resp
+}
+
+// reins is told which device asks: a principal holds an avatar's reins
+// from a device (src/device.ts).
+const fetchReins = withDevice(fetchOrLogIn)
+
+// The avatar the person last chose to speak as on this device, among those
+// held here.
+const SPEAK_AS = 'units.speakAs'
+const kept = () => {
+  try {
+    return localStorage.getItem(SPEAK_AS) ?? undefined
+  } catch {
+    return undefined
+  }
 }
 
 const TRANSCRIBE = '/api/v1/audio/transcriptions'
@@ -88,13 +105,35 @@ export default function App() {
   const { dictation, speech, call } = useVoice(sound)
   const offers = useModels(fetchOrLogIn)
   const me = useMe(fetchOrLogIn)
-  const { avatars, save } = useAvatars(fetchOrLogIn)
-  const wired = wiring(avatars, me?.preferred_username)
+  const { avatars, save, reload, held, take, giveBack, hand, profiles } = useAvatars(fetchReins)
+  const [speakAs, setSpeakAs] = useState(kept)
+  const chooseSpeakAs = useCallback((id: string) => {
+    setSpeakAs(id)
+    try {
+      localStorage.setItem(SPEAK_AS, id)
+    } catch {
+      // kept for as long as the page is open
+    }
+  }, [])
+  const wired = wiring(avatars, me?.preferred_username, speakAs)
+  // The login's avatar is taken up on load when nobody holds it: a person
+  // who comes is in it. One somebody holds (a brain, another device) is
+  // left as it is: taking it is the person's choice.
+  const tookUp = useRef(false)
+  useEffect(() => {
+    if (tookUp.current || !avatars || !me?.preferred_username) return
+    tookUp.current = true
+    const login = avatars.find((a) => a.nick === me.preferred_username)
+    if (login && (login.current_brain?.kind ?? 'offline') === 'offline') take(login.id).catch(() => {})
+  }, [avatars, me, take])
   // The adapters read sound at each call; a change saved in the settings is
   // in the next request.
   Object.assign(sound, picks(wired))
   const [settings, setSettings] = useState(false)
-  const world = useWorld(fetchOrLogIn, wired.me, wired.other, avatars)
+  const listen = useMemo(() => ({ hold: held, ready: () => void reload() }), [held, reload])
+  const world = useWorld(fetchReins, wired.me, wired.other, avatars, listen)
+  // Stop shows beside a brain that holds one of the person's avatars.
+  const stoppable = useCallback((sender: string) => avatars?.find((a) => a.id === sender)?.current_brain?.kind === 'brain', [avatars])
   const runtime = useExternalStoreRuntime({
     messages: world.messages,
     convertMessage: asIs,
@@ -113,10 +152,17 @@ export default function App() {
         <SidebarProvider>
           <ChatSidebar me={me && <Me me={me} onSettings={avatars ? () => setSettings(true) : undefined} />} />
           <SidebarInset className="h-dvh">
-            <SidebarTrigger className="absolute top-2 left-2 z-10" />
-            <ComposerContext.Provider value={{ call: !!call, writers: world.writers }}>
-              <Thread components={{ ComposerExtra: ComposerRow }} />
-            </ComposerContext.Provider>
+            <header className="flex shrink-0 items-start gap-2 border-b px-2 py-1.5">
+              <SidebarTrigger />
+              {avatars && (
+                <Holders members={world.members} avatars={avatars} me={wired.me} profiles={profiles} take={take} giveBack={giveBack} hand={hand} speakAs={chooseSpeakAs} />
+              )}
+            </header>
+            <div className="min-h-0 flex-1">
+              <ComposerContext.Provider value={{ call: !!call, writers: world.writers, stoppable, stop: world.stop }}>
+                <Thread components={{ ComposerExtra: ComposerRow }} />
+              </ComposerContext.Provider>
+            </div>
           </SidebarInset>
         </SidebarProvider>
         {avatars && <Settings open={settings} onOpenChange={setSettings} avatars={avatars} first={wired.me} offers={offers} save={save} />}

@@ -17,7 +17,8 @@ components from its registry. React, Vite, Tailwind.
 |---|---|
 | `src/App.tsx`, `src/main.tsx`, `index.html` | ours: the external store runtime wired to the world, the theme |
 | `src/world.ts` | ours: the threads, their entries and the stream from reins, entries as messages and messages as threads' blocks |
-| `src/Sidebar.tsx`, `src/Composer.tsx` | ours: the sidebar (upstream's thread list, who is logged in at its foot), the composer's row: a call's buttons, who is writing |
+| `src/Sidebar.tsx`, `src/Composer.tsx` | ours: the sidebar (upstream's thread list, who is logged in at its foot), the composer's row: a call's buttons, who is writing, Stop |
+| `src/Holders.tsx`, `src/device.ts` | ours: the row above the chat, who holds each avatar's reins and what can be done with them; this browser's device id |
 | `src/Settings.tsx`, `src/avatars.ts`, `src/Models.tsx` | ours: the settings (the avatars, their profiles and bodies), the avatars from reins and whom the page acts as, the models offered |
 | `src/upstream/` | **generated**: what assistant-ui's registry gives today (the thread, its parts, shadcn's base components, the stylesheet). Never edited by hand |
 | `patches/` | our changes to upstream, each with why; applied on top of it |
@@ -43,13 +44,19 @@ is about the UI's edge, not to learn the face.
 |---|---|
 | `GET /api/reins/me/threads`, `POST /api/reins/me/threads` | [reins](../../reins/CONTRACT.md): the threads the person's avatars are in, and a new one opened |
 | `GET`, `POST /api/reins/threads/{id}/entries` | reins: a thread read page by page, and what the person says appended as their avatar |
-| `GET /api/reins/me/stream` | reins: server-sent events, each new entry of those threads (`entry`) and the pieces of a reply being written (`writing`) |
+| `GET /api/reins/me/stream?device=` | reins: server-sent events, each new entry of those threads (`entry`), the pieces of a reply being written (`writing`) and who holds one of the person's avatars now (`hold`); while it is open, this device is there |
+| `POST /api/reins/subjects/{id}/take`, `/give-back`, `/hand`; `GET /api/reins/brains` | reins: an avatar's reins taken from this device, given back to nobody, handed to a brain (a profile `brains` lists) |
+| `POST /api/reins/threads/{id}/stop` | reins: the reply a brain writes as one of the person's avatars, stopped |
 | `GET /api/v1/models` | OpenAI's list of models, with `mode` and a speech model's `voices` beside OpenAI's fields; each mode's first is the agent's own. The preferences show in the settings only when this answers |
 | `GET /api/reins/me/subjects`, `PATCH /api/reins/subjects/{id}` | [reins](../../reins/CONTRACT.md): the avatars the person steers, and a change of one's name, bio or preferences. The settings show only when this answers |
 | `POST /api/v1/audio/transcriptions` | OpenAI's: a recording in, `{text}` out. The mic shows only when this is answered |
 | `POST /api/v1/audio/speech` | OpenAI's: `{input}` in, a sound out. Read-aloud shows only when this is answered |
 | `GET /api/v1/realtime` | OpenAI's Realtime API, a WebSocket: a call. The call button shows only when this is answered |
 | `GET /api/v1/userinfo` | OpenID Connect's UserInfo claims (`sub`, `preferred_username`, `name`, `email`), and `end_session_endpoint` beside them: who is logged in, and where to log out. Shown only when this is answered |
+
+Every request to reins names this browser (`X-Device-Id`, `?device=` on
+the stream): a person holds an avatar's reins from a device
+(`src/device.ts`, an id kept in `localStorage`).
 
 A `401` from any of these reloads the page: whatever door stands in front gets
 to ask the person to log in. The face knows no door of its own.
@@ -92,6 +99,31 @@ shown when nothing is set: the agent's own. A refusal is said beside Save,
 in reins' words. Which keys each preference is stored under is in reins'
 contract. The subject's type is not read or shown.
 
+## Who holds the reins
+
+Each avatar has at most one holder at a time (reins' CONTRACT.md, section
+5): the person on this device, the person on another device, another
+steward, a brain (a driver's profile), or nobody (offline). A row above the
+chat, in the page's flow, shows each avatar in the chat shown (all of the
+person's in a new one) and who holds it: "you, here", "you, on another
+device", the steward's name, the profile, "offline". Shown to the person
+only: the characters never see it.
+
+An avatar's chip opens what can be done with its reins: **take** them here,
+**give** them **back** (nobody holds it), **hand** them **to** a brain (each
+profile reins lists), or, held here, **speak as** it. The page writes as an
+avatar it holds here: the one picked to speak as (kept on this device),
+else the one named by the login, else the first held here; holding none,
+it only **watches** and says so, and reins would refuse a write (409).
+On load the page takes up the login's avatar when nobody holds it; one
+held elsewhere is left as it is: taking it is the person's choice. One page
+may hold several avatars. Changes come on the stream (`hold`): a person
+whose reins were taken elsewhere sees it at once; after the stream was
+away, the avatars are read again.
+
+Leaving the page lets go after a while: reins lets a hold lapse when the
+device's stream has been gone past its grace (2 min by default).
+
 ## Chats
 
 Each chat is a thread in `threads`, read and written through reins
@@ -100,9 +132,9 @@ Each chat is a thread in `threads`, read and written through reins
 nothing: a reload reads it all again. The chat shown is in the address
 (`#<thread id>`), so a reload stays in it; with none, the newest is shown.
 
-- **Acting as.** The page acts as the avatar named by the login (the first,
-  when none is; `src/avatars.ts`). What the person says is appended as that
-  avatar (`POST /api/reins/threads/{id}/entries`); a message is shown as the
+- **Acting as.** The page acts as the avatar it writes as (above;
+  `src/avatars.ts`). What the person says is appended as that avatar
+  (`POST /api/reins/threads/{id}/entries`); a message is shown as the
   person's when its sender is that avatar, and on the other side when it is
   anyone else's. A new chat is not opened until something is said in it:
   then a thread with the page's avatar and the first other one
@@ -119,7 +151,11 @@ nothing: a reload reads it all again. The chat shown is in the address
 - **A reply being written** comes as `writing` pieces: shown as a message
   of the other side while it grows, its reasoning apart, and gone when its
   entry comes; beside the composer, "<name> is writing…" (`role=status`)
-  while it does. A reply that failed is said there, in the writer's words,
+  while it does, from the moment its brain starts. Beside a brain holding
+  one of the person's avatars, a **Stop** button in the composer's row (in
+  the page's flow, never over the conversation) asks reins to stop it: an
+  action on the brain. What it wrote so far comes back as an entry, a
+  sentence cut off; nothing, when it had written nothing. A reply that failed is said there, in the writer's words,
   until the page is reloaded: it was never journaled. Composing is never held while someone writes.
 - **The list.** A sidebar lists the chats, as assistant-ui's
   `threadlist-sidebar` does (shadcn's sidebar and upstream's thread list,
@@ -133,11 +169,11 @@ Collapsed by the button at the top left, a sheet on a phone.
 ## Which model, ear, mouth and voice
 
 **The chat model** is not the page's: it is the brain holding the other
-avatar's reins (a driver, `drivers/model`, with the model it was given),
-not a property of any avatar's body. The page picks none.
+avatar's reins (a driver's profile, handed in the row above the chat), not
+a property of any avatar's body. The page picks no model.
 
 **Ear, mouth and voice** are the avatars' bodies (`src/avatars.ts`): the
-page acts as the avatar named by its login and hears the first other one.
+page acts as the avatar it writes as and hears the first other one.
 
 - **Ear** (mine, `ear`): the mic's transcription `model` (before the
   sound).

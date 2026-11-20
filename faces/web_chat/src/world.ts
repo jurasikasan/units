@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppendMessage, CompleteAttachment, ThreadMessage, ThreadMessageLike } from '@assistant-ui/react'
-import type { Avatar } from '@/avatars'
+import type { Avatar, Brain } from '@/avatars'
+import { DEVICE } from '@/device'
 
 // The world as reins shows it to the person (reins' CONTRACT.md): the
 // threads their avatars are in, each thread's entries as `threads` keeps
@@ -10,7 +11,10 @@ import type { Avatar } from '@/avatars'
 
 const THREADS = '/api/reins/me/threads'
 const ENTRIES = (id: string) => `/api/reins/threads/${encodeURIComponent(id)}/entries`
-const STREAM = '/api/reins/me/stream'
+// The stream names this device: while it is open, the device is there,
+// and the reins it holds do not lapse.
+const STREAM = `/api/reins/me/stream?device=${encodeURIComponent(DEVICE)}`
+const STOP = (id: string) => `/api/reins/threads/${encodeURIComponent(id)}/stop`
 
 export type Thread = { id: string; name: string; members: string[]; created_at: string }
 
@@ -24,8 +28,9 @@ export type Block =
 
 export type Entry = { id: string; thread: string; seq: number; sender: string; kind: string; at: string; content: Block[]; name?: string }
 
-// A reply being written: never journaled, gone when its entry comes, or on
-// reload. `failed` says why it ended with nothing written.
+// A reply being written: never journaled, gone when its entry comes (or
+// it finished or was stopped), or on reload. `failed` says why it ended
+// with nothing written.
 type Writing = { reply: string; sender: string; text: string; reasoning: string; failed?: string }
 
 // A piece of a reply, as reins relays it (`writing`): the driver's event's
@@ -148,10 +153,23 @@ export async function toBlocks(m: AppendMessage): Promise<Block[]> {
   return out
 }
 
+// What the stream says besides the world: who holds an avatar now
+// (`hold`), and that it is open again (`ready`: what was missed is read
+// again).
+export type Heard = { hold?: (subject: string, brain: Brain) => void; ready?: () => void }
+
+// A brain writing in the chat shown: who, by name.
+export type Writer = { sender: string; name: string }
+
 // useWorld is the page's view of the world through reins, acting as `me`
-// and opening a new chat with `other`. current is the chat shown; null is
-// a new one, not opened until something is said in it.
-export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: Avatar | undefined, avatars: Avatar[] | undefined) {
+// (none: only watching) and opening a new chat with `other`. current is
+// the chat shown; null is a new one, not opened until something is said
+// in it.
+export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: Avatar | undefined, avatars: Avatar[] | undefined, listen: Heard = {}) {
+  const listenRef = useRef(listen)
+  useEffect(() => {
+    listenRef.current = listen
+  })
   const [threads, setThreads] = useState<Thread[]>()
   const [entries, setEntries] = useState<Record<string, Entry[]>>({})
   const [writing, setWriting] = useState<Record<string, Writing[]>>({})
@@ -233,6 +251,11 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
         last = (ev as MessageEvent).lastEventId || last
         void loadThreads()
         for (const id of loaded.current) void loadEntries(id)
+        listenRef.current.ready?.()
+      })
+      es.addEventListener('hold', (ev) => {
+        const { subject, ...brain } = JSON.parse((ev as MessageEvent).data) as Brain & { subject: string }
+        listenRef.current.hold?.(subject, brain)
       })
       es.addEventListener('reset', reloadAll)
       es.addEventListener('entry', (ev) => {
@@ -267,7 +290,7 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
           const i = list.indexOf(w)
           if (p.type.endsWith('.delta')) list[i] = p.part === 'reasoning' ? { ...w, reasoning: w.reasoning + (p.text ?? '') } : { ...w, text: w.text + (p.text ?? '') }
           else if (p.type.endsWith('.failed')) list[i] = { ...w, failed: p.message || 'the reply failed' }
-          else if (p.type.endsWith('.finished')) list.splice(i, 1)
+          else if (p.type.endsWith('.finished') || p.type.endsWith('.stopped')) list.splice(i, 1)
           return { ...all, [p.thread]: list }
         })
       })
@@ -317,10 +340,11 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
   )
 
   // say appends what the person said, as the avatar the page acts as; a
-  // new chat is opened first, with the other avatar in it.
+  // new chat is opened first, with the other avatar in it. Holding none
+  // here, the page only watches.
   const say = useCallback(
     async (m: AppendMessage) => {
-      if (!me) throw new Error('no avatar to speak as: reins did not answer')
+      if (!me) throw new Error('watching: take the reins of an avatar to write')
       const content = await toBlocks(m)
       if (content.length === 0) return
       let id = current
@@ -367,7 +391,27 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
 
   // Who is writing a reply in the chat shown now, by name: the page says so
   // beside the composer, as Matrix's typing does.
-  const writers = useMemo(() => [...new Set((current ? (writing[current] ?? []) : []).filter((w) => !w.failed).map((w) => names.get(w.sender) || 'someone'))], [current, writing, names])
+  const writers = useMemo<Writer[]>(() => {
+    const out = new Map<string, Writer>()
+    for (const w of current ? (writing[current] ?? []) : []) if (!w.failed) out.set(w.sender, { sender: w.sender, name: names.get(w.sender) || 'someone' })
+    return [...out.values()]
+  }, [current, writing, names])
 
-  return { messages, say, heard, threadList, writers, ready: threads !== undefined }
+  // stop asks reins to stop the reply a brain writes as `sender` here: an
+  // action on the brain, not on this page's request. What it wrote so far
+  // comes back as an entry, when there was any.
+  const stop = useCallback(
+    async (sender: string) => {
+      if (!current) return
+      const r = await fetcher(STOP(current), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: sender }) })
+      if (!r.ok) throw new Error((await r.text()).trim() || `${r.status} ${r.statusText}`)
+    },
+    [fetcher, current],
+  )
+
+  // Who is in the chat shown: its members; none for a new one (the page
+  // shows all the person's avatars then).
+  const members = useMemo(() => (current ? (threads?.find((t) => t.id === current)?.members ?? []) : []), [current, threads])
+
+  return { messages, say, heard, threadList, writers, stop, members, current, ready: threads !== undefined }
 }
