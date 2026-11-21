@@ -26,6 +26,8 @@ export type Block =
   | { type: 'image'; url: string; media_type: string; sha256: string }
   | { type: 'file'; url: string; media_type: string; sha256: string; name?: string }
   | { type: 'audio'; url: string; media_type: string; sha256: string; transcript?: string }
+  | { type: 'tool_call'; id: string; name: string; args: Record<string, unknown> }
+  | { type: 'tool_result'; call_id: string; text?: string; is_error?: boolean; media?: { type: string; url: string; media_type: string; sha256: string }[] }
   | { type: string; [field: string]: unknown }
 
 export type Entry = { id: string; thread: string; seq: number; sender: string; kind: string; at: string; content: Block[]; name?: string }
@@ -73,13 +75,39 @@ const ATTACHED = /^<attachment name="([^"]*)">\n?([\s\S]*?)\n?<\/attachment>$/
 // sender is the avatar the person is in on this device, everyone else's on
 // the other side, with name and time (for the ghost, every message).
 // Pictures, files and attached text on the person's side are attachments,
-// as they were when sent.
+// as they were when sent. On the other side a tool call and what the tool
+// returned are one tool-call part (src/ToolCard.tsx): the call is the
+// avatar's act, the result — a picture among it — the tool's. On the
+// person's side (an avatar a brain drove, stepped into), a tool's picture
+// is an attachment named for the tool.
 export function toMessage(e: Entry, me: string | undefined, names: Map<string, string>, shownAs?: string): ThreadMessageLike {
   const mine = e.sender === me
   const content: Exclude<ThreadMessageLike['content'], string>[number][] = []
   const attachments: CompleteAttachment[] = []
+  const calls = new Map<string, { name: string; at: number }>()
   for (const [i, b] of e.content.entries()) {
     const id = `${e.id}-${i}`
+    if (b.type === 'tool_call' && typeof b.id === 'string' && typeof b.name === 'string') {
+      const args = (b.args && typeof b.args === 'object' ? b.args : {}) as Record<string, string>
+      calls.set(b.id, { name: b.name, at: content.length })
+      if (!mine) content.push({ type: 'tool-call', toolCallId: b.id, toolName: b.name, args, argsText: JSON.stringify(args, null, 2) })
+      continue
+    }
+    if (b.type === 'tool_result' && typeof b.call_id === 'string') {
+      const call = calls.get(b.call_id)
+      const media = (Array.isArray(b.media) ? b.media : []).filter((m) => typeof m?.url === 'string')
+      if (!call) continue
+      if (mine) {
+        for (const [j, m] of media.entries())
+          if (m.type === 'image') attachments.push({ id: `${id}-${j}`, type: 'image', name: `from ${call.name.split('__').join(' · ')}`, contentType: String(m.media_type), status: { type: 'complete' }, content: [{ type: 'image', image: m.url }] })
+        continue
+      }
+      const part = content[call.at]
+      if (part?.type === 'tool-call') {
+        content[call.at] = { ...part, result: { text: typeof b.text === 'string' ? b.text : '', media: media.map((m) => ({ type: String(m.type), url: m.url, media_type: String(m.media_type) })) }, isError: b.is_error === true }
+      }
+      continue
+    }
     if (b.type === 'text' && typeof b.text === 'string') {
       const m = mine ? ATTACHED.exec(b.text) : null
       if (m) attachments.push({ id, type: 'document', name: m[1]!, contentType: 'text/plain', status: { type: 'complete' }, content: [{ type: 'text', text: b.text }] })

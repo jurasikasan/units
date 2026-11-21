@@ -19,6 +19,7 @@ components from its registry. React, Vite, Tailwind.
 |---|---|
 | `src/App.tsx`, `src/main.tsx`, `index.html` | ours: the external store runtime wired to the world, the theme |
 | `src/world.ts` | ours: the threads, their entries and the stream from reins, entries as messages and messages as threads' blocks |
+| `src/ToolCard.tsx` | ours: an avatar's tool call and what the tool returned (a picture), one card inside its message |
 | `src/Sidebar.tsx`, `src/Composer.tsx`, `src/Said.tsx` | ours: the sidebar (the picker on top, upstream's thread list, who is logged in at its foot); the composer's row (a call's buttons, who is writing, Stop) and what stands in the composer's place with nobody to write as; who said a message of the other side, and when |
 | `src/Picker.tsx`, `src/who.ts`, `src/device.ts` | ours: who the person is on this device (the ghost or an avatar, each with who holds it, the radio of the picked one's brains), kept per device; this browser's device id |
 | `src/Settings.tsx`, `src/avatars.ts`, `src/Models.tsx` | ours: the settings (the avatars, their profiles and bodies), the avatars from reins and who holds each, the models offered |
@@ -244,6 +245,23 @@ attachments again. Their bytes live inline in the journal until they are
 kept elsewhere (artifact_store, a later task). A file over 10 MB is refused
 when attached: the attachment shows an error, its reason when pointed at,
 and nothing is sent while it is there.
+
+## An avatar's tool calls
+
+What a tool returns is the tool's; the avatar's act is the call (the
+repo's CLAUDE.md). A brain's reply journals a `tool_call` and the
+`tool_result` that answered it beside its words (drivers/model); the face
+shows the pair as one tool card inside that avatar's message
+(`src/ToolCard.tsx`, in upstream's `ToolFallback` slot): which tool
+(`images · draw` for the mind's `images__draw`), the prompt it was asked
+as it is, and what the tool returned — a picture or a sound on the card,
+captioned "from" the tool, never among the avatar's words. The card's
+trigger is assistant-ui's own (how the call went) and opens the arguments
+and the tool's words. Cards stand as they are, each its own, instead of
+upstream's folded "Used n tools" group (`ToolGroup`). Seen from inside an
+avatar a brain drove, its tools' pictures are attachments named for the
+tool. Nothing of a call shows while the reply is written: it comes with
+the entry.
 
 ## Sound, turn by turn
 

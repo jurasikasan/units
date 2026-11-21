@@ -15,6 +15,7 @@ import { Settings } from '@/Settings'
 import { holderLabel, picks, useAvatars, wiring } from '@/avatars'
 import { ComposerContext, ComposerRow, Watching } from '@/Composer'
 import { Said } from '@/Said'
+import { ToolCalls, ToolCard } from '@/ToolCard'
 import { withDevice } from '@/device'
 import { useWho } from '@/who'
 import { useWorld } from '@/world'
@@ -165,7 +166,7 @@ export default function App() {
             </header>
             <div className="min-h-0 flex-1">
               <ComposerContext.Provider value={{ call: !!call, writers: world.writers, stoppable, stop: world.stop, watching }}>
-                <Thread components={{ ComposerExtra: ComposerRow, AssistantMessageHeader: Said, ...(watching ? { ComposerInstead: Watching } : {}) }} />
+                <Thread components={{ ComposerExtra: ComposerRow, AssistantMessageHeader: Said, ToolFallback: ToolCard, ToolGroup: ToolCalls, ...(watching ? { ComposerInstead: Watching } : {}) }} />
               </ComposerContext.Provider>
             </div>
           </SidebarInset>
