@@ -1,0 +1,31 @@
+name: images-tool-showcase
+
+# The tool on its own: an Images endpoint that draws without a cloud
+# (fake_images.py), the tool asking it, and a demo calling the tool over
+# MCP as any client would. `docker compose up --build --exit-code-from demo`.
+services:
+  fake_images:
+    image: python:3.12-alpine
+    volumes: [./fake_images.py:/fake_images.py:ro]
+    command: [python3, -u, /fake_images.py]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 1s
+      retries: 30
+
+  images:
+    build: ..
+    image: units-tools-images:local
+    environment:
+      IMAGES_URL: http://fake_images:8000/v1
+      IMAGES_MODEL: images
+      IMAGES_FAST_MODEL: images-fast
+    depends_on:
+      fake_images: {condition: service_healthy}
+
+  demo:
+    image: curlimages/curl:8.11.1
+    depends_on:
+      images: {condition: service_started}
+    volumes: [./demo.sh:/demo.sh:ro]
+    entrypoint: ["sh", "/demo.sh"]

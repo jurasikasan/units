@@ -1,0 +1,34 @@
+# Manifest: what a reader outside the unit reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: tools/images
+kind: tool              # a thing in the world an avatar's hands use
+summary: A tool that draws. One MCP tool, draw, a prompt in, a picture (MCP ImageContent) and a line of words out, asked of any OpenAI Images endpoint. Keeps nothing.
+contract: CONTRACT.md
+maturity: probe
+
+provides:
+  mcp:
+    port: 8080          # MCP 2026-07-28, Streamable HTTP on /mcp, stateless
+    tools: [draw]
+  health: GET :8080/health
+
+consumes:
+  units:
+    - unit: litellm     # a router, or one engine (engines/images/*): any OpenAI Images door
+      via: http
+      env: IMAGES_URL
+      calls: [POST /v1/images/generations]
+
+wire: []
+
+config:
+  required:
+    IMAGES_URL: the Images API's base with /v1, e.g. http://litellm:4000/v1
+    IMAGES_MODEL: the model asked to draw, e.g. LiteLLM's images
+  optional:
+    IMAGES_FAST_MODEL: "the model asked when a call wants it fast; IMAGES_MODEL when empty"
+    IMAGES_TIMEOUT: "how long one picture may take; a Go duration, 120s"
+    PORT: "8080"
+  secrets:
+    IMAGES_API_KEY: sent as a Bearer token, when the endpoint asks for one
