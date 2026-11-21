@@ -6,7 +6,9 @@
 # and the answer carries it back (the fake model: the page writes into
 # threads through reins, the driver holding <login>-assistant answers there
 # through mind and LiteLLM, its pieces streamed); on the first login the
-# assistant greets first; a reply is stopped, kept as far as it went; two
+# assistant greets first; asked to draw, the assistant's message holds the
+# draw tool's card with its picture (tools/images, the fake images model),
+# kept on reload; a reply is stopped, kept as far as it went; two
 # browsers of the person, one taking the assistant's reins, talk and see
 # each other's words without a reload, then the assistant is handed to the
 # fake profile, which answers, and taken back; a reload keeps the conversation; a call goes through the
@@ -50,7 +52,7 @@ sed -e "s|^LAB_URL=.*|LAB_URL=https://lab.localhost:$port|" \
     -e "s|^LAB_PORT=.*|LAB_PORT=$port|" \
     -e "s|^LAB_MAILPIT_PORT=.*|LAB_MAILPIT_PORT=$(free_port)|" \
     -e "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=mailpit,everything|" \
-    -e "s|^LAB_MCP_SERVERS=.*|LAB_MCP_SERVERS=everything=http://everything:3001/mcp|" \
+    -e "s|^LAB_MCP_SERVERS=\(.*\)|LAB_MCP_SERVERS=\1,everything=http://everything:3001/mcp|" \
     -e "s|^LAB_HOLD_GRACE=.*|LAB_HOLD_GRACE=45s|" .env.example > "$work/env"
 export COMPOSE_ENV_FILES="$work/env" COMPOSE_PROJECT_NAME="lab-check-$$"
 first_user=$(sed -n 's/^LAB_FIRST_USER=//p' .env.example)
@@ -103,6 +105,7 @@ run "build"          docker compose --profile e2e build -q
 run "up"             docker compose up -d --wait
 e2e greet "a login lands as the ghost, who sees all and does nothing, then steps into its avatar; the assistant greets first"
 e2e conversation "a conversation through threads and the driver whole: streamed, a tool, reasoning, attachments, a model failing"
+e2e draw "the assistant draws with a tool: the card inside its message, the picture the tool's, kept on reload"
 e2e stop "a reply stopped is kept as far as it went"
 e2e model "the driver's model answers, a name set survives a reload, avatars alike"
 e2e threads "chats apart, and kept on reload with /t/<thread>"

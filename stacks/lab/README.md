@@ -11,8 +11,11 @@ whose chats are threads written and followed through reins;
 page (each account's assistant starts held by `LAB_DEFAULT_BRAIN`), and
 answer in those threads through [`minds/assistant`](../../minds/assistant/)
 (also at `/api/` for any AG-UI client), and LiteLLM in front of the models; the model's tools come from the MCP servers `LAB_MCP_SERVERS`
-names, none by default. MCP's own reference server, `everything`, runs under
-its compose profile for the checks or to try a tool. The lab is no unit but a consumer of units:
+names: by default [`tools/images`](../../tools/images/), a tool that draws
+(`images__draw`), through LiteLLM's `LAB_IMAGES_MODEL` (`fake-images`, a red
+circle, no cloud; `images` at Cloudflare), its picture shown on the call's
+card in the page as the tool's. MCP's own reference server, `everything`,
+runs under its compose profile for the checks or to try a tool. The lab is no unit but a consumer of units:
 its own check is its showcase.
 
 Who exists and who steers them: [`subjects`](../../subjects/) keeps the
@@ -55,7 +58,8 @@ browser → nginx + gate ─ /      → face (static files)
                                         │           ├→ fake_realtime (a call, from a script)
                                         │           ├→ realtime (a call: hearing → a chat model → speaking)
                                         │           └→ real providers
-                                        └→ MCP: LAB_MCP_SERVERS (profile everything: a sum, an image, …)
+                                        └→ MCP: LAB_MCP_SERVERS: tool-images (draw → LiteLLM's images API),
+                                                (profile everything: a sum, an image, …)
 ```
 
 ## Models
@@ -83,6 +87,8 @@ fails when asked.
 | `piper`, `silero` | [our engines](../../engines/tts/) on this machine, under the `engines` profile: WAV, their own voices (listed), Russian and English |
 | `voxcpm` | [VoxCPM2](../../engines/tts/voxcpm/) on a GPU box, at `LAB_VOXCPM_URL`: WAV at 48 kHz, cloned voices (listed) |
 | `images`, `images-fast` | [pictures](../../engines/images/cloudflare/) drawn at Cloudflare (FLUX.2 klein 4B, FLUX.1 schnell) through OpenAI's Images API, under the `engines` profile, on the Cloudflare account in `.env` |
+| `fake-images` | the same API answered from `fake_llm`: any prompt is one picture, a red circle (128×128 PNG); what the draw tool uses by default and in the checks |
+| `images-local` | commented out, with its `images-local` service: [diffusers](../../engines/images/diffusers/) on our own GPU, offline, for a machine that can hold it |
 | `local` | gpt-oss:20b on the GPU box's Ollama, at `LAB_OLLAMA_URL` |
 | `tts` | Gemini 3.8 flash-lite TTS: WAV only, Gemini's voices (OpenAI's names map to some); to try, not to run on |
 | `fake-realtime` | [`fake_realtime`](fake_realtime/) behind OpenAI's Realtime API: hears by loudness, answers from a script with a tone, in the event flow Gemini Live sent through LiteLLM |
@@ -132,7 +138,9 @@ real browser (Playwright, `e2e/chat.mjs`) a person logs in, says something,
 asks what they said first and gets it back, which only happens when the
 conversation goes page → reins → threads → driver → mind → LiteLLM → model,
 the reply streamed back on reins' stream as it is written; a tool adds two
-numbers; the reply said is the answer without its reasoning, and the
+numbers; asked to draw, the assistant calls the draw tool and its message
+holds the call's card with the picture, the tool's, kept on reload
+(`E2E_ONLY=draw`); the reply said is the answer without its reasoning, and the
 thought signatures a model left go back to it with the tool call within the
 run (a run later they are gone: not what was said, so not journaled); a
 file over the page's limit is refused there and nothing is written, then a
@@ -170,6 +178,7 @@ browser and login) and a line of its own in `check.sh`'s report,
 |---|---|
 | `greet` | a login lands as the ghost, who sees every thread and does nothing, then steps into its avatar; on a first login the assistant has greeted first |
 | `conversation` | page → reins → threads → driver → mind → model and back, streamed; a tool, reasoning, attachments, a file over the limit, a model answering 429 and 500 |
+| `draw` | the fake model calls `images__draw`; the assistant's message holds a tool card (the tool, the prompt, the picture captioned as the tool's), its words beside it; a reload keeps it (fake model). With `E2E_SHOT` the page and the card are pictured |
 | `stop` | a reply stopped is kept as far as it went, an empty one not at all (fake model) |
 | `model` | the driver's model answers, no pick in the composer; a name set survives a reload; avatars alike (fake model) |
 | `threads` | chats apart, the first all there when switched back to, kept on reload with `/t/<thread>` |
@@ -252,7 +261,8 @@ call.
 | `LAB_CASCADE_STT_MODEL`, `LAB_CASCADE_LLM_MODEL`, `LAB_CASCADE_VOICE`, `LAB_CASCADE_PROMPT`, `LAB_CASCADE_VAD` | `cascade`'s parts when the page names none: hearing's ear (a model here), the chat model, speaking's `<model>_<voice>`; the instructions; `energy` or `silero` |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_KEY`, `ZAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` | the providers' keys |
 | `LAB_SYSTEM_PROMPT` | first in every prompt the mind sends |
-| `LAB_MCP_SERVERS` | the MCP servers whose tools the model may call, `name=url,…`; none when empty. `everything=http://everything:3001/mcp` with `everything` in `COMPOSE_PROFILES` gives the model MCP's reference server, as `check.sh` does |
+| `LAB_MCP_SERVERS` | the MCP servers whose tools the model may call, `name=url,…`, every avatar's brain all of them; none when empty. `images=http://tool-images:8080/mcp` by default, the draw tool; `,everything=http://everything:3001/mcp` added, with `everything` in `COMPOSE_PROFILES`, gives the model MCP's reference server too, as `check.sh` does |
+| `LAB_IMAGES_MODEL`, `LAB_IMAGES_FAST_MODEL` | the models the draw tool asks LiteLLM for, the second for a call that wants it fast (empty: the first): `fake-images`; `images`, `images-fast` at Cloudflare (`engines` profile) |
 
 ## Accounts
 

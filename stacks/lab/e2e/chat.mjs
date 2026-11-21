@@ -794,6 +794,55 @@ async function refusedRound() {
   await handOther('fake')
 }
 
+// drawRound: the assistant draws with a tool (#draw: the fake model calls
+// images__draw, tools/images asks LiteLLM's fake-images for the picture).
+// What the tool returned is the tool's: the page shows a tool card inside
+// the assistant's message — which tool, the prompt, the picture captioned
+// as the tool's — and the picture is not among the assistant's words. A
+// reload keeps it: it was journaled. E2E_SHOT names a file for a picture
+// of the card.
+async function drawRound() {
+  await fresh()
+  const said = await say('Draw me a red circle, please. #draw')
+  step('asked to draw', JSON.stringify(said.slice(-60)))
+  const look = async (when) => {
+    const message = page.locator('[data-role="assistant"]').last()
+    const card = message.locator('[data-slot="tool-card"]')
+    await card.waitFor()
+    const label = await card.getAttribute('aria-label')
+    const img = card.locator('img')
+    await img.waitFor()
+    const src = (await img.getAttribute('src')) ?? ''
+    const drawn = await img.evaluate((i) => i.complete && i.naturalWidth > 0)
+    const caption = await card.locator('figcaption').innerText()
+    const prompt = await card.getByText('a red circle on white').count()
+    const outside = await message.locator('img').count()
+    step(`${when}: the card`, `${label}; ${src.slice(0, 22)}…, ${drawn ? 'drawn' : 'not drawn'}, "${caption}"`)
+    if (label !== 'Tool images · draw' || !src.startsWith('data:image/png;base64,') || !drawn || caption !== 'from images · draw' || !prompt) {
+      step('FAIL', `${when}: no tool card with the picture and the prompt, captioned as the tool's`)
+      failed = true
+    }
+    if (outside !== 1) {
+      step('FAIL', `${when}: ${outside} pictures in the message, the card's alone expected`)
+      failed = true
+    }
+    // The assistant's words are beside the card, not on it.
+    const all = await message.innerText()
+    const onCard = await card.innerText()
+    if (!all.includes('The tool said') || onCard.includes('The tool said')) {
+      step('FAIL', `${when}: the assistant's words are not beside the card: ${JSON.stringify(all.slice(-120))}`)
+      failed = true
+    }
+    return card
+  }
+  const card = await look('as said')
+  if (process.env.E2E_SHOT) await card.screenshot({ path: process.env.E2E_SHOT.replace(/(\.png)?$/, '-card.png') })
+  if (process.env.E2E_SHOT) await page.screenshot({ path: process.env.E2E_SHOT })
+  await page.reload()
+  await page.getByText('Draw me a red circle, please. #draw').first().waitFor()
+  await look('after a reload')
+}
+
 // handOther hands the assistant to a profile: stepped into (leaving the
 // person's own avatar, given back), handed from its radio, then back in
 // the person's own, taken here again.
@@ -892,6 +941,7 @@ async function fullRound() {
 const scenarios = {
   greet: { round: greetRound },
   conversation: { round: fullRound },
+  draw: { round: drawRound, needs: 'the fake model', has: fake },
   stop: { round: stopRound, needs: 'the fake model', has: fake },
   model: { round: modelRound, needs: 'the fake model', has: fake },
   threads: { round: threadsRound },
@@ -903,7 +953,7 @@ const scenarios = {
   refused: { round: refusedRound },
   failed: { round: failedRound, needs: 'the fake model', has: fake },
 }
-const whole = ['conversation', 'stop', 'model', 'threads', 'voice', 'sound', 'call', 'me']
+const whole = ['conversation', 'draw', 'stop', 'model', 'threads', 'voice', 'sound', 'call', 'me']
 const runs = (name) => !scenarios[name].needs || scenarios[name].has
 if (only && !scenarios[only]) {
   console.log(`  FAIL no scenario ${JSON.stringify(only)}; there are ${Object.keys(scenarios).join(', ')}`)

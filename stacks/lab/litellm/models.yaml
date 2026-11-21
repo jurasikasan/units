@@ -130,6 +130,16 @@ model_list:
   - model_name: images-fast
     litellm_params: {model: openai/black-forest-labs/flux-1-schnell, api_base: http://images:8000/v1, api_key: none, timeout: 60}
     model_info: {mode: image_generation}
+  # The fake: any prompt is the same picture, a red circle (fake_llm), no
+  # key, no cloud: what the tool draws with in check.sh's e2e.
+  - model_name: fake-images
+    litellm_params: {model: openai/fake-images, api_base: http://fake_llm:8089/v1, api_key: fake}
+    model_info: {mode: image_generation}
+  # Our own GPU (engines/images/diffusers), the images-local service in
+  # compose.yaml, both commented out until a machine here is to run it.
+  # - model_name: images-local
+  #   litellm_params: {model: openai/images-local, api_base: http://images-local:8000/v1, api_key: none, timeout: 300}
+  #   model_info: {mode: image_generation}
 
   # A chat model on the GPU box's Ollama, at LAB_OLLAMA_URL.
   - model_name: local

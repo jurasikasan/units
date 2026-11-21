@@ -18,6 +18,7 @@ user's:
 | `#late` | no byte for 20 s, then `#hang`'s answer: a reply stopped before it said anything (stream only) |
 | `#slow` | `Counting slowly: one, two, … ten.`, a few words at a time over 30 s: a reply to stop while it is written (stream only) |
 | `#tool_sum` | a call of `everything__get-sum` with `{"a": 2, "b": 3}`, in fragments, its id holding odd characters as Gemini's do (stream only) |
+| `#draw` | a call of `images__draw` (tools/images) with `{"prompt": "a red circle on white"}`, in fragments (stream only) |
 | `#think_glm` | reasoning in GLM's shape (`reasoning_content` and the same as `reasoning`), then `Thought it over.` (stream only) |
 | `#think_gemini` | reasoning in Gemini's shape, then a call of `everything__get-sum` with thought signatures (`FAKE_SIG_1`) on the message, on the call and in its id; after the tool, when the signatures came back with the call, `The tool said: …; its signature came back.` and a new signature (`FAKE_SIG_2`), no reasoning shown (stream only) |
 | `#signatures_back` | `Both signatures came back.` when both are on answers in the history; otherwise the default (stream only) |
@@ -29,5 +30,9 @@ When the last message is a tool's result, the answer is `The tool said: ` and th
 OpenAI's audio API, for `fake-stt` and `fake-tts`: any sound sent to
 `/v1/audio/transcriptions` is heard as `What the fake ear heard.`, and any
 words sent to `/v1/audio/speech` are a quarter-second beep, a WAV.
+
+OpenAI's Images API, for `fake-images`: any prompt sent to
+`/v1/images/generations` is the same picture, a red circle on white, a
+128×128 PNG as `b64_json` (`images.json`).
 
 Each tag has a `-stream` mapping (`"stream": true`) and a `-nostream` one.
