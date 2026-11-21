@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppendMessage, CompleteAttachment, ThreadMessage, ThreadMessageLike } from '@assistant-ui/react'
 import type { Avatar, Brain } from '@/avatars'
 import { DEVICE } from '@/device'
+import { notify } from '@/notice'
 
 // The world as reins shows it to the person (reins' CONTRACT.md): the
 // threads their avatars are in, each thread's entries as `threads` keeps
@@ -15,6 +16,7 @@ const ENTRIES = (id: string) => `/api/reins/threads/${encodeURIComponent(id)}/en
 // and the reins it holds do not lapse.
 const STREAM = `/api/reins/me/stream?device=${encodeURIComponent(DEVICE)}`
 const STOP = (id: string) => `/api/reins/threads/${encodeURIComponent(id)}/stop`
+const THREAD = (id: string) => `/api/reins/threads/${encodeURIComponent(id)}`
 
 export type Thread = { id: string; name: string; members: string[]; created_at: string }
 
@@ -375,6 +377,51 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
 
   const list = useMemo(() => (threads ?? []).map((t) => ({ status: 'regular' as const, id: t.id, title: title(t, entries[t.id]) })), [threads, entries])
 
+  // rename names a chat as an avatar held here that is in it, the one the
+  // page acts as first: an update entry, seen by everyone in it. The label
+  // changes here at once, and elsewhere when the entry comes down their
+  // stream. Holding none of its members here, the page only watches, and
+  // says so.
+  const rename = useCallback(
+    async (id: string, name: string) => {
+      try {
+        const members = threadsRef.current?.find((t) => t.id === id)?.members ?? []
+        const here = (avatars ?? []).filter((a) => a.current_brain?.here && members.includes(a.id))
+        const as = here.find((a) => a.id === me?.id) ?? here[0]
+        if (!as) throw new Error('you only watch this chat: take the reins of an avatar in it to rename it')
+        const r = await fetcher(THREAD(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ as: as.id, name }) })
+        if (!r.ok) throw new Error((await r.text()).trim() || `${r.status} ${r.statusText}`)
+        const e: Entry = await r.json()
+        setThreads((ts) => ts?.map((t) => (t.id === id ? { ...t, name: e.name ?? name } : t)))
+      } catch (err) {
+        notify(`Not renamed: ${(err as Error).message}`)
+        throw err
+      }
+    },
+    [fetcher, me, avatars],
+  )
+
+  // remove deletes a chat for good, for everyone in it (reins' DELETE): the
+  // page forgets it and, when it was the one shown, moves to the newest
+  // left, or a new one. Nobody else is told: their pages find it gone.
+  const remove = useCallback(
+    async (id: string) => {
+      const r = await fetcher(THREAD(id), { method: 'DELETE' })
+      if (!r.ok && r.status !== 404) {
+        const why = (await r.text()).trim() || `${r.status} ${r.statusText}`
+        notify(`Not deleted: ${why}`)
+        throw new Error(why)
+      }
+      loaded.current.delete(id)
+      const left = (threadsRef.current ?? []).filter((t) => t.id !== id)
+      setThreads(left)
+      setEntries(({ [id]: _gone, ...rest }) => rest)
+      setWriting(({ [id]: _gone, ...rest }) => rest)
+      setCurrent((c) => (c === id ? (left[0]?.id ?? null) : c))
+    },
+    [fetcher],
+  )
+
   const threadList = useMemo(
     () => ({
       threadId: current ?? draft,
@@ -385,8 +432,10 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
         setCurrent(null)
       },
       onSwitchToThread: (id: string) => setCurrent(id),
+      onRename: rename,
+      onDelete: remove,
     }),
-    [current, draft, threads, list],
+    [current, draft, threads, list, rename, remove],
   )
 
   // Who is writing a reply in the chat shown now, by name: the page says so

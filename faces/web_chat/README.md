@@ -46,6 +46,7 @@ is about the UI's edge, not to learn the face.
 | `GET`, `POST /api/reins/threads/{id}/entries` | reins: a thread read page by page, and what the person says appended as their avatar |
 | `GET /api/reins/me/stream?device=` | reins: server-sent events, each new entry of those threads (`entry`), the pieces of a reply being written (`writing`) and who holds one of the person's avatars now (`hold`); while it is open, this device is there |
 | `POST /api/reins/subjects/{id}/take`, `/give-back`, `/hand`; `GET /api/reins/brains` | reins: an avatar's reins taken from this device, given back to nobody, handed to a brain (a profile `brains` lists) |
+| `PATCH`, `DELETE /api/reins/threads/{id}` | reins: a chat renamed as the person's avatar, and deleted for good |
 | `POST /api/reins/threads/{id}/stop` | reins: the reply a brain writes as one of the person's avatars, stopped |
 | `GET /api/v1/models` | OpenAI's list of models, with `mode` and a speech model's `voices` beside OpenAI's fields; each mode's first is the agent's own. The preferences show in the settings only when this answers |
 | `GET /api/reins/me/subjects`, `PATCH /api/reins/subjects/{id}` | [reins](../../reins/CONTRACT.md): the avatars the person steers, and a change of one's name, bio or preferences. The settings show only when this answers |
@@ -161,8 +162,11 @@ nothing: a reload reads it all again. The chat shown is in the address
   `threadlist-sidebar` does (shadcn's sidebar and upstream's thread list,
   put together in `src/Sidebar.tsx` without that element's own branding):
   a new one, search, switching. A chat is called by its name in `threads`,
-  or the start of its first words. Rename, archive and delete are not
-  there yet: reins has no route for them.
+  or the start of its first words. Its menu renames it, as the avatar the
+  page acts as (an update entry everyone in it sees, the label changes on
+  their pages without a reload), and deletes it for good, for everyone in
+  it (reins' DELETE; their pages find it gone at their next read). There
+  is no archive: `patches/04-no-archive.patch` takes it out of the menu.
 
 Collapsed by the button at the top left, a sheet on a phone.
 

@@ -1,3 +1,4 @@
+import { NOTICE } from '@/notice'
 import type { DictationAdapter, SpeechSynthesisAdapter } from '@assistant-ui/react'
 
 // Sound, turn by turn, through OpenAI's audio API at /api/v1/audio: what
@@ -10,8 +11,8 @@ import type { DictationAdapter, SpeechSynthesisAdapter } from '@assistant-ui/rea
 type Listener<T> = (value: T) => void
 
 // VOICE_FAILED is the window event a failure is said with, its detail the
-// words for the person; the page shows it (src/VoiceNotice.tsx).
-export const VOICE_FAILED = 'voice-failed'
+// words for the person; the page shows it (src/notice.ts, src/Notice.tsx).
+export const VOICE_FAILED = NOTICE
 
 function said(what: string, error: unknown) {
   console.error(what, error)

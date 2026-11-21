@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { VOICE_FAILED } from '@/voice'
+import { NOTICE } from '@/notice'
 
-// VoiceNotice says, for a few seconds, why the mic or read-aloud did
-// nothing: the endpoint's own words. assistant-ui has no place for this.
-export function VoiceNotice() {
+// Notice says, for a few seconds, why something the person asked for did
+// nothing (src/notice.ts): the mic, read-aloud, a call, a chat renamed or
+// deleted, in the words of whoever refused.
+export function Notice() {
   const [text, setText] = useState('')
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -12,9 +13,9 @@ export function VoiceNotice() {
       clearTimeout(timer)
       timer = setTimeout(() => setText(''), 8000)
     }
-    window.addEventListener(VOICE_FAILED, show)
+    window.addEventListener(NOTICE, show)
     return () => {
-      window.removeEventListener(VOICE_FAILED, show)
+      window.removeEventListener(NOTICE, show)
       clearTimeout(timer)
     }
   }, [])

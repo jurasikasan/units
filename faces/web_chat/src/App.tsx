@@ -4,7 +4,7 @@ import { Thread } from '@/upstream/components/assistant-ui/elements/thread.aui'
 import { TooltipProvider } from '@/upstream/components/ui/tooltip'
 import { attachments } from '@/attachments'
 import { SpeechEndpointAdapter, TranscriptionDictationAdapter } from '@/voice'
-import { VoiceNotice } from '@/VoiceNotice'
+import { Notice } from '@/Notice'
 import { RealtimeCallAdapter } from '@/realtime'
 import { useModels, type SoundPick } from '@/Models'
 import { ChatSidebar } from '@/Sidebar'
@@ -166,7 +166,7 @@ export default function App() {
           </SidebarInset>
         </SidebarProvider>
         {avatars && <Settings open={settings} onOpenChange={setSettings} avatars={avatars} first={wired.me} offers={offers} save={save} />}
-        <VoiceNotice />
+        <Notice />
       </TooltipProvider>
     </AssistantRuntimeProvider>
   )
