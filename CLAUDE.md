@@ -33,6 +33,24 @@ becomes a task with acceptance criteria.
   pre-push hook, address moves, evals). `tools/` is the family of tools
   avatars call (MCP servers), named as the AI world names them.
 
+## Words for what an avatar has
+
+| word | what it is | where it lives | taken away by | e.g. |
+|---|---|---|---|---|
+| sense | an organ through which the world reaches the avatar | its body | a blindfold | ear (`senses/hearing`); eye (vision: inside the model today, a describer is its prosthesis) |
+| ability | an organ through which the avatar acts on the world | its body | tied hands, a gag | mouth (`abilities/speaking`); hands = calling tools |
+| tool | a thing in the world the hands use | the world; access is a per-avatar switch | the brush taken | `tools/images`, a calculator, the task board |
+| skill | knowing how to use an ability and a tool well | the mind, memory: learned, passed on | forgetting, never learning | how to prompt a picture, how to review code |
+| brain | raw quality of thinking ("talent") | whoever holds the reins | a brain swap | a driver's profile, a person |
+| engine | machinery behind an organ or a tool, unseen by characters | infrastructure | — | FLUX on Cloudflare, whisper, silero |
+| device | where the body meets the real world | the world | — | a phone, a mic, a speaker, a LiveKit room |
+
+Drawing is not an ability: it is hands, a tool and a skill. Whoever cannot
+draw makes a picture with a generator; a bound artist loses the ability and
+keeps the skill. The body is the same set on every avatar; what differs is
+its tools, skills and brain. What a tool returns is the tool's, not the
+avatar's: the avatar's act is the call.
+
 ## Looking at the world is not perceiving it
 
 Two things that look alike and never stand in for each other:
