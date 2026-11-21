@@ -30,6 +30,20 @@ becomes a task with acceptance criteria.
   `.env.example` (a local run works from it as is; a deployment changes only
   `.env`), a `check.sh`. No unit depends on a stack.
 
+## Looking at the world is not perceiving it
+
+Two things that look alike and never stand in for each other:
+
+| | what it is | how it is reached |
+|---|---|---|
+| a query | the observer's look at reality, filtered (by chat, by time, …) | a filter on what is there |
+| perception | seeing *as someone*: what reaches them, as it reaches them (a blind avatar gets "one new message", not the picture) | only by stepping into their skin |
+
+A filter by avatar is neither, and is not offered: being in an avatar is
+stepping into it (the face's picker), not narrowing a query. That is why
+the ghost (the principal with no body) lists threads by chat but has no
+filter by avatar.
+
 ## Done means
 
 - The touched unit's `check.sh` passes — run it from the unit's directory.
