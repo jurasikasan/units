@@ -778,17 +778,17 @@ async function soundPickRound() {
   }
 }
 
-// refusedRound: a picture to a model that takes none; the page says so.
-// The journal's image block carries no file name, so the mind names the
-// picture its own way.
+// refusedRound: a picture to a model that takes none. The run goes on: the
+// mind puts a placeholder in words where the picture stood (UNIT-97), and
+// the fake model, told of a picture not shown, says so.
 async function refusedRound() {
   await handOther('fake-text')
   await fresh()
   await attach(dot)
   const said = await say('What is in the picture?')
-  step('a picture to a text-only model', JSON.stringify(said.slice(0, 80)))
-  if (!said.includes('does not take pictures')) {
-    step('FAIL', 'the page does not say the model takes no pictures')
+  step('a picture to a text-only model', JSON.stringify(said.slice(-60)))
+  if (!said.includes('told of a picture, not shown it')) {
+    step('FAIL', 'the model was not told of the picture in words')
     failed = true
   }
   await handOther('fake')

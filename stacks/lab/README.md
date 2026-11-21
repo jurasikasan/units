@@ -77,7 +77,7 @@ fails when asked.
 | model | |
 |---|---|
 | `fake` | [`fake_llm`](fake_llm/): answers from files, the same each time, no key; what the checks run on |
-| `fake-text` | the same, declared to take words only: a picture to it is refused by the mind |
+| `fake-text` | the same, declared to take words only: a picture to it goes as a placeholder in words (the mind), which fake_llm answers `I am told of a picture, not shown it.` |
 | `chat` | Cloudflare's glm-4.7-flash, then z.ai's; a reasoning model, so 10–15 s of thinking before the first word; words only |
 | `lite` | Gemini 3.1 flash-lite |
 | `fake-stt`, `fake-tts` | [`fake_llm`](fake_llm/) behind OpenAI's audio API: any sound is heard as `What the fake ear heard.`, any words are a quarter-second beep |
@@ -159,7 +159,7 @@ set on the person and the second fake mouth and one of its voices on the
 assistant, in the settings, are what answer (`E2E_ONLY=sound`); the mic (the browser's fake
 one) puts what the fake ear heard into the composer and an answer is read
 aloud to the end; on the driver recreated to hold the assistant with
-`fake-text`, a picture is refused and the page says the model takes none
+`fake-text`, a picture goes to the model as words and its answer says so
 (`E2E_ONLY=refused`); the chat
 refuses someone not logged in; after the first login the person steers
 `alice` and `alice-assistant`, and the same two on the next call; a person gets mail, a second account is added, a backup is taken,
@@ -187,7 +187,7 @@ browser and login) and a line of its own in `check.sh`'s report,
 | `call` | a call through the mind, interrupted, muted, hung up (`LAB_REALTIME_MODEL` set) |
 | `me` | who is logged in at the sidebar's foot; log-out ends the session |
 | `two` | two browsers of one person talk, hand the assistant over and back, rename and delete a chat, leave |
-| `refused` | handed to a text-only profile, a picture is refused in words |
+| `refused` | handed to a text-only profile, a picture reaches the model as a placeholder in words, the run goes on |
 | `failed` | a model answering 429 and 500, alone (fake model) |
 
 Without `E2E_ONLY`, the browser runs `conversation` to `me` in one go

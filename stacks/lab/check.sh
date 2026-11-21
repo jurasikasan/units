@@ -16,7 +16,7 @@
 # in the flow Gemini sent, in the schema's whole set, and on our own
 # (cascade: hearing, the fake model, speaking), every event in the mind's log; and a model answering
 # 429 or 500 ends one with the mind's error on the page;
-# handed to a profile whose model takes words only, a picture is refused
+# handed to a profile whose model takes words only, a picture goes
 # in words; the browsers gone past the grace, nobody holds the person's avatar;
 # the foot of the sidebar shows who is logged in and its log-out ends the
 # session; the chat is closed to nobody; after the first login the person
@@ -123,7 +123,7 @@ run "the model was told what was heard"  bash -c 'docker compose logs mind | gre
 run "mind on our own realtime"  env LAB_REALTIME_MODEL=cascade docker compose up -d --wait mind
 e2e call "a call on cascade, hearing and speaking" LAB_REALTIME_MODEL=cascade
 run "cascade: the page's ear and voice, heard, answered, talked over, truncated"  bash -c 'l=$(docker compose logs realtime); for w in "ear=fake-stt-b" "voice=fake-tts-b_irina" "type=speechrecog.recognition-complete" "msg=answered" "reason=turn_detected" "answer truncated" "type=conversation.item.truncated"; do echo "$l" | grep -q "$w" || { echo "no $w"; exit 1; }; done'
-e2e refused "handed to a text-only profile, a picture is refused, said"
+e2e refused "handed to a text-only profile, a picture goes to the model as words"
 run "the pages gone, what they held lapses: nobody holds $first_user"  lapsed
 run "the program $program steers its own subjects through /api/ with its password, no page"  as_program
 run "first account: its subjects after login, chat, mail"  docker compose run --rm demo "$first_user" "$first_password" mail

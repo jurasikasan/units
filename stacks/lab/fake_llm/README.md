@@ -25,6 +25,10 @@ user's:
 | `#which_model` | `Asked as ` and the model the request names (`fake-1`, `fake-text-1`): which group a run went to (stream only) |
 | `#attached` | `I see a picture, and the file says ZEBRA-7.` when the message carries a PNG as an `image_url` part and `note.txt` holding `ZEBRA-7` as a text part; otherwise the default (stream only) |
 
+When the last message holds the mind's placeholder for a part the model
+cannot take (`[an image is attached here, not shown to you: …]`), the
+answer is `I am told of a picture, not shown it.` (stream only).
+
 When the last message is a tool's result, the answer is `The tool said: ` and that result (stream only).
 
 OpenAI's audio API, for `fake-stt` and `fake-tts`: any sound sent to

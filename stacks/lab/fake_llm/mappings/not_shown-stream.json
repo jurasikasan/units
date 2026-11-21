@@ -1,0 +1,36 @@
+{
+  "name": "not_shown-stream",
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/chat/completions",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": {
+          "expression": "$.stream",
+          "equalTo": "true"
+        }
+      },
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1].role",
+          "equalTo": "user"
+        }
+      },
+      {
+        "matchesJsonPath": {
+          "expression": "$.messages[-1]",
+          "matches": "(?s).*is attached here, not shown to you.*"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache"
+    },
+    "body": "data: {\"id\": \"fake-wm\", \"object\": \"chat.completion.chunk\", \"created\": 0, \"model\": \"fake-1\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"fake-wm\", \"object\": \"chat.completion.chunk\", \"created\": 0, \"model\": \"fake-1\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"I am told of a picture, not shown it.\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"fake-wm\", \"object\": \"chat.completion.chunk\", \"created\": 0, \"model\": \"fake-1\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}\n\ndata: [DONE]\n\n"
+  }
+}
