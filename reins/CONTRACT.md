@@ -92,6 +92,20 @@ answer 503.
   `threads`' own words when it refuses the content; 413 over 16 MB (a
   picture or a file goes inline as a `data:` URL until its bytes are kept
   elsewhere).
+- `PATCH /threads/{id} {"as": "<avatar>", "name": "…"}` — 200 with the
+  `update` entry `threads` stored, sent by `as`, carrying the name (trimmed,
+  1 to 200 characters, else 400). Renaming is an act in the thread like
+  saying something: everyone in it sees the entry, and the thread's `name`
+  is its last one. 403 when the caller does not steer `as` or `as` is not a
+  member, 409 when it does not hold it, 404 when there is no such thread.
+- `DELETE /threads/{id}` — 204: the thread, its entries and its children,
+  deleted by `threads` for good. Whoever sees the thread may (one of the
+  caller's avatars is a member, else 403); it is not an act of an avatar,
+  so no reins are needed, no entry is written and nobody is told: another
+  reader finds it gone at its next read. What points at it from elsewhere
+  (an attachment's url, a trace, a subject's memory of it) is left pointing
+  at nothing; that gap is accepted. Meant for clearing what should never
+  have stayed.
 - `GET /threads/{id}/entries` — as `threads` answers it (`after`, `before`,
   `tail`, `limit`), for a thread one of the caller's avatars is in, else
   403. Every entry, whoever sent it: a watcher sees the channel itself, not

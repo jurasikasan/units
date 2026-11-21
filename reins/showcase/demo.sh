@@ -93,6 +93,16 @@ expect "read back, page by page" "$(as alice "$R/threads/$TID/entries?after=2" |
 expect "bob may not read it" "$(as bob -o /dev/null -w '%{http_code}' "$R/threads/$TID/entries")" 403
 expect "nor say anything as alice" "$(as bob -o /dev/null -w '%{http_code}' -X POST "$R/threads/$TID/entries" -d '{"as":"'"$ME"'","content":[{"type":"text","text":"x"}]}')" 403
 
+step "she renames the thread as herself, and deletes her first one"
+expect "an update entry, as her" "$(as alice -X PATCH "$R/threads/$TID" -d '{"as":"'"$ME"'","name":"plans"}' | grep -o '"kind":"update"')" '"kind":"update"'
+expect "named so in her list" "$(as alice "$R/me/threads" | grep -o '"name":"plans"')" '"name":"plans"'
+expect "bob may not rename it" "$(as bob -o /dev/null -w '%{http_code}' -X PATCH "$R/threads/$TID" -d '{"as":"'"$ME"'","name":"x"}')" 403
+expect "nor delete it" "$(as bob -o /dev/null -w '%{http_code}' -X DELETE "$R/threads/$TID")" 403
+FIRST_ID=$(echo "$FIRST" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+expect "her first thread, deleted" "$(as alice -o /dev/null -w '%{http_code}' -X DELETE "$R/threads/$FIRST_ID")" 204
+expect "gone from her list" "$(as alice "$R/me/threads" | grep -c "$FIRST_ID")" 0
+expect "and from threads" "$(as alice -o /dev/null -w '%{http_code}' "$R/threads/$FIRST_ID/entries")" 404
+
 step "alice hands her assistant to bob"
 expect "handover" "$(as alice -o /dev/null -w '%{http_code}' -X POST "$R/subjects/$ASSISTANT/handover" -d '{"to":"bob"}')" 204
 expect "alice steers" "$(mine alice | nicks)" "alice"

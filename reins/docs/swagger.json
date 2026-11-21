@@ -776,6 +776,167 @@
                 }
             }
         },
+        "/threads/{id}": {
+            "delete": {
+                "description": "The thread, its entries and its children, as threads deletes\nthem: out of the world, for everyone in it. Whoever sees the\nthread may (one of the caller's avatars is a member); no reins\nare needed and nobody is told. What points at it from elsewhere\n(an attachment's url, a memory of it) is left pointing at nothing.",
+                "tags": [
+                    "world"
+                ],
+                "summary": "Delete a thread for good",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "who is asking, as the door sets it",
+                        "name": "X-Principal-Id",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "thread id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "deleted"
+                    },
+                    "400": {
+                        "description": "A bad id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "No X-Principal-Id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "None of the caller's avatars is in the thread",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "No such thread",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "502": {
+                        "description": "threads or the database did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "No threads here",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "description": "An update entry sent by `as`, carrying the new name: an act in\nthe thread like saying something, seen by everyone in it. `as`\nmust be an avatar the caller steers, whose reins it holds from\nX-Device-Id (else 409), and a member of the thread. The name is\ntrimmed, 1 to 200 characters. The entry as threads stored it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "world"
+                ],
+                "summary": "Rename a thread as an avatar",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "who is asking, as the door sets it",
+                        "name": "X-Principal-Id",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "the device the caller holds `as` from",
+                        "name": "X-Device-Id",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "thread id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "who renames it, to what",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/world.RenameRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "the update entry",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "400": {
+                        "description": "A bad body, no `as`, or an empty or too long name",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "No X-Principal-Id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "The caller does not steer `as`, or `as` is not a member",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "No such thread",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "409": {
+                        "description": "Held by someone else: who",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "502": {
+                        "description": "threads or the database did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "No threads here",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/threads/{id}/entries": {
             "get": {
                 "description": "As threads answers it, oldest first: after={seq}, before={seq}\nor tail=true, and limit. Every entry, whoever sent it: a watcher\nsees the channel itself.",
@@ -1162,6 +1323,17 @@
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "world.RenameRequest": {
+            "type": "object",
+            "properties": {
+                "as": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
                 }
             }
         },

@@ -154,6 +154,17 @@ func (j *fakeJournal) Entries(_ context.Context, id uuid.UUID, q url.Values) (js
 	return json.Marshal(out)
 }
 
+func (j *fakeJournal) Delete(_ context.Context, id uuid.UUID) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if _, ok := j.threads[id]; !ok {
+		return ErrNoThread
+	}
+	delete(j.threads, id)
+	delete(j.entries, id)
+	return nil
+}
+
 var (
 	alice     = uuid.MustParse("00000000-0000-0000-0000-00000000000a")
 	assistant = uuid.MustParse("00000000-0000-0000-0000-0000000000aa")
@@ -259,6 +270,54 @@ func TestSay_NeedsTheReins(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, w.Code, "opening is an act of `as`")
 	assert.Len(t, j.entries[th.ID], 2, "nothing written")
 	assert.Len(t, j.threads, 1, "nothing opened")
+}
+
+// A rename is an act in the thread: an update entry sent by a steered,
+// held member, carrying the name.
+func TestRename_AsAHeldMember(t *testing.T) {
+	svc, j, r := setup()
+	th, err := svc.Open(context.Background(), "alice", device, alice, nil)
+	require.NoError(t, err)
+	path := "/threads/" + th.ID.String()
+
+	w := call(r, "alice", "PATCH", path, fmt.Sprintf(`{"as":%q,"name":"  plans  "}`, alice))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var e map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &e))
+	assert.Equal(t, "update", e["kind"])
+	assert.Equal(t, "plans", e["name"], "trimmed")
+	assert.Equal(t, alice.String(), e["sender"])
+
+	assert.Equal(t, http.StatusForbidden, call(r, "alice", "PATCH", path, fmt.Sprintf(`{"as":%q,"name":"x"}`, assistant)).Code, "not a member")
+	assert.Equal(t, http.StatusForbidden, call(r, "bob", "PATCH", path, fmt.Sprintf(`{"as":%q,"name":"x"}`, alice)).Code, "not bob's")
+	assert.Equal(t, http.StatusConflict, callFrom(r, "alice", "d2", "PATCH", path, fmt.Sprintf(`{"as":%q,"name":"x"}`, alice)).Code, "not held from there")
+	assert.Equal(t, http.StatusBadRequest, call(r, "alice", "PATCH", path, fmt.Sprintf(`{"as":%q,"name":"   "}`, alice)).Code, "empty")
+	assert.Equal(t, http.StatusBadRequest, call(r, "alice", "PATCH", path, fmt.Sprintf(`{"as":%q,"name":%q}`, alice, strings.Repeat("я", MaxName+1))).Code, "too long")
+	assert.Equal(t, http.StatusBadRequest, call(r, "alice", "PATCH", path, `{"name":"x"}`).Code, "no as")
+	assert.Equal(t, http.StatusNotFound, call(r, "alice", "PATCH", "/threads/"+uuid.NewString(), fmt.Sprintf(`{"as":%q,"name":"x"}`, alice)).Code)
+	assert.Len(t, j.entries[th.ID], 2, "only the one rename written")
+}
+
+// Whoever sees a thread deletes it, for good, without holding any reins;
+// whoever does not, cannot.
+func TestDelete_ByWhoeverSeesIt(t *testing.T) {
+	svc, j, r := setup()
+	th, err := svc.Open(context.Background(), "alice", device, alice, []uuid.UUID{assistant})
+	require.NoError(t, err)
+	path := "/threads/" + th.ID.String()
+
+	assert.Equal(t, http.StatusForbidden, call(r, "bob", "DELETE", path, "").Code, "none of bob's avatars is in it")
+	require.Contains(t, j.threads, th.ID)
+
+	held.held[alice] = "brain:fake"
+	held.held[assistant] = "brain:fake"
+	w := callFrom(r, "alice", "", "DELETE", path, "")
+	assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	assert.NotContains(t, j.threads, th.ID)
+	assert.NotContains(t, j.entries, th.ID)
+
+	assert.Equal(t, http.StatusNotFound, call(r, "alice", "DELETE", path, "").Code, "gone")
+	assert.Equal(t, http.StatusBadRequest, call(r, "alice", "DELETE", "/threads/nope", "").Code)
 }
 
 // The first thread: opened by the assistant, which joins, then the login's

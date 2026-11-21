@@ -18,6 +18,8 @@ provides:
       - "POST /subjects/{id}/handover"
       - "GET /me/threads"
       - "POST /me/threads"
+      - "PATCH /threads/{id}"            # rename, as an avatar: an update entry
+      - "DELETE /threads/{id}"           # the thread out of the world, for good
       - "POST /threads/{id}/entries"
       - "GET /threads/{id}/entries"
       - "GET /me/stream"            # SSE: entry (id = threads_events id), writing, hold, ready, reset
@@ -48,7 +50,7 @@ consumes:
     - unit: threads     # the journal; reins writes an avatar's acts into it and reads it back
       via: http
       env: THREADS_URL
-      calls: ["GET /threads", "GET /threads/{id}", "POST /threads", "POST /threads/{id}/entries", "GET /threads/{id}/entries"]
+      calls: ["GET /threads", "GET /threads/{id}", "POST /threads", "DELETE /threads/{id}", "POST /threads/{id}/entries", "GET /threads/{id}/entries"]
     - unit: threads     # its wake-ups, followed for /me/stream; the entry is read back
       via: events
       stream: threads_events

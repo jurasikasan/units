@@ -55,6 +55,9 @@ type Journal interface {
 	// Entries is a page of a thread's entries, query as threads takes it.
 	// A refusal of the query is *Refused.
 	Entries(ctx context.Context, thread uuid.UUID, query url.Values) (json.RawMessage, error)
+	// Delete removes the thread, its entries and its children, for good;
+	// ErrNoThread when there is none.
+	Delete(ctx context.Context, thread uuid.UUID) error
 }
 
 var ErrNoThread = errors.New("no such thread")
@@ -186,6 +189,15 @@ func (j *HTTPJournal) Entries(ctx context.Context, thread uuid.UUID, query url.V
 		return nil, err
 	}
 	return read(resp, "GET /threads/{id}/entries")
+}
+
+func (j *HTTPJournal) Delete(ctx context.Context, thread uuid.UUID) error {
+	resp, err := j.do(ctx, http.MethodDelete, "/threads/"+thread.String(), nil)
+	if err != nil {
+		return err
+	}
+	_, err = read(resp, "DELETE /threads/{id}")
+	return err
 }
 
 func short(r io.Reader) string {

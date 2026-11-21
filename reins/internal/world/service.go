@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"slices"
 	"sort"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -51,12 +53,17 @@ func NewService(stewards Stewards, journal Journal, holds Holding) *Service {
 const (
 	kindCreate = "create"
 	kindJoin   = "join"
+	kindUpdate = "update"
 )
+
+// MaxName is the longest name a thread is given, in characters.
+const MaxName = 200
 
 type newEntry struct {
 	Sender  uuid.UUID       `json:"sender"`
 	Kind    string          `json:"kind"`
 	Content json.RawMessage `json:"content,omitempty"`
+	Name    string          `json:"name,omitempty"`
 }
 
 // MyThreads is the threads any avatar the principal steers is a member of,
@@ -190,6 +197,49 @@ func (s *Service) Say(ctx context.Context, principal, device string, thread, as 
 		return nil, ErrNotMember
 	}
 	return s.journal.Append(ctx, thread, newEntry{Sender: as, Kind: kindCreate, Content: content})
+}
+
+// Rename appends an update entry: `as` names the thread. Like saying
+// something, it is an act in the thread, seen by everyone in it: `as` is an
+// avatar the principal steers, holds from this device, and a member.
+func (s *Service) Rename(ctx context.Context, principal, device string, thread, as uuid.UUID, name string) (json.RawMessage, error) {
+	if as == uuid.Nil {
+		return nil, fmt.Errorf("%w: \"as\" names the avatar that renames it", ErrBad)
+	}
+	name = strings.TrimSpace(name)
+	if name == "" || utf8.RuneCountInString(name) > MaxName {
+		return nil, fmt.Errorf("%w: a name is 1 to %d characters", ErrBad, MaxName)
+	}
+	if err := s.steers(ctx, principal, as); err != nil {
+		return nil, err
+	}
+	if err := s.holds.Holding(ctx, principal, device, as); err != nil {
+		return nil, err
+	}
+	t, err := s.journal.Get(ctx, thread)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.Contains(t.Members, as) {
+		return nil, ErrNotMember
+	}
+	return s.journal.Append(ctx, thread, newEntry{Sender: as, Kind: kindUpdate, Name: name})
+}
+
+// Delete takes the thread out of the world for good, as threads deletes
+// it: its entries and its children with it. Whoever sees it may: one of
+// the principal's avatars is a member. It is not an act of an avatar, so
+// no reins are needed, and nobody is told; what points at the thread from
+// elsewhere is left pointing at nothing.
+func (s *Service) Delete(ctx context.Context, principal string, thread uuid.UUID) error {
+	if err := s.visible(ctx, principal, thread); err != nil {
+		return err
+	}
+	if err := s.journal.Delete(ctx, thread); err != nil {
+		return err
+	}
+	log.Printf("reins: %q deleted thread %s", principal, thread)
+	return nil
 }
 
 // Entries is a page of a thread one of the principal's avatars is in, as

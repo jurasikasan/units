@@ -79,6 +79,13 @@ definitions:
           type: string
         type: array
     type: object
+  world.RenameRequest:
+    properties:
+      as:
+        type: string
+      name:
+        type: string
+    type: object
   world.SayRequest:
     properties:
       as:
@@ -676,6 +683,124 @@ paths:
       summary: Take the reins of a subject, from this device
       tags:
       - holds
+  /threads/{id}:
+    delete:
+      description: |-
+        The thread, its entries and its children, as threads deletes
+        them: out of the world, for everyone in it. Whoever sees the
+        thread may (one of the caller's avatars is a member); no reins
+        are needed and nobody is told. What points at it from elsewhere
+        (an attachment's url, a memory of it) is left pointing at nothing.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: thread id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: deleted
+        "400":
+          description: A bad id
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "403":
+          description: None of the caller's avatars is in the thread
+          schema:
+            type: string
+        "404":
+          description: No such thread
+          schema:
+            type: string
+        "502":
+          description: threads or the database did not answer
+          schema:
+            type: string
+        "503":
+          description: No threads here
+          schema:
+            type: string
+      summary: Delete a thread for good
+      tags:
+      - world
+    patch:
+      consumes:
+      - application/json
+      description: |-
+        An update entry sent by `as`, carrying the new name: an act in
+        the thread like saying something, seen by everyone in it. `as`
+        must be an avatar the caller steers, whose reins it holds from
+        X-Device-Id (else 409), and a member of the thread. The name is
+        trimmed, 1 to 200 characters. The entry as threads stored it.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: the device the caller holds `as` from
+        in: header
+        name: X-Device-Id
+        required: true
+        type: string
+      - description: thread id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: who renames it, to what
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/world.RenameRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: the update entry
+          schema:
+            type: object
+        "400":
+          description: A bad body, no `as`, or an empty or too long name
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "403":
+          description: The caller does not steer `as`, or `as` is not a member
+          schema:
+            type: string
+        "404":
+          description: No such thread
+          schema:
+            type: string
+        "409":
+          description: 'Held by someone else: who'
+          schema:
+            type: string
+        "502":
+          description: threads or the database did not answer
+          schema:
+            type: string
+        "503":
+          description: No threads here
+          schema:
+            type: string
+      summary: Rename a thread as an avatar
+      tags:
+      - world
   /threads/{id}/entries:
     get:
       description: |-

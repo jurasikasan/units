@@ -33,6 +33,8 @@ func RegisterRoutes(r *mux.Router, h *Handler) {
 	r.HandleFunc("/me/threads", h.MyThreads).Methods(http.MethodGet)
 	r.HandleFunc("/me/threads", h.Open).Methods(http.MethodPost)
 	r.HandleFunc("/me/stream", h.Stream).Methods(http.MethodGet)
+	r.HandleFunc("/threads/{id}", h.Rename).Methods(http.MethodPatch)
+	r.HandleFunc("/threads/{id}", h.Delete).Methods(http.MethodDelete)
 	r.HandleFunc("/threads/{id}/entries", h.Say).Methods(http.MethodPost)
 	r.HandleFunc("/threads/{id}/entries", h.Entries).Methods(http.MethodGet)
 }
@@ -47,6 +49,12 @@ type OpenRequest struct {
 type SayRequest struct {
 	As      uuid.UUID       `json:"as"`
 	Content json.RawMessage `json:"content" swaggertype:"array,object"`
+}
+
+// RenameRequest names a thread, as the avatar `as`.
+type RenameRequest struct {
+	As   uuid.UUID `json:"as"`
+	Name string    `json:"name"`
 }
 
 func (h *Handler) principal(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -209,6 +217,88 @@ func (h *Handler) Say(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_, _ = w.Write(e)
+}
+
+// Rename godoc
+// @Summary      Rename a thread as an avatar
+// @Description  An update entry sent by `as`, carrying the new name: an act in
+// @Description  the thread like saying something, seen by everyone in it. `as`
+// @Description  must be an avatar the caller steers, whose reins it holds from
+// @Description  X-Device-Id (else 409), and a member of the thread. The name is
+// @Description  trimmed, 1 to 200 characters. The entry as threads stored it.
+// @Tags         world
+// @Accept       json
+// @Produce      json
+// @Param        X-Principal-Id header string true "who is asking, as the door sets it"
+// @Param        X-Device-Id    header string true "the device the caller holds `as` from"
+// @Param        id   path  string true "thread id"
+// @Param        body body  world.RenameRequest true "who renames it, to what"
+// @Success      200  {object}  object "the update entry"
+// @Failure      400  {string}  string "A bad body, no `as`, or an empty or too long name"
+// @Failure      401  {string}  string "No X-Principal-Id"
+// @Failure      403  {string}  string "The caller does not steer `as`, or `as` is not a member"
+// @Failure      404  {string}  string "No such thread"
+// @Failure      409  {string}  string "Held by someone else: who"
+// @Failure      502  {string}  string "threads or the database did not answer"
+// @Failure      503  {string}  string "No threads here"
+// @Router       /threads/{id} [patch]
+func (h *Handler) Rename(w http.ResponseWriter, r *http.Request) {
+	p, ok := h.principal(w, r)
+	if !ok {
+		return
+	}
+	id, ok := threadID(w, r)
+	if !ok {
+		return
+	}
+	var req RenameRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	e, err := h.svc.Rename(WithTraceparent(r.Context(), r.Header.Get("traceparent")), p, holds.Device(r), id, req.As, req.Name)
+	if err != nil {
+		failed(w, p, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(e)
+}
+
+// Delete godoc
+// @Summary      Delete a thread for good
+// @Description  The thread, its entries and its children, as threads deletes
+// @Description  them: out of the world, for everyone in it. Whoever sees the
+// @Description  thread may (one of the caller's avatars is a member); no reins
+// @Description  are needed and nobody is told. What points at it from elsewhere
+// @Description  (an attachment's url, a memory of it) is left pointing at nothing.
+// @Tags         world
+// @Param        X-Principal-Id header string true "who is asking, as the door sets it"
+// @Param        id   path  string true "thread id"
+// @Success      204  "deleted"
+// @Failure      400  {string}  string "A bad id"
+// @Failure      401  {string}  string "No X-Principal-Id"
+// @Failure      403  {string}  string "None of the caller's avatars is in the thread"
+// @Failure      404  {string}  string "No such thread"
+// @Failure      502  {string}  string "threads or the database did not answer"
+// @Failure      503  {string}  string "No threads here"
+// @Router       /threads/{id} [delete]
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	p, ok := h.principal(w, r)
+	if !ok {
+		return
+	}
+	id, ok := threadID(w, r)
+	if !ok {
+		return
+	}
+	if err := h.svc.Delete(WithTraceparent(r.Context(), r.Header.Get("traceparent")), p, id); err != nil {
+		failed(w, p, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Entries godoc
