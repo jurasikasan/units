@@ -30,7 +30,9 @@ provides:
       - "POST /threads/{id}/stop"        # stop a brain's reply there: {"subject"}
   http:                         # the inner port, never forwarded by the door
     port: 8088
-    calls: ["GET /holds"]       # every hold of a brain: a driver reads whom its profiles hold
+    calls:
+      - "GET /holds"                    # every hold of a brain: a driver reads whom its profiles hold
+      - "POST /holds/{id}/release"      # a brain lets go of its own hold: {"profile"}; only while it still holds it
   events:
     stream: reins_events
     envelope: cloudevents-1.0     # contracts/events.md
@@ -80,7 +82,7 @@ config:
     THREADS_URL: ""       # the threads service, e.g. http://threads:8085; unset, the world routes answer 503
     REDIS_ADDR: ""        # the bus threads announces on; unset, /me/stream answers 503
     WRITING_STREAMS: driver_events   # comma-separated streams of replies being written, relayed as `writing`
-    INTERNAL_PORT: "8088"  # the inner port: GET /holds, for drivers; never forwarded by the door
+    INTERNAL_PORT: "8088"  # the inner port: GET /holds and a brain's release, for drivers; never forwarded by the door
     HOLD_GRACE: 2m         # a principal's hold lapses when its device's /me/stream has been gone this long
     DEFAULT_BRAIN: ""      # the profile a principal's <login>-assistant is handed to at its first visit; empty: offline
     BRAINS_URL: ""         # the driver saying its profiles (GET /profiles), e.g. http://driver:8097; unset, nothing to hand to

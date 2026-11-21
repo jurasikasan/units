@@ -30,7 +30,8 @@ import (
 // @description    Who holds each subject's reins now (the one wheel): taken
 // @description    from a device, handed to a brain, given back.
 // @description    Reached only through the door (X-Principal-Id). Own database
-// @description    on its own network.
+// @description    on its own network. The routes tagged inner are on the inner
+// @description    port (INTERNAL_PORT, 8088), for drivers, never forwarded by the door.
 // @host           localhost:8087
 // @schemes        http
 func main() {
@@ -112,10 +113,9 @@ func main() {
 	}
 	r := newRouter(stewardship.NewHandler(svc, hs), wh, holds.NewHandler(hs), pool)
 
-	// The inner port: what a driver reads (whom its profiles hold). The door
-	// forwards only the outer one.
-	inner := mux.NewRouter()
-	holds.RegisterInternal(inner, holds.NewHandler(hs))
+	// The inner port: what a driver reaches (whom its profiles hold, a
+	// brain letting go). The door forwards only the outer one.
+	inner := newInner(holds.NewHandler(hs))
 	internalPort := envOr("INTERNAL_PORT", "8088")
 	go func() {
 		srv := &http.Server{Addr: ":" + internalPort, Handler: inner, ReadHeaderTimeout: 10 * time.Second}
@@ -174,6 +174,15 @@ func newRouter(h *stewardship.Handler, wh *world.Handler, hh *holds.Handler, db 
 	holds.RegisterRoutes(r, hh)
 	r.HandleFunc("/health", healthHandler).Methods(http.MethodGet)
 	r.HandleFunc("/ready", readyHandler(db)).Methods(http.MethodGet)
+	return r
+}
+
+// newInner is the inner port's routing table: a driver's, never forwarded
+// by the door. Documented in the same spec, tagged inner.
+func newInner(hh *holds.Handler) *mux.Router {
+	r := mux.NewRouter()
+	r.Use(httpHelper.LoggingMiddleware)
+	holds.RegisterInternal(r, hh)
 	return r
 }
 

@@ -261,10 +261,20 @@ the subject's id), capped (about 10 000):
 
 The event only wakes: a driver reads the truth back, a stream shows it.
 
-**The inner port** (`INTERNAL_PORT`, 8088), never forwarded by the door:
-`GET /holds` is every hold of a brain, `[{subject, holder, profile,
-since}]`: a driver reads it at boot and on each `reins.hold.changed`, and
-keeps those of its own profiles.
+**The inner port** (`INTERNAL_PORT`, 8088), never forwarded by the door,
+no principal; its routes are in the same spec, tagged `inner`:
+
+- `GET /holds` — every hold of a brain, `[{subject, holder, profile,
+  since}]`: a driver reads it at boot and on each `reins.hold.changed`, and
+  keeps those of its own profiles.
+- `POST /holds/{id}/release {"profile"}` — a brain lets go of its own
+  hold: nobody holds the subject when `brain:<profile>` still does, and
+  `reins.hold.changed` says so with holder `""`. When someone else (or
+  nobody) holds it now, nothing changes and nothing is said: a late letting
+  go never drops a holder who took over meanwhile. 200 `{"released"}`;
+  400 without a profile. A driver lets go when a reply fails (fail fast:
+  the avatar goes to standby, nobody holds it); re-attaching is a
+  steward's, by `take` or `hand`.
 
 ## 6. Boundaries
 

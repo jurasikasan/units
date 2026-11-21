@@ -87,6 +87,15 @@ func (m *memStore) Clear(_ context.Context, s uuid.UUID) (bool, error) {
 	delete(m.holds, s)
 	return ok, nil
 }
+func (m *memStore) ClearIf(_ context.Context, s uuid.UUID, holder string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if h, ok := m.holds[s]; !ok || h.Holder != holder {
+		return false, nil
+	}
+	delete(m.holds, s)
+	return true, nil
+}
 func (m *memStore) Brains(context.Context) ([]Hold, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -204,6 +213,46 @@ func TestDefaultOnlyWhenNobodyHolds(t *testing.T) {
 	assert.Len(t, bus.events, 2)
 }
 
+// A brain lets go of its own hold only: nobody holds it then, said with
+// holder ""; one taken meanwhile is left with whoever took it.
+func TestReleaseOnlyItsOwn(t *testing.T) {
+	svc, st, bus := setup()
+	ctx := context.Background()
+	_, err := svc.Hand(ctx, "alice", assistant, "fake")
+	require.NoError(t, err)
+
+	released, err := svc.Release(ctx, assistant, "glm")
+	require.NoError(t, err)
+	assert.False(t, released, "another profile's")
+	released, err = svc.Release(ctx, assistant, "fake")
+	require.NoError(t, err)
+	assert.True(t, released)
+	assert.NotContains(t, st.holds, assistant, "nobody holds it")
+	last := bus.events[len(bus.events)-1]
+	assert.Equal(t, HoldChanged, last.typ)
+	assert.Equal(t, "", last.data["holder"])
+	assert.Equal(t, assistant, last.data["subject"])
+
+	released, err = svc.Release(ctx, assistant, "fake")
+	require.NoError(t, err)
+	assert.False(t, released, "let go already")
+
+	// Taken from the brain before its late letting go: carol keeps it.
+	_, err = svc.Hand(ctx, "alice", assistant, "fake")
+	require.NoError(t, err)
+	_, err = svc.Take(ctx, "carol", "c1", assistant)
+	require.NoError(t, err)
+	n := len(bus.events)
+	released, err = svc.Release(ctx, assistant, "fake")
+	require.NoError(t, err)
+	assert.False(t, released)
+	assert.Equal(t, "principal:carol", st.holds[assistant].Holder)
+	assert.Len(t, bus.events, n, "nothing changed, nothing said")
+
+	_, err = svc.Release(ctx, assistant, " ")
+	assert.ErrorIs(t, err, ErrNoProfile)
+}
+
 func TestStopIsPublished(t *testing.T) {
 	svc, _, bus := setup()
 	thread := uuid.New()
@@ -258,6 +307,22 @@ func TestRoutes(t *testing.T) {
 	assert.Equal(t, assistant.String(), hs[0]["subject"])
 	assert.Equal(t, "glm", hs[0]["profile"])
 	assert.Equal(t, http.StatusNotFound, call(r, "alice", "", "GET", "/holds", "").Code, "not at the door")
+
+	release := func(subject, body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		inner.ServeHTTP(w, httptest.NewRequest("POST", "/holds/"+subject+"/release", strings.NewReader(body)))
+		return w
+	}
+	w = release(assistant.String(), `{"profile":"fake"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.JSONEq(t, `{"released":false}`, w.Body.String(), "glm holds it, not fake")
+	assert.Equal(t, http.StatusBadRequest, release(assistant.String(), `{}`).Code)
+	assert.Equal(t, http.StatusBadRequest, release("nope", `{"profile":"glm"}`).Code)
+	assert.Equal(t, http.StatusNotFound, call(r, "alice", "", "POST", "/holds/"+assistant.String()+"/release", `{"profile":"glm"}`).Code, "not at the door")
+	w = release(assistant.String(), `{"profile":"glm"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.JSONEq(t, `{"released":true}`, w.Body.String())
+	assert.Equal(t, "", bus.events[len(bus.events)-1].data["holder"])
 
 	assert.Equal(t, http.StatusNoContent, call(r, "alice", "", "POST", a+"/give-back", "").Code)
 	assert.Equal(t, http.StatusAccepted, call(r, "alice", "", "POST", "/threads/"+uuid.NewString()+"/stop", `{"subject":"`+assistant.String()+`"}`).Code)
@@ -340,6 +405,26 @@ func TestLiveStore(t *testing.T) {
 	cleared, err = st.Clear(ctx, b)
 	require.NoError(t, err)
 	assert.False(t, cleared)
+
+	// ClearIf: only while that holder holds it.
+	cleared, err = st.ClearIf(ctx, s, "brain:fake")
+	require.NoError(t, err)
+	assert.False(t, cleared, "a principal holds it")
+	_, ok, _ = st.Get(ctx, s)
+	assert.True(t, ok, "left as it was")
+	_, err = st.Set(ctx, Hold{Subject: b, Holder: "brain:fake"})
+	require.NoError(t, err)
+	cleared, err = st.ClearIf(ctx, b, "brain:glm")
+	require.NoError(t, err)
+	assert.False(t, cleared, "another brain's")
+	cleared, err = st.ClearIf(ctx, b, "brain:fake")
+	require.NoError(t, err)
+	assert.True(t, cleared)
+	_, ok, _ = st.Get(ctx, b)
+	assert.False(t, ok)
+	cleared, err = st.ClearIf(ctx, b, "brain:fake")
+	require.NoError(t, err)
+	assert.False(t, cleared, "nobody holds it")
 }
 
 // A principal's hold lapses when its device has been gone past the grace,

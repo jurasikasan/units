@@ -24,6 +24,9 @@ type Store interface {
 	SetIfNone(ctx context.Context, h Hold) (bool, error)
 	// Clear gives it to nobody; false when nobody held it.
 	Clear(ctx context.Context, subject uuid.UUID) (bool, error)
+	// ClearIf gives it to nobody only while holder holds it; false when
+	// someone else (or nobody) does.
+	ClearIf(ctx context.Context, subject uuid.UUID, holder string) (bool, error)
 	// Brains is every hold of a brain.
 	Brains(ctx context.Context) ([]Hold, error)
 	// Seen marks a principal's device as there now.
@@ -127,6 +130,14 @@ func (s *PGXStore) SetIfNone(ctx context.Context, h Hold) (bool, error) {
 
 func (s *PGXStore) Clear(ctx context.Context, subject uuid.UUID) (bool, error) {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM holds WHERE subject_id = $1`, subject)
+	if err != nil {
+		return false, fmt.Errorf("clear hold: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+func (s *PGXStore) ClearIf(ctx context.Context, subject uuid.UUID, holder string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM holds WHERE subject_id = $1 AND holder = $2`, subject, holder)
 	if err != nil {
 		return false, fmt.Errorf("clear hold: %w", err)
 	}

@@ -22,7 +22,8 @@ for working inside it.
 - `internal/holds` — the one wheel: who holds each subject's reins now
   (`holds`, `presence`), take, give back, hand to a brain (the driver's
   profiles, `HTTPBrains`), stop, the lapse of a gone device's hold, every
-  change on `reins_events`; the inner port's `GET /holds` for drivers.
+  change on `reins_events`; the inner port's `GET /holds` for drivers, and
+  `POST /holds/{id}/release` by which a brain lets go of its own hold.
   `holds_test.go` holds the SQL and the lapse against a real Postgres, in
   a schema of its own.
 - `internal/db` — the migration runner and `migrations/`, applied on boot.

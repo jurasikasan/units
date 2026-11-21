@@ -33,6 +33,13 @@ type Hold struct {
 	Since   time.Time `json:"since"`
 }
 
+// BrainHold is a brain's hold as the inner port says it: the hold and
+// its profile.
+type BrainHold struct {
+	Hold
+	Profile string `json:"profile" example:"fake"`
+}
+
 // Principal is the principal holding it, when one does.
 func (h Hold) Principal() (string, bool) {
 	p, ok := strings.CutPrefix(h.Holder, PrincipalPrefix)
@@ -99,6 +106,17 @@ func Describe(h *Hold, principal string) string {
 // HandRequest names the profile the reins go to.
 type HandRequest struct {
 	Profile string `json:"profile" example:"fake"`
+}
+
+// ReleaseRequest names the brain letting go: its own profile.
+type ReleaseRequest struct {
+	Profile string `json:"profile" example:"fake"`
+}
+
+// Released says whether the brain let go: false when it no longer held
+// the subject (someone took it meanwhile, or nobody held it).
+type Released struct {
+	Released bool `json:"released"`
 }
 
 // StopRequest names the subject whose reply in the thread is stopped.

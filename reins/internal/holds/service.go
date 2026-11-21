@@ -126,6 +126,27 @@ func (s *Service) GiveBack(ctx context.Context, principal string, subject uuid.U
 	return nil
 }
 
+// Release is a brain letting go of its own hold: nobody holds the subject
+// when brain:<profile> still does, and the avatar is offline until a
+// steward takes it or hands it on. When someone else holds it now (taken
+// meanwhile) nothing changes: a late letting go never drops another
+// holder. Says whether it let go.
+func (s *Service) Release(ctx context.Context, subject uuid.UUID, profile string) (bool, error) {
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		return false, ErrNoProfile
+	}
+	released, err := s.store.ClearIf(ctx, subject, BrainPrefix+profile)
+	if err != nil {
+		return false, err
+	}
+	if released {
+		log.Printf("reins: brain %s let go of %s: nobody holds it", profile, subject)
+		s.changed(ctx, Hold{Subject: subject})
+	}
+	return released, nil
+}
+
 // Hand gives the reins of a subject to a brain: one of the profiles the
 // driver says it has.
 func (s *Service) Hand(ctx context.Context, principal string, subject uuid.UUID, profile string) (Brain, error) {

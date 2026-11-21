@@ -22,11 +22,36 @@ definitions:
         description: 'You: the principal asking holds it.'
         type: boolean
     type: object
+  holds.BrainHold:
+    properties:
+      device:
+        type: string
+      holder:
+        type: string
+      profile:
+        example: fake
+        type: string
+      since:
+        type: string
+      subject:
+        type: string
+    type: object
   holds.HandRequest:
     properties:
       profile:
         example: fake
         type: string
+    type: object
+  holds.ReleaseRequest:
+    properties:
+      profile:
+        example: fake
+        type: string
+    type: object
+  holds.Released:
+    properties:
+      released:
+        type: boolean
     type: object
   holds.StopRequest:
     properties:
@@ -122,7 +147,8 @@ info:
     Who holds each subject's reins now (the one wheel): taken
     from a device, handed to a brain, given back.
     Reached only through the door (X-Principal-Id). Own database
-    on its own network.
+    on its own network. The routes tagged inner are on the inner
+    port (INTERNAL_PORT, 8088), for drivers, never forwarded by the door.
   title: Reins
   version: "1.0"
 paths:
@@ -176,6 +202,69 @@ paths:
       summary: Liveness probe and build version
       tags:
       - health
+  /holds:
+    get:
+      description: |-
+        On reins' inner port (INTERNAL_PORT), never forwarded by the
+        door: no principal. A driver reads it at boot and on each
+        reins.hold.changed, and keeps those of its own profiles.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/holds.BrainHold'
+            type: array
+        "502":
+          description: The database did not answer
+          schema:
+            type: string
+      summary: Every hold of a brain (inner port)
+      tags:
+      - inner
+  /holds/{id}/release:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        On reins' inner port, never forwarded by the door. The driver
+        whose reply failed lets go: nobody holds the subject when
+        brain:<profile> still does, the avatar is offline, and
+        reins.hold.changed says so with holder "". When someone else
+        holds it now, nothing changes (released false): a late letting
+        go never drops another holder. Re-attaching is a steward's.
+      parameters:
+      - description: subject id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'the brain letting go: its profile'
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/holds.ReleaseRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/holds.Released'
+        "400":
+          description: A bad id or body
+          schema:
+            type: string
+        "502":
+          description: The database did not answer
+          schema:
+            type: string
+      summary: A brain lets go of its own hold (inner port)
+      tags:
+      - inner
   /me/stream:
     get:
       description: |-

@@ -45,6 +45,17 @@ func routesFromRouter(t *testing.T) map[string]bool {
 	t.Helper()
 	r := newRouter(stewardship.NewHandler(nil, nil), world.NewHandler(nil, nil), holds.NewHandler(nil), nil)
 	out := map[string]bool{}
+	walk(t, r, out)
+	walk(t, newInner(holds.NewHandler(nil)), out)
+	if len(out) == 0 {
+		t.Fatal("parsed zero routes — the router is empty, so this test is not checking anything")
+	}
+	return out
+}
+
+// walk adds each route of r to out; the inner port's are in the same spec.
+func walk(t *testing.T, r *mux.Router, out map[string]bool) {
+	t.Helper()
 	err := r.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
 		tmpl, err := route.GetPathTemplate()
 		if err != nil {
@@ -62,10 +73,6 @@ func routesFromRouter(t *testing.T) map[string]bool {
 	if err != nil {
 		t.Fatalf("walk router: %v", err)
 	}
-	if len(out) == 0 {
-		t.Fatal("parsed zero routes — the router is empty, so this test is not checking anything")
-	}
-	return out
 }
 
 func routesFromSpec(t *testing.T) map[string]bool {

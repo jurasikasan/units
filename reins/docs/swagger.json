@@ -4,7 +4,7 @@
     ],
     "swagger": "2.0",
     "info": {
-        "description": "Where a principal holds the reins of its subjects: which\nsubjects an account at the door may look into and take up.\nA principal first seen is given two personas in `subjects`.\nWho holds each subject's reins now (the one wheel): taken\nfrom a device, handed to a brain, given back.\nReached only through the door (X-Principal-Id). Own database\non its own network.",
+        "description": "Where a principal holds the reins of its subjects: which\nsubjects an account at the door may look into and take up.\nA principal first seen is given two personas in `subjects`.\nWho holds each subject's reins now (the one wheel): taken\nfrom a device, handed to a brain, given back.\nReached only through the door (X-Principal-Id). Own database\non its own network. The routes tagged inner are on the inner\nport (INTERNAL_PORT, 8088), for drivers, never forwarded by the door.",
         "title": "Reins",
         "contact": {},
         "version": "1.0"
@@ -79,6 +79,88 @@
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/holds": {
+            "get": {
+                "description": "On reins' inner port (INTERNAL_PORT), never forwarded by the\ndoor: no principal. A driver reads it at boot and on each\nreins.hold.changed, and keeps those of its own profiles.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "inner"
+                ],
+                "summary": "Every hold of a brain (inner port)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/holds.BrainHold"
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "The database did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/holds/{id}/release": {
+            "post": {
+                "description": "On reins' inner port, never forwarded by the door. The driver\nwhose reply failed lets go: nobody holds the subject when\nbrain:\u003cprofile\u003e still does, the avatar is offline, and\nreins.hold.changed says so with holder \"\". When someone else\nholds it now, nothing changes (released false): a late letting\ngo never drops another holder. Re-attaching is a steward's.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "inner"
+                ],
+                "summary": "A brain lets go of its own hold (inner port)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "subject id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "the brain letting go: its profile",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/holds.ReleaseRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/holds.Released"
+                        }
+                    },
+                    "400": {
+                        "description": "A bad id or body",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "502": {
+                        "description": "The database did not answer",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -1242,12 +1324,50 @@
                 }
             }
         },
+        "holds.BrainHold": {
+            "type": "object",
+            "properties": {
+                "device": {
+                    "type": "string"
+                },
+                "holder": {
+                    "type": "string"
+                },
+                "profile": {
+                    "type": "string",
+                    "example": "fake"
+                },
+                "since": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                }
+            }
+        },
         "holds.HandRequest": {
             "type": "object",
             "properties": {
                 "profile": {
                     "type": "string",
                     "example": "fake"
+                }
+            }
+        },
+        "holds.ReleaseRequest": {
+            "type": "object",
+            "properties": {
+                "profile": {
+                    "type": "string",
+                    "example": "fake"
+                }
+            }
+        },
+        "holds.Released": {
+            "type": "object",
+            "properties": {
+                "released": {
+                    "type": "boolean"
                 }
             }
         },

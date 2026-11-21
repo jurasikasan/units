@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	httpHelper "github.com/jurasikasan/units/shared/http"
 
@@ -44,10 +45,11 @@ func RegisterRoutes(r *mux.Router, h *Handler) {
 	r.HandleFunc("/threads/{id}/stop", h.Stop).Methods(http.MethodPost)
 }
 
-// RegisterInternal is what a driver reads, on reins' inner port: never
+// RegisterInternal is what a driver reaches, on reins' inner port: never
 // forwarded by the door.
 func RegisterInternal(r *mux.Router, h *Handler) {
 	r.HandleFunc("/holds", h.BrainHolds).Methods(http.MethodGet)
+	r.HandleFunc("/holds/{id}/release", h.Release).Methods(http.MethodPost)
 }
 
 func (h *Handler) principal(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -261,26 +263,75 @@ func (h *Handler) Stop(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// BrainHolds is every hold of a brain, on the inner port: a driver reads
-// it at boot and on each reins.hold.changed, and keeps those of its own
-// profiles. No principal: the door never forwards here.
+// BrainHolds godoc
+// @Summary      Every hold of a brain (inner port)
+// @Description  On reins' inner port (INTERNAL_PORT), never forwarded by the
+// @Description  door: no principal. A driver reads it at boot and on each
+// @Description  reins.hold.changed, and keeps those of its own profiles.
+// @Tags         inner
+// @Produce      json
+// @Success      200  {array}   holds.BrainHold
+// @Failure      502  {string}  string "The database did not answer"
+// @Router       /holds [get]
 func (h *Handler) BrainHolds(w http.ResponseWriter, r *http.Request) {
+	if h.svc == nil {
+		http.Error(w, "no holds here", http.StatusServiceUnavailable)
+		return
+	}
 	hs, err := h.svc.Brains(r.Context())
 	if err != nil {
 		log.Printf("reins: brains' holds: %v", err)
 		http.Error(w, "the database did not answer", http.StatusBadGateway)
 		return
 	}
-	type out struct {
-		Hold
-		Profile string `json:"profile"`
-	}
-	list := make([]out, 0, len(hs))
+	list := make([]BrainHold, 0, len(hs))
 	for _, x := range hs {
 		p, _ := x.Profile()
-		list = append(list, out{x, p})
+		list = append(list, BrainHold{x, p})
 	}
 	httpHelper.RespondWithJSON(w, http.StatusOK, list)
+}
+
+// Release godoc
+// @Summary      A brain lets go of its own hold (inner port)
+// @Description  On reins' inner port, never forwarded by the door. The driver
+// @Description  whose reply failed lets go: nobody holds the subject when
+// @Description  brain:<profile> still does, the avatar is offline, and
+// @Description  reins.hold.changed says so with holder "". When someone else
+// @Description  holds it now, nothing changes (released false): a late letting
+// @Description  go never drops another holder. Re-attaching is a steward's.
+// @Tags         inner
+// @Accept       json
+// @Produce      json
+// @Param        id   path  string true "subject id"
+// @Param        body body  holds.ReleaseRequest true "the brain letting go: its profile"
+// @Success      200  {object}  holds.Released
+// @Failure      400  {string}  string "A bad id or body"
+// @Failure      502  {string}  string "The database did not answer"
+// @Router       /holds/{id}/release [post]
+func (h *Handler) Release(w http.ResponseWriter, r *http.Request) {
+	if h.svc == nil {
+		http.Error(w, "no holds here", http.StatusServiceUnavailable)
+		return
+	}
+	id, ok := pathID(w, r, "subject")
+	if !ok {
+		return
+	}
+	var req ReleaseRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil || strings.TrimSpace(req.Profile) == "" {
+		http.Error(w, `invalid request body: "profile" names the brain letting go`, http.StatusBadRequest)
+		return
+	}
+	released, err := h.svc.Release(r.Context(), id, req.Profile)
+	if err != nil {
+		log.Printf("reins: brain %q lets go of %s: %v", req.Profile, id, err)
+		http.Error(w, "the database did not answer", http.StatusBadGateway)
+		return
+	}
+	httpHelper.RespondWithJSON(w, http.StatusOK, Released{released})
 }
 
 // Viewer is what others need to show current_brain.
