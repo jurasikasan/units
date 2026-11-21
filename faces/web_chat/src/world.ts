@@ -70,7 +70,8 @@ function title(t: Thread, entries: Entry[] | undefined) {
 const ATTACHED = /^<attachment name="([^"]*)">\n?([\s\S]*?)\n?<\/attachment>$/
 
 // toMessage is an entry as the page shows it: the person's own when its
-// sender is the avatar the page acts as, everyone else's on the other side.
+// sender is the avatar the person is in on this device, everyone else's on
+// the other side, with name and time (for the ghost, every message).
 // Pictures, files and attached text on the person's side are attachments,
 // as they were when sent.
 export function toMessage(e: Entry, me: string | undefined, names: Map<string, string>, shownAs?: string): ThreadMessageLike {
@@ -105,7 +106,7 @@ export function toMessage(e: Entry, me: string | undefined, names: Map<string, s
   }
 }
 
-function writingMessage(w: Writing): ThreadMessageLike {
+function writingMessage(w: Writing, names: Map<string, string>): ThreadMessageLike {
   const content: Exclude<ThreadMessageLike['content'], string>[number][] = []
   if (w.reasoning) content.push({ type: 'reasoning', text: w.reasoning })
   if (w.text) content.push({ type: 'text', text: w.text })
@@ -114,7 +115,7 @@ function writingMessage(w: Writing): ThreadMessageLike {
     role: 'assistant',
     content,
     status: w.failed ? { type: 'incomplete', reason: 'error', error: w.failed } : { type: 'running' },
-    metadata: { custom: { sender: w.sender, writing: true } },
+    metadata: { custom: { sender: w.sender, senderName: names.get(w.sender) ?? '', writing: true } },
   }
 }
 
@@ -163,11 +164,17 @@ export type Heard = { hold?: (subject: string, brain: Brain) => void; ready?: ()
 // A brain writing in the chat shown: who, by name.
 export type Writer = { sender: string; name: string }
 
-// useWorld is the page's view of the world through reins, acting as `me`
-// (none: only watching) and opening a new chat with `other`. current is
-// the chat shown; null is a new one, not opened until something is said
-// in it.
-export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: Avatar | undefined, avatars: Avatar[] | undefined, listen: Heard = {}) {
+// The thread the address names: /t/<thread id>.
+const named = () => /^\/t\/([^/]+)$/.exec(location.pathname)?.[1]
+const address = (id: string | null) => (id ? `/t/${encodeURIComponent(id)}` : '/')
+
+// useWorld is the page's view of the world through reins, as `me`, the
+// avatar the person is in on this device (none: the ghost, who sees every
+// thread of the principal's avatars). In an avatar it sees the threads it
+// is a member of (its perception, for now), and writes as it when `writes`
+// (its reins held here), opening a new chat with `other`. current is the
+// chat shown; null is a new one, not opened until something is said in it.
+export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, writes: boolean, other: Avatar | undefined, avatars: Avatar[] | undefined, listen: Heard = {}) {
   const listenRef = useRef(listen)
   useEffect(() => {
     listenRef.current = listen
@@ -175,7 +182,9 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
   const [threads, setThreads] = useState<Thread[]>()
   const [entries, setEntries] = useState<Record<string, Entry[]>>({})
   const [writing, setWriting] = useState<Record<string, Writing[]>>({})
-  const [current, setCurrent] = useState<string | null>()
+  // The chat picked: a thread's id, null for a new one, undefined for none
+  // picked yet. What is shown is worked out from it below.
+  const [chosen, setCurrent] = useState<string | null>()
   // What was said in a call, by chat: shown for as long as the page is
   // open, never journaled (a call's transcripts go to threads with UNIT-52).
   const [spoken, setSpoken] = useState<Record<string, ThreadMessage[]>>({})
@@ -199,10 +208,6 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
     if (!r.ok) return
     const list: Thread[] = await r.json()
     setThreads(list)
-    // The chat the address names (a reload stays in it), else the newest,
-    // when nothing is shown yet.
-    const named = location.hash.slice(1)
-    setCurrent((c) => (c === undefined ? ((list.some((t) => t.id === named) ? named : list[0]?.id) ?? null) : c))
     // A few words of each, to call it by.
     for (const t of list.slice(0, 30)) {
       if (t.name || entriesRef.current[t.id]?.length) continue
@@ -313,11 +318,27 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
     }
   }, [fetcher, loadThreads, loadEntries])
 
-  // The chat shown is in the address, #<thread id>: a reload, or the link
+  // What is seen from here: every thread for the ghost, the threads the
+  // avatar is in for an avatar.
+  const seen = useMemo(() => (threads === undefined ? undefined : me ? threads.filter((t) => t.members.includes(me.id)) : threads), [threads, me])
+
+  // The chat shown: once the threads are read, the one picked, else the one
+  // the address names (a reload stays in it), else the newest seen. One not
+  // seen from here (another avatar picked, deleted) gives way to the newest
+  // seen, and so does a new chat with nobody to write it.
+  const current = useMemo(() => {
+    if (!seen) return undefined
+    const newest = seen[0]?.id ?? null
+    const c = chosen === undefined ? named() : chosen
+    if (c === null) return writes ? null : newest
+    return c && seen.some((t) => t.id === c) ? c : newest
+  }, [seen, chosen, writes])
+
+  // The chat shown is in the address, /t/<thread id>: a reload, or the link
   // sent to oneself, opens it.
   useEffect(() => {
     if (current) void loadEntries(current)
-    if (current !== undefined) history.replaceState(null, '', current ? `#${current}` : location.pathname + location.search)
+    if (current !== undefined && location.pathname !== address(current)) history.replaceState(null, '', address(current))
   }, [current, loadEntries])
 
   const names = useMemo(() => new Map((avatars ?? []).map((a) => [a.id, a.name || a.nick])), [avatars])
@@ -328,7 +349,7 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
     const all: ThreadMessageLike[] = [...said, ...((spoken[key] ?? []) as ThreadMessageLike[])]
     const at = (m: ThreadMessageLike) => (m.createdAt ? new Date(m.createdAt).getTime() : 0)
     all.sort((a, b) => at(a) - at(b))
-    return [...all, ...(current ? (writing[current] ?? []) : []).map(writingMessage)]
+    return [...all, ...(current ? (writing[current] ?? []) : []).map((w) => writingMessage(w, names))]
   }, [current, draft, entries, spoken, writing, me, names])
 
   // onVoiceTranscript: a call's finished words, kept in the page under the
@@ -341,12 +362,12 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
     [current, draft],
   )
 
-  // say appends what the person said, as the avatar the page acts as; a
-  // new chat is opened first, with the other avatar in it. Holding none
-  // here, the page only watches.
+  // say appends what the person said, as the avatar they are in, held
+  // here; a new chat is opened first, with the other avatar in it. With
+  // nobody to write as, the page has no composer.
   const say = useCallback(
     async (m: AppendMessage) => {
-      if (!me) throw new Error('watching: take the reins of an avatar to write')
+      if (!me || !writes) throw new Error('nobody to write as: take an avatar on this device')
       const content = await toBlocks(m)
       if (content.length === 0) return
       let id = current
@@ -372,10 +393,10 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
       setEntries((all) => ({ ...all, [e.thread]: merge(all[e.thread], [e]) }))
       setCurrent(id)
     },
-    [fetcher, me, other, current],
+    [fetcher, me, writes, other, current],
   )
 
-  const list = useMemo(() => (threads ?? []).map((t) => ({ status: 'regular' as const, id: t.id, title: title(t, entries[t.id]) })), [threads, entries])
+  const list = useMemo(() => (seen ?? []).map((t) => ({ status: 'regular' as const, id: t.id, title: title(t, entries[t.id]) })), [seen, entries])
 
   // rename names a chat as an avatar held here that is in it, the one the
   // page acts as first: an update entry, seen by everyone in it. The label
@@ -417,7 +438,7 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
       setThreads(left)
       setEntries(({ [id]: _gone, ...rest }) => rest)
       setWriting(({ [id]: _gone, ...rest }) => rest)
-      setCurrent((c) => (c === id ? (left[0]?.id ?? null) : c))
+      setCurrent((c) => (c === id ? undefined : c))
     },
     [fetcher],
   )
@@ -428,6 +449,7 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
       isLoading: threads === undefined,
       threads: list,
       onSwitchToNewThread: () => {
+        if (!writes) return
         setDraft(crypto.randomUUID())
         setCurrent(null)
       },
@@ -435,7 +457,7 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
       onRename: rename,
       onDelete: remove,
     }),
-    [current, draft, threads, list, rename, remove],
+    [current, draft, threads, list, rename, remove, writes],
   )
 
   // Who is writing a reply in the chat shown now, by name: the page says so
@@ -458,9 +480,5 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, other: A
     [fetcher, current],
   )
 
-  // Who is in the chat shown: its members; none for a new one (the page
-  // shows all the person's avatars then).
-  const members = useMemo(() => (current ? (threads?.find((t) => t.id === current)?.members ?? []) : []), [current, threads])
-
-  return { messages, say, heard, threadList, writers, stop, members, current, ready: threads !== undefined }
+  return { messages, say, heard, threadList, writers, stop, current, ready: threads !== undefined }
 }

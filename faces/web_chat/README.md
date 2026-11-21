@@ -1,10 +1,12 @@
 # faces/web_chat
 
-A chat page: the conversation and a box to type in. Its chats are threads
-in the world, read and written through [reins](../../reins/CONTRACT.md) on
-the same origin: what the person says is appended there as their avatar,
-and everything said in their threads, by anyone, comes back on one stream
-as it is said. It has no server, keeps nothing and asks no model itself:
+A chat page organised around who the person is on this device: the ghost,
+who sees every thread of their avatars and does nothing, or one of their
+avatars, seeing its threads and writing as it while its reins are held
+here. Its chats are threads in the world, read and written through
+[reins](../../reins/CONTRACT.md) on the same origin: what the person says
+is appended there as the avatar they are in, and everything said in their
+threads, by anyone, comes back on one stream as it is said. It has no server, keeps nothing and asks no model itself:
 static files.
 
 Built from [assistant-ui](https://www.assistant-ui.com) (MIT): its external
@@ -17,9 +19,9 @@ components from its registry. React, Vite, Tailwind.
 |---|---|
 | `src/App.tsx`, `src/main.tsx`, `index.html` | ours: the external store runtime wired to the world, the theme |
 | `src/world.ts` | ours: the threads, their entries and the stream from reins, entries as messages and messages as threads' blocks |
-| `src/Sidebar.tsx`, `src/Composer.tsx` | ours: the sidebar (upstream's thread list, who is logged in at its foot), the composer's row: a call's buttons, who is writing, Stop |
-| `src/Holders.tsx`, `src/device.ts` | ours: the row above the chat, who holds each avatar's reins and what can be done with them; this browser's device id |
-| `src/Settings.tsx`, `src/avatars.ts`, `src/Models.tsx` | ours: the settings (the avatars, their profiles and bodies), the avatars from reins and whom the page acts as, the models offered |
+| `src/Sidebar.tsx`, `src/Composer.tsx`, `src/Said.tsx` | ours: the sidebar (the picker on top, upstream's thread list, who is logged in at its foot); the composer's row (a call's buttons, who is writing, Stop) and what stands in the composer's place with nobody to write as; who said a message of the other side, and when |
+| `src/Picker.tsx`, `src/who.ts`, `src/device.ts` | ours: who the person is on this device (the ghost or an avatar, each with who holds it, the radio of the picked one's brains), kept per device; this browser's device id |
+| `src/Settings.tsx`, `src/avatars.ts`, `src/Models.tsx` | ours: the settings (the avatars, their profiles and bodies), the avatars from reins and who holds each, the models offered |
 | `src/upstream/` | **generated**: what assistant-ui's registry gives today (the thread, its parts, shadcn's base components, the stylesheet). Never edited by hand |
 | `patches/` | our changes to upstream, each with why; applied on top of it |
 | `upstream.sh` | `src/upstream` again from the registry, patches on top |
@@ -100,30 +102,62 @@ shown when nothing is set: the agent's own. A refusal is said beside Save,
 in reins' words. Which keys each preference is stored under is in reins'
 contract. The subject's type is not read or shown.
 
-## Who holds the reins
+## Who I am here: the picker, the ghost, the radio
 
-Each avatar has at most one holder at a time (reins' CONTRACT.md, section
-5): the person on this device, the person on another device, another
-steward, a brain (a driver's profile), or nobody (offline). A row above the
-chat, in the page's flow, shows each avatar in the chat shown (all of the
-person's in a new one) and who holds it: "you, here", "you, on another
-device", the steward's name, the profile, "offline". Shown to the person
-only: the characters never see it.
+The page is organised around who the person is on this device, not around
+chats. A filter on the world by a query (a chat, a time) is the observer's
+look; seeing *as someone* is stepping into their skin. The two never stand
+in for each other (the repo's CLAUDE.md), so there is no filter by avatar:
+being in an avatar is the picker.
 
-An avatar's chip opens what can be done with its reins: **take** them here,
-**give** them **back** (nobody holds it), **hand** them **to** a brain (each
-profile reins lists), or, held here, **speak as** it. The page writes as an
-avatar it holds here: the one picked to speak as (kept on this device),
-else the one named by the login, else the first held here; holding none,
-it only **watches** and says so, and reins would refuse a write (409).
-On load the page takes up the login's avatar when nobody holds it; one
-held elsewhere is left as it is: taking it is the person's choice. One page
-may hold several avatars. Changes come on the stream (`hold`): a person
-whose reins were taken elsewhere sees it at once; after the stream was
-away, the avatars are read again.
+**The picker** is the top of the sidebar, above New thread
+(`src/Picker.tsx`): the **Ghost**, then every avatar the person steers,
+each showing who holds its reins now (reins' CONTRACT.md, section 5):
+"you, here", "you, on another device", another steward's name, "brain
+<profile>", or "nobody". Shown to the person only: the characters never
+see it. The pick is kept per device (`units.who` in `localStorage`, beside
+the device id, `src/who.ts`): every tab of a browser is the same session;
+another account is a private window or another browser. It is not in the
+address: a link is shared, a session is not.
 
-Leaving the page lets go after a while: reins lets a hold lapse when the
-device's stream has been gone past its grace (2 min by default).
+**The ghost**, the default and where every login lands, is the principal
+without a body. It sees every thread of every avatar the person steers,
+exactly what reins shows a principal, and can do nothing: no composer, no
+New thread, no Stop, no rename or delete in a thread's menu. Every message
+is someone else's: on the left, with the sender's avatar circle, name and
+time (`src/Said.tsx`). The thread list is a filter by chat: one thread
+picked is that thread shown.
+
+**In an avatar** the page sees through it: for now its perception is the
+threads it is a member of (the real perception filter is UNIT-70). Its own
+messages are on the right, others' on the left with name and time. It
+writes as it only while its reins are held here; otherwise there is no
+composer, and in its place, in the page's flow, who holds it and how to
+step in.
+
+**The radio** under the picked avatar is who is in it: `none` (give back:
+nobody holds it), `this device` (take: the composer comes and the page
+writes as it), or one per brain profile reins lists (`GET /brains`; hand:
+the page watches it answer, with Stop beside the composer's row while it
+writes). Held by another device or another steward, that is said and
+nothing is checked; picking an option still takes it over: stewards are
+equal. A refusal is said under the radio, in reins' words.
+
+**Leaving** an avatar (picking another, or the ghost) gives it back, to
+nobody, when this device holds it; held by anyone else (a brain, another
+device, another steward) it is left as it is. Nothing is returned to
+whoever held it before. Nothing is taken on load: the person lands as the
+ghost and steps in.
+
+Changes come on the stream (`hold`): a person whose reins were taken
+elsewhere sees the composer go at once; after the stream was away, the
+avatars are read again. Leaving the page lets go after a while: reins lets
+a hold lapse when the device's stream has been gone past its grace (2 min
+by default).
+
+On a phone (below 768 px) the sidebar is a sheet, opened from the button
+at the top left; picking a thread closes it. Picker, radio, thread and
+composer work at 375 px without scrolling sideways.
 
 ## Chats
 
@@ -131,14 +165,16 @@ Each chat is a thread in `threads`, read and written through reins
 (`src/world.ts`), fed to assistant-ui's external store runtime
 (`useExternalStoreRuntime`) and its thread list adapter. The page keeps
 nothing: a reload reads it all again. The chat shown is in the address
-(`#<thread id>`), so a reload stays in it; with none, the newest is shown.
+(`/t/<thread id>`), so a reload stays in it; with none, or one not seen
+from here (unknown, or not a thread of the avatar picked), the newest seen
+is shown.
 
-- **Acting as.** The page acts as the avatar it writes as (above;
-  `src/avatars.ts`). What the person says is appended as that avatar
-  (`POST /api/reins/threads/{id}/entries`); a message is shown as the
-  person's when its sender is that avatar, and on the other side when it is
-  anyone else's. A new chat is not opened until something is said in it:
-  then a thread with the page's avatar and the first other one
+- **Acting as.** The page writes as the avatar the person is in, held here
+  (above; `src/avatars.ts`). What the person says is appended as that
+  avatar (`POST /api/reins/threads/{id}/entries`); a message is shown as
+  the person's when its sender is the avatar they are in, and on the other
+  side when it is anyone else's. A new chat is not opened until something
+  is said in it: then a thread with that avatar and the first other one
   (`POST /api/reins/me/threads`).
 - **Following.** One stream (`GET /api/reins/me/stream`, an `EventSource`)
   brings each entry of any of the person's threads as it is appended, by
@@ -167,17 +203,19 @@ nothing: a reload reads it all again. The chat shown is in the address
   their pages without a reload), and deletes it for good, for everyone in
   it (reins' DELETE; their pages find it gone at their next read). There
   is no archive: `patches/04-no-archive.patch` takes it out of the menu.
+  With nobody to act as (the ghost, an avatar held elsewhere) there is no
+  New thread and no menu.
 
 Collapsed by the button at the top left, a sheet on a phone.
 
 ## Which model, ear, mouth and voice
 
 **The chat model** is not the page's: it is the brain holding the other
-avatar's reins (a driver's profile, handed in the row above the chat), not
+avatar's reins (a driver's profile, handed from the picker's radio), not
 a property of any avatar's body. The page picks no model.
 
 **Ear, mouth and voice** are the avatars' bodies (`src/avatars.ts`): the
-page acts as the avatar it writes as and hears the first other one.
+page is the avatar picked and hears the first other one.
 
 - **Ear** (mine, `ear`): the mic's transcription `model` (before the
   sound).
@@ -275,9 +313,10 @@ Light or dark follows the system's setting, and changes with it.
 
 ## Not yet
 
-- Acting as another of one's avatars from the page (only the login's is
-  used), renaming, archiving or deleting a chat, inviting someone else's
-  avatar, stopping a reply being written.
+- Inviting someone else's avatar; their names (a sender not the person's
+  shows as "someone").
+- An avatar warehouse (create, rename, delete avatars), a merged feed of
+  all threads with a time filter, handing over the post: their own tasks.
 - A user message's Edit button shows, but nothing edits an entry: a
   correction is a new one.
 - The bundle is 1.6 MB (460 KB gzipped), mostly what assistant-ui brings for

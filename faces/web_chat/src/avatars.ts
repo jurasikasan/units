@@ -21,10 +21,11 @@ export type Brain = { kind: 'principal' | 'brain' | 'offline'; principal?: strin
 // are all alike: none is a human or a machine by kind.
 export type Avatar = { id: string; nick: string; name: string; bio?: string; preferences?: Preferences; current_brain?: Brain }
 
-// holderLabel says who holds an avatar, in a few words.
+// holderLabel says who holds an avatar, in a few words: you here, you on
+// another device, another steward, a brain (its profile), or nobody.
 export function holderLabel(b: Brain | undefined) {
-  if (!b || b.kind === 'offline') return 'offline'
-  if (b.kind === 'brain') return b.profile ?? 'a brain'
+  if (!b || b.kind === 'offline') return 'nobody'
+  if (b.kind === 'brain') return `brain ${b.profile ?? ''}`.trim()
   if (b.here) return 'you, here'
   if (b.you) return 'you, on another device'
   return b.principal ?? 'someone'
@@ -111,20 +112,17 @@ export function useAvatars(fetcher: typeof fetch) {
 // thinks for it is not the body's: that is the brain holding its reins
 // (a driver, drivers/model).
 //
-// The page acts as an avatar whose reins it holds from this device: the
-// one the person picked to speak as, else the one named by its login, else
-// the first held here. What the person says goes into threads as that
-// avatar; with none held here, the page only watches. A new chat is opened
-// with the first other avatar, whose mouth and voice read an answer aloud.
-// Nothing in a nick says what an avatar is for.
-export type Wiring = { me?: Avatar; other?: Avatar }
+// The page is who the person is on this device (src/who.ts): nobody (the
+// ghost) or an avatar picked. In an avatar, its own messages are on the
+// person's side, and it writes as it only while its reins are held here. A
+// new chat is opened with the first other avatar, whose mouth and voice
+// read an answer aloud. Nothing in a nick says what an avatar is for.
+export type Wiring = { me?: Avatar; other?: Avatar; writes: boolean }
 
-export function wiring(avatars: Avatar[] | undefined, login: string | undefined, speakAs?: string): Wiring {
-  if (!avatars || avatars.length === 0) return {}
-  const here = avatars.filter((a) => a.current_brain?.here)
-  const me = here.find((a) => a.id === speakAs) ?? here.find((a) => a.nick === login) ?? here[0]
-  const named = me ?? avatars.find((a) => a.nick === login) ?? avatars[0]
-  return { me, other: avatars.find((a) => a.id !== named.id) }
+export function wiring(avatars: Avatar[] | undefined, who: string): Wiring {
+  const me = who ? avatars?.find((a) => a.id === who) : undefined
+  if (!me) return { writes: false }
+  return { me, other: avatars?.find((a) => a.id !== me.id), writes: !!me.current_brain?.here }
 }
 
 // picks is what the mic, read-aloud and a call are asked with: my ear, the

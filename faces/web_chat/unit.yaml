@@ -3,7 +3,7 @@
 
 unit: faces/web_chat
 kind: face
-summary: A chat page whose chats are threads read and written through reins - what the person says appended as the avatar whose reins it holds from this browser (a device id), who holds each avatar shown (you here, another device, a brain, offline) with take, give back, hand to a brain and Stop for a brain's reply, a chat renamed or deleted from its menu, everything said in their threads coming back on one SSE stream, replies being written shown as they grow - with settings for the person's avatars from reins (name, bio, and the same body on each among the models at /api/v1/models - ear, mouth, voice), which the mic, read-aloud and a call are asked with, a mic and read-aloud through OpenAI's audio API at /api/v1/audio and a call through its Realtime API at /api/v1/realtime (its transcripts not journaled yet), who is logged in and a log-out from OIDC UserInfo at /api/v1/userinfo; static files, no server, nothing kept in the page.
+summary: A chat page organised around who the person is on this browser (a device id) - the ghost, who sees every thread of their avatars through reins and does nothing, or an avatar picked, seeing the threads it is in and writing as it while its reins are held here - each avatar showing who holds it (you here, another device, another steward, a brain, nobody) with a radio to take, give back or hand it to a brain, leaving an avatar held here giving it back, Stop for a brain's reply, the open thread in the address (/t/<id>), a chat renamed or deleted from its menu, everything said in their threads coming back on one SSE stream, replies being written shown as they grow - with settings for the person's avatars from reins (name, bio, and the same body on each among the models at /api/v1/models - ear, mouth, voice), which the mic, read-aloud and a call are asked with, a mic and read-aloud through OpenAI's audio API at /api/v1/audio and a call through its Realtime API at /api/v1/realtime (its transcripts not journaled yet), who is logged in and a log-out from OIDC UserInfo at /api/v1/userinfo; static files, no server, nothing kept in the page.
 contract: README.md
 maturity: probe
 
@@ -21,7 +21,7 @@ consumes:
     - GET /api/reins/me/subjects          # reins: the avatars the person steers; the settings show only when answered
     - PATCH /api/reins/subjects/{id}      # reins: a change of an avatar's name, bio or preferences (keys in reins' CONTRACT.md)
     - GET /api/reins/me/threads           # reins: the chats, threads the person's avatars are in
-    - POST /api/reins/me/threads          # reins: a new chat, the avatar held here with the first other one
+    - POST /api/reins/me/threads          # reins: a new chat, the avatar picked and held here with the first other one
     - PATCH /api/reins/threads/{id}          # reins: a chat renamed, as the avatar held here
     - DELETE /api/reins/threads/{id}         # reins: a chat deleted for good, for everyone in it
     - GET /api/reins/threads/{id}/entries     # reins: a chat read, page by page
