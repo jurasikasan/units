@@ -93,7 +93,7 @@ same_steered() { [ "$(steered)" = "$(cat "$work/steered")" ] || { echo "before:"
 run "build"          docker compose --profile e2e build -q
 run "up"             docker compose up -d --wait
 run "e2e: the assistant greets first; a conversation goes through threads and the driver whole, streamed, stopped, failed, the driver's model, avatars alike, chats apart and kept on reload, who is logged in, logged out"  env E2E_FIRST_LOGIN=1 docker compose run --rm e2e "$first_user" "$first_password"
-run "e2e: two browsers as $first_user and $first_user-assistant talk; the assistant handed to the fake profile answers, then taken back"  env E2E_ONLY=two docker compose run --rm e2e "$first_user" "$first_password"
+run "e2e: two browsers as $first_user and $first_user-assistant talk; the assistant handed to the fake profile answers, then taken back; the chat renamed in one shows renamed in the other, then deleted for both"  env E2E_ONLY=two docker compose run --rm e2e "$first_user" "$first_password"
 run "the driver said the answers as $first_user-assistant, and the failures only on the bus"  bash -c 'l=$(docker compose logs driver); echo "$l" | grep -q "msg=replied subject=$0-assistant" && echo "$l" | grep -q "msg=\"reply failed\".*code=model_rate_limited"' "$first_user"
 run "the stream carried the reply as it was written"  bash -c '[ "$(docker compose exec -T bus redis-cli XLEN driver_events)" -gt 20 ]'
 run "the mind logged the call, each event"  bash -c 'docker compose logs mind | grep -q "dir=in .*type=conversation.item.truncate" && docker compose logs mind | grep -q "dir=out .*type=response.output_audio.delta" && docker compose logs mind | grep -q "realtime call closed .*by=client code=1000"'

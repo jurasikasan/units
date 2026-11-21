@@ -444,8 +444,9 @@ async function greetRound() {
 // reins; the two talk, each seeing the other's words without a reload, on
 // the other side, and no brain answers. Writing as <user> from the second
 // is 409. The assistant handed to the fake profile answers; taken back,
-// the brain says nothing more, and the second writes as it again. Last,
-// the assistant goes back to the fake profile for the rounds after.
+// the brain says nothing more, and the second writes as it again. The chat
+// is renamed in the first, seen so in the second, and deleted for both.
+// Last, the assistant goes back to the fake profile for the rounds after.
 async function twoRound() {
   const tag = Date.now().toString(36)
   const other = await browser.newContext({ ignoreHTTPSErrors: true })
@@ -519,6 +520,44 @@ async function twoRound() {
     step('FAIL', 'the brain answered after the reins were taken back')
     failed = true
   }
+  // The chat's menu (UNIT-66): renamed in the first browser, the label
+  // changes in the second without a reload; no archive offered; deleted
+  // from the first, it is gone from threads for both.
+  const item = (p, text) => p.locator('[data-slot="aui_thread-list-item"]').filter({ hasText: text }).first()
+  await item(page, `two of us ${tag}`).hover()
+  await item(page, `two of us ${tag}`).getByRole('button', { name: 'More options' }).click()
+  const archive = await page.getByRole('menuitem', { name: 'Archive' }).count()
+  await page.getByRole('menuitem', { name: 'Rename' }).click()
+  const box = page.getByRole('textbox', { name: 'Rename thread' })
+  const renamed = page.waitForResponse((r) => r.request().method() === 'PATCH' && r.url().endsWith(`/api/reins/threads/${thread}`))
+  await box.fill(`renamed ${tag}`)
+  await box.press('Enter')
+  const rn = await renamed
+  await item(second, `renamed ${tag}`).waitFor()
+  step('renamed in the first', `${rn.status()}; the second shows "renamed ${tag}" without a reload; archive offered: ${archive}`)
+  if (rn.status() !== 200 || archive !== 0) {
+    step('FAIL', 'the rename was refused, or archive is still offered')
+    failed = true
+  }
+
+  await item(page, `renamed ${tag}`).hover()
+  await item(page, `renamed ${tag}`).getByRole('button', { name: 'More options' }).click()
+  const deleted = page.waitForResponse((r) => r.request().method() === 'DELETE' && r.url().endsWith(`/api/reins/threads/${thread}`))
+  // Its click as the page gets it: Playwright's pointer click on this item
+  // waits for it forever, while a person's goes through.
+  await page.getByRole('menuitem', { name: 'Delete' }).dispatchEvent('click')
+  const del = await deleted
+  await item(page, `renamed ${tag}`).waitFor({ state: 'detached' })
+  const gone = (await second.request.get(`${url}/api/reins/threads/${thread}/entries`)).status()
+  await second.reload()
+  await second.getByRole('textbox', { name: 'Message input' }).waitFor()
+  const listed = await item(second, `renamed ${tag}`).count()
+  step('deleted in the first', `${del.status()}; gone from its list; the second reads it: ${gone}, lists it after a reload: ${listed}`)
+  if (del.status() !== 204 || gone !== 404 || listed !== 0) {
+    step('FAIL', 'the chat was not deleted for both')
+    failed = true
+  }
+
   if (process.env.E2E_SHOT) await second.screenshot({ path: process.env.E2E_SHOT.replace(/(\.png)?$/, '-second.png') })
   await other.close()
   await reins(page, assistant, 'Hand to fake')
