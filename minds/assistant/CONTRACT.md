@@ -35,7 +35,7 @@ front (`gate`). No header: 401, before anything else is read.
   words; `activity` is left out. The client's history is believed: there is
   nowhere else to read it from yet.
 - A **user message** of words only (a string, or `text` parts joined by a
-  newline) goes as a plain string. One with attachments goes as chat
+  newline, text files and placeholders among them) goes as a plain string. One with attachments goes as chat
   completions parts, in the order they came: `text` as text; `image` as
   `image_url` (its data as a `data:` URL, or its URL as it is); a `document`
   that is text (`text/*`, JSON) as a text part `<attachment name="…">…
@@ -44,14 +44,18 @@ front (`gate`). No header: 401, before anything else is read.
   name from the part's `filename` or `metadata.filename`. The older `binary`
   part goes by its media type. `audio` in WAV or MP3 goes as `input_audio`,
   its data as it came. LiteLLM carries the parts to the model.
-- **What cannot go is said, before a model is asked.** The whole
-  conversation goes with every run, so every user message counts, not only
-  the last. A part no chat completions part holds (video, a document or a
-  sound by URL, audio in another format) ends the run with `RUN_ERROR`,
-  `code: content_not_carried`, its message naming each such part and why.
-  A picture, a PDF or a sound the model does not take ends it with
-  `RUN_ERROR`, `code: content_not_accepted`, e.g. `The model chat does not
-  take pictures (dot.png).`. What the model takes is asked of LiteLLM, only
+- **What cannot go goes as words, and the run goes on.** A mismatch between
+  the conversation and the model is a warning, not an error: the whole
+  conversation goes with every run, so one picture in it would otherwise
+  fail every turn after it. A part no chat completions part holds (video, a
+  document or a sound by URL, audio in another format) goes, where it
+  stood, as the text `[an attachment is here that could not be sent to you:
+  clip.mp4]`. A picture, a PDF or a sound the model does not take goes as
+  `[an image is attached here, not shown to you: dot.png]` (`a PDF`, `a
+  sound`). The name is the part's file name, else its media type. Each such
+  part is logged as a warning (`model`, `kind`, `name`); AG-UI has no event
+  for a warning that does not end a run, so the stream does not carry it.
+  What the model takes is asked of LiteLLM, only
   when such a part is there: `GET /v1/model/info` (LiteLLM's extension),
   each deployment of the model name's `supports_vision`,
   `supports_pdf_input`, `supports_audio_input`; a name with several

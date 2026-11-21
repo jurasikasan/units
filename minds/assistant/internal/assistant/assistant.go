@@ -116,7 +116,7 @@ func (a *Assistant) Prompt(in types.RunAgentInput) (Conversation, error) {
 	if n == 0 || in.Messages[n-1].Role != types.RoleUser {
 		return nil, ErrBadInput
 	}
-	if _, _, ok := userMessage(in.Messages[n-1]); !ok {
+	if _, ok := userPieces(in.Messages[n-1]); !ok {
 		return nil, ErrBadInput
 	}
 	var p Conversation
@@ -170,8 +170,8 @@ func (a *Assistant) Prompt(in types.RunAgentInput) (Conversation, error) {
 				p = append(p, entry{msg: openai.ToolMessage(t, m.ToolCallID)})
 			}
 		case m.Role == types.RoleUser:
-			if u, md, ok := userMessage(m); ok {
-				p = append(p, entry{msg: u, media: md})
+			if ps, ok := userPieces(m); ok {
+				p = append(p, entry{msg: userContent(ps, nil), pieces: ps})
 			}
 		case t == "":
 		case m.Role == types.RoleSystem, m.Role == types.RoleDeveloper:
@@ -188,9 +188,9 @@ func (a *Assistant) Prompt(in types.RunAgentInput) (Conversation, error) {
 type Conversation []entry
 
 type entry struct {
-	msg   openai.ChatCompletionMessageParamUnion // a message of anyone but the model
-	media []media                                // the parts of it not every model takes
-	said  *said                                  // or a turn of the model
+	msg    openai.ChatCompletionMessageParamUnion // a message of anyone but the model
+	pieces []piece                                // a person's message: its parts, to fit a model (check.go)
+	said   *said                                  // or a turn of the model
 }
 
 // said is a turn of the model: its words, its calls, and the opaque part of
@@ -279,8 +279,8 @@ func answered(text string, calls []call, thought *opaque) openai.ChatCompletionM
 // steps run out. Each time it is asked as the model that answered last: the
 // opaque part of reasoning another model made is left out, so a fallback to
 // another model carries on without it. A part the model cannot take, or
-// that nothing carries, ends the run with RUN_ERROR before it is asked
-// (check.go). An error from emit (the listener is
+// that nothing carries, goes as a placeholder in words, with a warning in
+// the log (check.go). An error from emit (the listener is
 // gone) or a cancelled ctx ends the run and whatever model or tool call is
 // under way: that is how AG-UI cancels a run, the client drops it. A model
 // call that fails, or goes silent, ends the run with RUN_ERROR (failure.go).
@@ -300,9 +300,7 @@ func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversat
 		k = openKit(ctx, a.mcp, a.servers)
 		defer k.close()
 	}
-	if refusal := a.check(ctx, in.RunID, group, p); refusal != nil {
-		return emit(refusal)
-	}
+	p = a.fit(ctx, group, p)
 	model := p.lastModel()
 	var used tally
 	for step := 0; step < a.maxSteps; step++ {

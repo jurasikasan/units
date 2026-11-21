@@ -10,8 +10,8 @@ shown as AG-UI reasoning; what only the model can read again (a signature)
 rides with it to the client and goes back to that same model, never to
 another. A picture, a PDF or a sound goes with a
 message as the part it is; one the model does not take (LiteLLM's
-`/v1/model/info` says) or that nothing carries ends the run with an error
-the person reads, before any provider is asked. What every call weighed in
+`/v1/model/info` says) or that nothing carries goes as a placeholder in
+words where it stood, logged as a warning, and the run goes on. What every call weighed in
 tokens (the context as the model read it) is kept, logged and sent with
 the run's end in AG-UI's own `usage`. A run the client drops stops the
 model's and the tools' calls under way; a model that fails or goes silent

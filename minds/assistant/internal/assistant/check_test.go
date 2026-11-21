@@ -19,32 +19,60 @@ func modelInfo(deployments ...string) string {
 }
 
 // ask runs a conversation whose last message carries parts, on a model that
-// LiteLLM describes with info; it returns the events and whether the model
-// was asked.
-func ask(t *testing.T, info string, parts ...string) ([]event, bool) {
+// LiteLLM describes with info; it returns the events and the messages the
+// model was asked, as they came, all in one string ("" when not asked).
+func ask(t *testing.T, info string, parts ...string) ([]event, string) {
 	t.Helper()
-	f := &fakeModel{pieces: []string{"ok"}, info: info}
 	body := `{"runId":"r1","messages":[{"role":"user","content":[{"type":"text","text":"look"},` + strings.Join(parts, ",") + `]}]}`
-	resp := post(t, context.Background(), serve(t, f).URL, "alice", body)
-	defer func() { _ = resp.Body.Close() }()
-	return read(t, resp.Body), f.raw != nil
+	return run(t, info, body)
 }
 
-func TestAPictureToATextOnlyModelIsSaid(t *testing.T) {
+func run(t *testing.T, info, body string) ([]event, string) {
+	t.Helper()
+	f := &fakeModel{pieces: []string{"ok"}, info: info}
+	resp := post(t, context.Background(), serve(t, f).URL, "alice", body)
+	defer func() { _ = resp.Body.Close() }()
+	evs := read(t, resp.Body)
+	var asked []string
+	for _, m := range f.raw {
+		asked = append(asked, string(m))
+	}
+	return evs, strings.Join(asked, "\n")
+}
+
+// wentOn fails the test unless the run went on to its end.
+func wentOn(t *testing.T, evs []event) {
+	t.Helper()
+	got := kinds(evs)
+	if strings.Contains(got, "RUN_ERROR") || !strings.HasSuffix(got, "RUN_FINISHED") {
+		t.Fatalf("events %s", got)
+	}
+}
+
+func TestAPictureToATextOnlyModelGoesAsWords(t *testing.T) {
+	log := logs(t)
 	info := modelInfo(
 		deployment("other", `{"supports_vision":true}`),
 		deployment("m", `{"supports_vision":false,"supports_pdf_input":false}`),
 	)
-	evs, asked := ask(t, info, picture, pdf, picture)
-	if got := kinds(evs); got != "RUN_STARTED RUN_ERROR" || asked {
-		t.Fatalf("events %s, model asked: %v", got, asked)
+	evs, asked := ask(t, info, picture, pdf)
+	wentOn(t, evs)
+	want := `"content":"look\n[an image is attached here, not shown to you: cat.png]\n[a PDF is attached here, not shown to you: a.pdf]"`
+	if !strings.Contains(asked, want) {
+		t.Errorf("asked\n %s\nwant in it\n %s", asked, want)
 	}
-	e := evs[1]
-	if e.Code != CodeNotAccepted || e.RunID != "r1" {
-		t.Errorf("code %q, run %q", e.Code, e.RunID)
+	for _, w := range []string{"level=WARN", "model=m", "kind=image", "name=cat.png", "kind=pdf", "name=a.pdf"} {
+		if !strings.Contains(log.String(), w) {
+			t.Errorf("log has no %q:\n%s", w, log)
+		}
 	}
-	if want := "The model m does not take pictures (cat.png) or PDFs (a.pdf)."; e.Message != want {
-		t.Errorf("message\n got %q\nwant %q", e.Message, want)
+}
+
+func TestOnlyWhatTheModelDoesNotTakeIsReplaced(t *testing.T) {
+	evs, asked := ask(t, modelInfo(deployment("m", `{"supports_vision":false,"supports_pdf_input":true}`)), picture, pdf)
+	wentOn(t, evs)
+	if !strings.Contains(asked, "not shown to you: cat.png") || !strings.Contains(asked, `"file_data":"data:application/pdf;base64,JVBERi0x"`) {
+		t.Errorf("asked %s", asked)
 	}
 }
 
@@ -60,8 +88,9 @@ func TestAGroupTakesWhatAllItsDeploymentsTake(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			evs, asked := ask(t, modelInfo(deployment("m", c.a), deployment("m", c.b)), picture)
-			if refused := kinds(evs) == "RUN_STARTED RUN_ERROR"; refused != c.refused || asked == c.refused {
-				t.Errorf("events %s, model asked: %v", kinds(evs), asked)
+			wentOn(t, evs)
+			if refused := strings.Contains(asked, "not shown to you: cat.png"); refused != c.refused || strings.Contains(asked, "image_url") == c.refused {
+				t.Errorf("asked %s", asked)
 			}
 		})
 	}
@@ -71,8 +100,9 @@ func TestNothingKnownSendsAsBefore(t *testing.T) {
 	for name, info := range map[string]string{"no endpoint": "", "another model": modelInfo(deployment("n", `{"supports_vision":false}`)), "not json": "<html>"} {
 		t.Run(name, func(t *testing.T) {
 			evs, asked := ask(t, info, picture)
-			if got := kinds(evs); !strings.HasSuffix(got, "RUN_FINISHED") || !asked {
-				t.Errorf("events %s, model asked: %v", got, asked)
+			wentOn(t, evs)
+			if !strings.Contains(asked, "image_url") {
+				t.Errorf("asked %s", asked)
 			}
 		})
 	}
@@ -90,32 +120,42 @@ func TestWordsDoNotAskWhatTheModelTakes(t *testing.T) {
 }
 
 func TestAPictureEarlierInTheConversationCountsToo(t *testing.T) {
-	f := &fakeModel{pieces: []string{"ok"}, info: modelInfo(deployment("m", `{"supports_vision":false}`))}
 	body := `{"messages":[{"role":"user","content":[` + picture + `]},{"role":"assistant","content":"a cat"},{"role":"user","content":"and now?"}]}`
-	resp := post(t, context.Background(), serve(t, f).URL, "alice", body)
-	defer func() { _ = resp.Body.Close() }()
-	evs := read(t, resp.Body)
-	if got := kinds(evs); got != "RUN_STARTED RUN_ERROR" || !strings.Contains(evs[1].Message, "cat.png") {
-		t.Errorf("events %s %q", got, evs)
+	evs, asked := run(t, modelInfo(deployment("m", `{"supports_vision":false}`)), body)
+	wentOn(t, evs)
+	if !strings.Contains(asked, `"content":"[an image is attached here, not shown to you: cat.png]"`) || strings.Contains(asked, "image_url") {
+		t.Errorf("asked %s", asked)
 	}
 }
 
-func TestWhatNothingCarriesIsSaid(t *testing.T) {
-	for name, c := range map[string]struct{ part, says string }{
-		"a video":         {`{"type":"video","source":{"type":"data","value":"AAAA","mimeType":"video/mp4"},"metadata":{"filename":"clip.mp4"}}`, "clip.mp4: a video"},
-		"a sound by link": {`{"type":"audio","source":{"type":"url","value":"https://example.com/a.wav","mimeType":"audio/wav"}}`, "audio/wav: a sound goes"},
-		"an ogg sound":    {`{"type":"audio","source":{"type":"data","value":"AAAA","mimeType":"audio/ogg"},"metadata":{"filename":"v.ogg"}}`, "v.ogg: a model takes a sound as WAV or MP3"},
-		"a PDF by link":   {`{"type":"document","source":{"type":"url","value":"https://example.com/a.pdf","mimeType":"application/pdf"}}`, "application/pdf: a document goes"},
+func TestWhatNothingCarriesGoesAsWords(t *testing.T) {
+	for name, c := range map[string]struct{ part, name, why string }{
+		"a video":         {`{"type":"video","source":{"type":"data","value":"AAAA","mimeType":"video/mp4"},"metadata":{"filename":"clip.mp4"}}`, "clip.mp4", "a video"},
+		"a sound by link": {`{"type":"audio","source":{"type":"url","value":"https://example.com/a.wav","mimeType":"audio/wav"}}`, "audio/wav", "a sound goes"},
+		"an ogg sound":    {`{"type":"audio","source":{"type":"data","value":"AAAA","mimeType":"audio/ogg"},"metadata":{"filename":"v.ogg"}}`, "v.ogg", "a model takes a sound as WAV or MP3"},
+		"a PDF by link":   {`{"type":"document","source":{"type":"url","value":"https://example.com/a.pdf","mimeType":"application/pdf"}}`, "application/pdf", "a document goes"},
 	} {
 		t.Run(name, func(t *testing.T) {
+			log := logs(t)
 			evs, asked := ask(t, "", c.part)
-			if got := kinds(evs); got != "RUN_STARTED RUN_ERROR" || asked {
-				t.Fatalf("events %s, model asked: %v", got, asked)
+			wentOn(t, evs)
+			want := `"content":"look\n[an attachment is here that could not be sent to you: ` + c.name + `]"`
+			if !strings.Contains(asked, want) {
+				t.Errorf("asked\n %s\nwant in it\n %s", asked, want)
 			}
-			if evs[1].Code != CodeNotCarried || !strings.Contains(evs[1].Message, c.says) {
-				t.Errorf("code %q, message %q", evs[1].Code, evs[1].Message)
+			for _, w := range []string{"level=WARN", "model=m", "name=" + c.name, c.why} {
+				if !strings.Contains(log.String(), w) {
+					t.Errorf("log has no %q:\n%s", w, log)
+				}
 			}
 		})
+	}
+}
+
+func TestAPartNothingCarriesAloneIsAMessage(t *testing.T) {
+	body := `{"messages":[{"role":"user","content":[{"type":"video","source":{"type":"data","value":"AAAA","mimeType":"video/mp4"},"metadata":{"filename":"clip.mp4"}}]}]}`
+	if got := string(lastContent(t, body)); got != `"[an attachment is here that could not be sent to you: clip.mp4]"` {
+		t.Errorf("content %s", got)
 	}
 }
 

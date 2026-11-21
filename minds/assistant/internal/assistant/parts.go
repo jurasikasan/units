@@ -24,11 +24,18 @@ import (
 //
 // What no chat completions part holds (video, a document or a sound by URL,
 // audio in another format) is not carried, and a model may not take what is
-// (a text-only model and a picture): either way the run says so to the
-// person before a model is asked (check.go), rather than leaving it out
-// unsaid or letting a provider refuse it.
+// (a text-only model and a picture): either way the part goes as a
+// placeholder in words where it stood, so the model knows something is there
+// and the run goes on, rather than leaving it out unsaid, letting a provider
+// refuse it, or failing the run (check.go).
 //
 // A message of words only goes as a plain string, as before.
+
+// piece is one part of a person's message as it may go to a model.
+type piece struct {
+	part  openai.ChatCompletionContentPartUnionParam // the part, when carried
+	media *media                                     // nil for words
+}
 
 // media is a part a model must be able to take, or one nothing carries.
 type media struct {
@@ -46,35 +53,56 @@ const (
 	kindAudio kind = "audio"
 )
 
-// userMessage is a person's message as the model is asked it, and the parts
-// in it a model must be able to take or that are not carried; false when it
-// carries nothing a model is sent and nothing to say about.
-func userMessage(m types.Message) (openai.ChatCompletionMessageParamUnion, []media, bool) {
+// userPieces is a person's message as its parts, in the order they came;
+// false when it carries nothing.
+func userPieces(m types.Message) ([]piece, bool) {
 	if s, ok := m.ContentString(); ok {
-		return openai.UserMessage(s), nil, s != ""
+		return []piece{{part: openai.TextContentPart(s)}}, s != ""
 	}
 	in, _ := m.ContentInputContents()
-	var parts []openai.ChatCompletionContentPartUnionParam
-	var carried []media
-	rich := false
+	var out []piece
 	for _, p := range in {
 		part, md, ok := contentPart(p)
-		if md != nil {
-			carried = append(carried, *md)
-		}
-		if ok {
-			parts = append(parts, part)
-			rich = rich || part.OfText == nil
+		if ok || md != nil {
+			out = append(out, piece{part: part, media: md})
 		}
 	}
-	if len(parts) == 0 {
-		return openai.ChatCompletionMessageParamUnion{}, carried, len(carried) > 0
+	return out, len(out) > 0
+}
+
+// userContent is a person's message as the model is asked it: each part as
+// it is, but a part nothing carries, or of a kind in refused, as its
+// placeholder. A message whose parts are all words goes as a plain string.
+func userContent(pieces []piece, refused map[kind]bool) openai.ChatCompletionMessageParamUnion {
+	parts := make([]openai.ChatCompletionContentPartUnionParam, len(pieces))
+	var words []string
+	rich := false
+	for i, p := range pieces {
+		parts[i] = p.part
+		if m := p.media; m != nil && (m.kind == "" || refused[m.kind]) {
+			parts[i] = openai.TextContentPart(m.placeholder())
+		}
+		if t := parts[i].OfText; t != nil {
+			words = append(words, t.Text)
+		} else {
+			rich = true
+		}
 	}
 	if !rich {
-		return openai.UserMessage(text(m)), carried, true
+		return openai.UserMessage(strings.Join(words, "\n"))
 	}
-	return openai.UserMessage(parts), carried, true
+	return openai.UserMessage(parts)
 }
+
+// placeholder is the words a part goes as when it cannot go itself.
+func (m media) placeholder() string {
+	if m.kind == "" {
+		return "[an attachment is here that could not be sent to you: " + m.name + "]"
+	}
+	return "[" + named[m.kind] + " is attached here, not shown to you: " + m.name + "]"
+}
+
+var named = map[kind]string{kindImage: "an image", kindPDF: "a PDF", kindAudio: "a sound"}
 
 // contentPart is one AG-UI part as a chat completions part, false for what
 // is not carried; and, for a part not every model takes or none is given,

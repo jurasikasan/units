@@ -64,6 +64,14 @@ func TestWordsOnlyStayAString(t *testing.T) {
 	}
 }
 
+func TestWordsAndATextFileStayAString(t *testing.T) {
+	note := base64.StdEncoding.EncodeToString([]byte("42"))
+	body := `{"messages":[{"role":"user","content":[{"type":"text","text":"a"},{"type":"document","source":{"type":"data","value":"` + note + `","mimeType":"text/plain"},"metadata":{"filename":"n.txt"}}]}]}`
+	if got := string(lastContent(t, body)); got != `"a\n<attachment name=\"n.txt\">\n42\n</attachment>"` {
+		t.Errorf("content %s", got)
+	}
+}
+
 func TestAPictureAloneIsAMessage(t *testing.T) {
 	body := `{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"data","value":"iVBORw0K","mimeType":"image/png"}}]}]}`
 	if got := string(lastContent(t, body)); !strings.Contains(got, `"image_url"`) {
