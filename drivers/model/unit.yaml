@@ -3,7 +3,7 @@
 
 unit: drivers/model
 kind: service
-summary: A chat model holding subjects' reins as one of its profiles (a brain - a name and its chat model), whenever reins says a profile of its holds a subject - woken by threads' events when someone else says something in a thread its subject is in, it builds the prompt from the thread's tail (its subject's entries the assistant's, everyone else's the user's with who said it), has minds/assistant answer as an AG-UI run with the profile's model, streams the reply's pieces on its own stream and says the reply in the thread as the subject; it greets first in a thread its subject opened where nothing is said, and a stop from reins cuts a reply, what was written said. No database.
+summary: A chat model holding subjects' reins as one of its profiles (a brain - a name and its chat model), whenever reins says a profile of its holds a subject - woken by threads' events when someone else says something in a thread its subject is in, it builds the prompt from the thread's tail (its subject's entries the assistant's, everyone else's the user's with who said it), has minds/assistant answer as an AG-UI run with the profile's model, streams the reply's pieces on its own stream and says the reply in the thread as the subject; it greets first in a thread its subject opened where nothing is said, and a stop from reins cuts a reply, what was written said; a failed reply gives the subject back to nobody on reins (fail fast, no retry, a steward re-attaches). No database.
 contract: CONTRACT.md
 maturity: probe
 
@@ -15,7 +15,7 @@ provides:
     types:
       - driver.reply.started      # a reply is being written, nothing of it yet; ephemeral
       - driver.reply.delta        # a piece of a reply being written (part text or reasoning); ephemeral
-      - driver.reply.failed       # the reply ended with nothing said, and why
+      - driver.reply.failed       # the reply ended with nothing said, and why; the brain's failure gives the subject back (reins' release)
       - driver.reply.finished     # the reply was said, at seq
       - driver.reply.stopped      # cut: why (stopped, taken), and seq when what was written was said
   http:
@@ -37,7 +37,7 @@ consumes:
     - unit: reins       # whom its profiles hold, read at boot, on each change and every 30 s (its inner port)
       via: http
       env: REINS_URL
-      calls: ["GET /holds"]
+      calls: ["GET /holds", "POST /holds/{id}/release"]   # the second: its own hold let go after a failed reply
     - unit: reins       # who holds what changed (it only wakes), and stops
       via: events
       stream: reins_events

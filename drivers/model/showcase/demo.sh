@@ -5,7 +5,9 @@
 # takes her own avatar up and says hello through reins; the driver answers
 # as alice-assistant, and its own words wake it no more. alice takes her
 # assistant back: the driver lets go, says nothing more as it, and alice
-# writes as it herself.
+# writes as it herself. Fail fast: alice hands the assistant to the broken
+# profile; its reply fails, the driver gives it back and nobody holds it,
+# nothing tried again; handed to mock again, it answers what was left.
 set -eu
 R=http://reins:8087
 D=http://driver:8097
@@ -51,4 +53,23 @@ as -o /dev/null -X POST $R/threads/$TID/entries -d '{"as":"'"$HELPER"'","content
 sleep 3
 N=$(as "$R/threads/$TID/entries?after=5" | seqs)
 [ "$N" -eq 2 ] || { echo "the driver spoke as it after it was taken back: $N entries"; exit 1; }
+
+echo "== alice hands her assistant to the broken profile: its reply fails, it lets go"
+as -X POST $R/subjects/$HELPER/hand -d '{"profile":"broken"}'; echo
+for _ in $(seq 30); do curl -sf $D/ready | grep -q alice-assistant && break; sleep 1; done
+as -o /dev/null -X POST $R/threads/$TID/entries -d '{"as":"'"$ALICE"'","content":[{"type":"text","text":"Still there?"}]}'
+for _ in $(seq 60); do as $R/me/subjects | grep -q '"nick":"alice-assistant","current_brain":{"kind":"offline"' && break; sleep 1; done
+as $R/me/subjects; echo
+as $R/me/subjects | grep -q '"nick":"alice-assistant","current_brain":{"kind":"offline"' || { echo "the failed brain still holds it"; exit 1; }
+curl -sf $D/ready; echo
+curl -sf $D/ready | grep -q alice-assistant && { echo "still held by the driver"; exit 1; }
+sleep 3
+N=$(as "$R/threads/$TID/entries?after=7" | seqs)
+[ "$N" -eq 1 ] || { echo "something was said after the failure: $N entries"; exit 1; }
+
+echo "== handed to mock again (re-attaching is a steward's): it answers what was left"
+as -X POST $R/subjects/$HELPER/hand -d '{"profile":"mock"}'; echo
+for _ in $(seq 30); do [ "$(as "$R/threads/$TID/entries?after=8" | seqs)" -ge 1 ] && break; sleep 1; done
+A=$(as "$R/threads/$TID/entries?after=8"); echo "$A"
+echo "$A" | grep -q "\"sender\":\"$HELPER\"" || { echo "no answer after re-attaching"; exit 1; }
 echo "OK"

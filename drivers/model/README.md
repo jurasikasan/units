@@ -10,17 +10,19 @@ is `CONTRACT.md`; this file is for working inside it.
   reins says (`Sync`, `FollowReins` on `reins_events`), the consumer group
   on `threads_events`, one lane per subject and thread whose run can be
   cut (a stop: what was written said; the reins taken: nothing), the
-  answer and the greeting, the events on `driver_events`.
+  answer and the greeting, the events on `driver_events`; a failed reply
+  lets go of the subject (`letGo`), a journal refusing it does not.
 - `internal/driver/prompt.go` — the prompt from the thread's tail: roles
   computed, who said it in the words, pictures and PDFs as AG-UI parts;
   the greeting's cue.
 - `internal/driver/mind.go` — the AG-UI run, through the protocol's Go SDK
   (its SSE client and event decoder).
 - `internal/driver/world.go` — the clients of `threads`, `subjects` and
-  reins' inner `GET /holds`.
+  reins' inner port (`GET /holds`, `POST /holds/{id}/release`).
 - `internal/driver/driver_test.go` — the prompt, a run against a fake mind,
-  a failure said only on the bus, who wakes it, holds from reins, the
-  greeting, a stop and a taking; the consumer group and `reins_events`
+  a failure said only on the bus and the subject given back (only its
+  own hold; not on a journal's refusal, a stop or a taking), who wakes
+  it, holds from reins, the greeting, a stop and a taking; the consumer group and `reins_events`
   against a real Redis (`DRIVER_TEST_REDIS_ADDR`; `check.sh` starts one in
   docker).
 - `showcase/` — the driver with a `mock` profile (LiteLLM answering
@@ -28,7 +30,9 @@ is `CONTRACT.md`; this file is for working inside it.
   threads, subjects, the bus and the mind; the demo has alice come, reads
   the greeting in her first thread, takes her own avatar up and says hello
   through reins, reads the answer back; takes the assistant back, and the
-  driver says nothing more as it:
+  driver says nothing more as it; hands it to a `broken` profile (a model
+  nothing answers), whose failed reply gives it back to nobody, and to
+  `mock` again, which answers what was left:
   `docker compose -f showcase/compose.yaml up --build -d --wait driver && docker compose -f showcase/compose.yaml run --rm demo`.
 
 Config: `PROFILES`, `REINS_URL`, `THREADS_URL`, `SUBJECTS_URL`, `MIND_URL`, `REDIS_ADDR`

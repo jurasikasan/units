@@ -5,3 +5,12 @@ model_list:
     litellm_params:
       model: openai/mock
       mock_response: "Hello, alice. I am a mock model holding alice-assistant's reins."
+  # One that always fails: nothing listens where it points. The demo hands
+  # the assistant to it to see the driver let go (fail fast).
+  - model_name: broken
+    litellm_params:
+      model: openai/broken
+      api_base: http://127.0.0.1:9/v1
+      api_key: none
+      num_retries: 0
+      timeout: 5

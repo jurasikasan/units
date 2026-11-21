@@ -87,7 +87,7 @@ services:
       SUBJECTS_URL: http://subjects:8083
       MIND_URL: http://mind:8088/run
       REINS_URL: http://reins:8088
-      PROFILES: mock=mock
+      PROFILES: mock=mock,broken=broken
     depends_on:
       reins: {condition: service_healthy}
       bus: {condition: service_healthy}

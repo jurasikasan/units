@@ -204,9 +204,13 @@ func (s *HTTPSubjects) Name(ctx context.Context, id uuid.UUID) string {
 	return name
 }
 
-// Reins is what the driver needs of reins: which subjects the brains hold.
+// Reins is what the driver needs of reins: which subjects the brains
+// hold, and a way to let go of its own hold.
 type Reins interface {
 	BrainHolds(ctx context.Context) ([]BrainHold, error)
+	// Release lets go of the subject while brain:<profile> still holds
+	// it; false when someone else (or nobody) does.
+	Release(ctx context.Context, subject uuid.UUID, profile string) (bool, error)
 }
 
 // BrainHold is one subject a brain holds, as reins says it.
@@ -215,7 +219,8 @@ type BrainHold struct {
 	Profile string    `json:"profile"`
 }
 
-// HTTPReins reads reins' inner GET /holds: never through the door.
+// HTTPReins speaks to reins' inner port: GET /holds, POST
+// /holds/{id}/release. Never through the door.
 type HTTPReins struct{ c client }
 
 func NewHTTPReins(base string) *HTTPReins {
@@ -228,4 +233,14 @@ func (r *HTTPReins) BrainHolds(ctx context.Context) ([]BrainHold, error) {
 		return nil, fmt.Errorf("reins: %w", err)
 	}
 	return hs, nil
+}
+
+func (r *HTTPReins) Release(ctx context.Context, subject uuid.UUID, profile string) (bool, error) {
+	var out struct {
+		Released bool `json:"released"`
+	}
+	if err := r.c.do(ctx, http.MethodPost, "/holds/"+subject.String()+"/release", map[string]string{"profile": profile}, &out); err != nil {
+		return false, fmt.Errorf("reins: %w", err)
+	}
+	return out.Released, nil
 }

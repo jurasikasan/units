@@ -30,7 +30,8 @@ the truth is read back.
   (`?member=`), where the last thing said is someone else's and at most
   `CATCHUP` old (2 min), it answers (said while nobody held it); and where
   it opened the thread and nothing is said yet, it greets (below).
-- A subject **lost** (taken back, handed to another, given to nobody): a
+- A subject **lost** (taken back, handed to another, given to nobody, or
+  let go by the driver itself after a failed reply, section 4): a
   reply being written as it is cut, and **nothing is said**: the subject
   is another's now (`driver.reply.stopped`, `why: taken`). A reply that
   finished meanwhile is not said either.
@@ -105,7 +106,19 @@ drivers/model` (it is reached inside the stack, not through the door).
 - `RUN_ERROR`, a mind that does not answer or breaks off, or a run that said
   no words: **nothing is journaled** — the journal holds what was said. The
   failure is published (`driver.reply.failed`, the mind's `code` and
-  `message`) and logged.
+  `message`) and logged, and **the subject is given back** (fail fast): the
+  driver lets go of its own hold on reins' inner `POST
+  /holds/{id}/release` as the profile it answered with, and nobody holds
+  the avatar (`reins.hold.changed`, holder `""`); its other replies being
+  written are cut as taken. Nothing is tried again here; re-attaching is a
+  steward's, by taking or handing it at reins. When someone took or handed
+  it on meanwhile, reins leaves it with them. When reins cannot be reached
+  the hold stays as reins says it, and that is logged.
+- The journal refusing the reply (`driver.reply.failed`, code `not_said`)
+  is published the same way but is not the brain failing: the subject is
+  kept. The brain did its part; the refusal is the world's (the thread
+  gone, the subject no longer in it, threads down), and an avatar put on
+  standby for it would answer nowhere else either.
 - **Stopped**: a `reins.reply.stop` for the thread and the subject (a
   steward asked reins) cancels the run. What was written so far is said as
   it stands, one `text` block, when there is any text (those watching saw
@@ -140,4 +153,5 @@ together by it, and drops them when the entry comes (or `finished`,
 - It writes into `threads` only as a subject one of its profiles holds, as
   reins says, and only `create` entries.
 - It does not check who may drive a subject: who holds what is `reins`',
-  and it follows it.
+  and it follows it. The one change it makes there is letting go of its
+  own hold when a reply fails.

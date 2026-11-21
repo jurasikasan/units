@@ -139,6 +139,7 @@ type fakeJournal struct {
 	members  []uuid.UUID
 	openedBy *uuid.UUID
 	entries  []Entry
+	refuse   error // Say answers it, when set
 }
 
 var the0 = uuid.MustParse("00000000-0000-0000-0000-0000000000cc")
@@ -166,6 +167,9 @@ func (j *fakeJournal) Tail(context.Context, uuid.UUID, int) ([]Entry, error) {
 func (j *fakeJournal) Say(_ context.Context, _, sender uuid.UUID, content []Block) (Entry, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	if j.refuse != nil {
+		return Entry{}, j.refuse
+	}
 	e := Entry{ID: uuid.New(), Seq: int64(len(j.entries) + 1), Sender: sender, Kind: "create", Content: content}
 	j.entries = append(j.entries, e)
 	return e, nil
@@ -193,10 +197,32 @@ func (b *fakeBus) types() []string {
 	return out
 }
 
-// fakeReins: which subject each brain profile holds.
+// fakeReins: which subject each brain profile holds; a release lets go
+// only of a brain's own hold, as reins does, and is remembered.
 type fakeReins struct {
-	mu    sync.Mutex
-	holds []BrainHold
+	mu       sync.Mutex
+	holds    []BrainHold
+	released []BrainHold // each release asked for
+	changed  []string    // reins.hold.changed's holder, for each release that let go
+}
+
+func (r *fakeReins) Release(_ context.Context, subject uuid.UUID, profile string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.released = append(r.released, BrainHold{Subject: subject, Profile: profile})
+	i := slices.Index(r.holds, BrainHold{Subject: subject, Profile: profile})
+	if i < 0 {
+		return false, nil
+	}
+	r.holds = slices.Delete(r.holds, i, i+1)
+	r.changed = append(r.changed, "")
+	return true, nil
+}
+
+func (r *fakeReins) asked() []BrainHold {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.released)
 }
 
 func (r *fakeReins) BrainHolds(context.Context) ([]BrainHold, error) {
@@ -273,8 +299,70 @@ func TestAnswer_AFailureIsSaidOnTheBusOnly(t *testing.T) {
 	gone := httptest.NewServer(http.NotFoundHandler())
 	gone.Close()
 	d.Mind = NewAGUI(gone.URL, "drivers/model")
+	d.Reins.(*fakeReins).set(BrainHold{Subject: helper, Profile: "fake"}) // a steward hands it back
+	require.NoError(t, d.Sync(context.Background()))
 	d.Answer(context.Background(), helper, uuid.New())
 	assert.Equal(t, "mind_unreachable", bus.events[3].Data["code"])
+}
+
+// Fail fast: a failed reply gives the subject back, nobody holding it
+// (reins.hold.changed with holder ""), and nothing is tried again: what
+// wakes it next finds it held by nobody here.
+func TestAnswer_AFailureGivesTheSubjectBack(t *testing.T) {
+	mind := fakeMind(t, nil)
+	defer mind.Close()
+	d, j, bus := newDriver(t, mind.URL)
+	reins := d.Reins.(*fakeReins)
+	j.entries = []Entry{text(alice, 1, "please #fail")}
+
+	d.Answer(context.Background(), helper, the0)
+
+	assert.Equal(t, []BrainHold{{Subject: helper, Profile: "fake"}}, reins.asked(), "its own hold, as the profile it answered with")
+	assert.Equal(t, []string{""}, reins.changed, "nobody holds it")
+	assert.Empty(t, d.Holds(), "let go here too, without waiting for reins' event")
+	assert.Equal(t, []string{ReplyStarted, ReplyFailed}, bus.types())
+
+	j.entries = append(j.entries, text(alice, 2, "hello?"))
+	d.Answer(context.Background(), helper, the0)
+	assert.Len(t, j.said(), 2, "no retry: held by nobody, nothing answered")
+	assert.Len(t, bus.types(), 2)
+}
+
+// A late failure never drops a holder who took over meanwhile: reins
+// lets go only of the brain's own hold.
+func TestAnswer_AFailureAfterATakeoverLeavesTheNewHolder(t *testing.T) {
+	mind := fakeMind(t, nil)
+	defer mind.Close()
+	d, j, _ := newDriver(t, mind.URL)
+	reins := d.Reins.(*fakeReins)
+	j.entries = []Entry{text(alice, 1, "please #fail")}
+	reins.set(BrainHold{Subject: helper, Profile: "glm"}) // handed to glm while fake wrote
+
+	d.Answer(context.Background(), helper, the0)
+
+	assert.Equal(t, []BrainHold{{Subject: helper, Profile: "fake"}}, reins.asked())
+	assert.Empty(t, reins.changed, "not fake's to let go")
+	require.Len(t, d.Holds(), 1)
+	assert.Equal(t, "glm", d.Holds()[0].Profile, "glm holds it still")
+}
+
+// The journal refusing what was written is not the brain failing: the
+// failure is said, the subject kept.
+func TestAnswer_NotSaidKeepsTheSubject(t *testing.T) {
+	mind := fakeMind(t, nil)
+	defer mind.Close()
+	d, j, bus := newDriver(t, mind.URL)
+	reins := d.Reins.(*fakeReins)
+	j.entries = []Entry{text(alice, 1, "hi")}
+	j.refuse = fmt.Errorf("no such thread")
+
+	d.Answer(context.Background(), helper, the0)
+
+	types := bus.types()
+	require.Equal(t, ReplyFailed, types[len(types)-1])
+	assert.Equal(t, "not_said", bus.events[len(types)-1].Data["code"])
+	assert.Empty(t, reins.asked(), "nothing let go")
+	assert.Len(t, d.Holds(), 1)
 }
 
 func TestWoken_OnlyBySomeoneElse_InItsThreads(t *testing.T) {
@@ -414,6 +502,7 @@ func TestStop_SaysWhatWasWritten(t *testing.T) {
 	})
 	assert.Len(t, j.said(), 4, "taken back: nothing said as it")
 	assert.Empty(t, d.Holds())
+	assert.Empty(t, reins.asked(), "a stop and a taking are no failure: nothing let go")
 }
 
 func TestParseProfiles(t *testing.T) {

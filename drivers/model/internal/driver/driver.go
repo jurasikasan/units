@@ -34,7 +34,8 @@ const (
 	ReplyStarted = "driver.reply.started"
 	// ReplyDelta: a piece of a reply being written (part text or reasoning).
 	ReplyDelta = "driver.reply.delta"
-	// ReplyFailed: the reply ended with nothing said, and why.
+	// ReplyFailed: the reply ended with nothing said, and why. When the
+	// brain failed (not the journal), the driver lets go of the subject.
 	ReplyFailed = "driver.reply.failed"
 	// ReplyFinished: the reply was said, the entry at seq.
 	ReplyFinished = "driver.reply.finished"
@@ -401,7 +402,10 @@ func (d *Driver) hold(subject uuid.UUID) (Hold, bool) {
 // not the subject's own, has the mind answer and says the answer as the
 // subject; where the subject opened the thread and nothing is said yet,
 // it greets. Its pieces go on the bus as they come; a failure is said
-// there and logged, never journaled: the journal holds what was said.
+// there and logged, never journaled: the journal holds what was said. A
+// failure of the brain lets go of the subject (letGo); a journal that
+// refuses what was written does not: the brain did its part, and the
+// refusal is the world's (the thread gone, threads down).
 func (d *Driver) Answer(ctx context.Context, subject, thread uuid.UUID) {
 	d.answer(ctx, subject, thread, func() string { return "" })
 }
@@ -472,6 +476,7 @@ func (d *Driver) answer(ctx context.Context, subject, thread uuid.UUID, why func
 		}
 		d.Log.Warn("reply failed", "subject", h.Subject.Nick, "thread", thread, "model", h.Model, "code", code, "err", msg)
 		publish(ReplyFailed, with(map[string]any{"code": code, "message": msg}))
+		d.letGo(context.WithoutCancel(ctx), h)
 		return
 	}
 	if _, still := d.hold(subject); !still {
@@ -491,6 +496,30 @@ func (d *Driver) answer(ctx context.Context, subject, thread uuid.UUID, why func
 	}
 	d.Log.Info("replied", "subject", h.Subject.Nick, "thread", thread, "model", h.Model, "seq", e.Seq, "context_entries", len(messages), "took", time.Since(start).Round(time.Millisecond))
 	publish(ReplyFinished, with(map[string]any{"seq": e.Seq}))
+}
+
+// letGo gives the subject back after its reply failed: fail fast, the
+// motor stalls and the avatar goes to standby, nobody holding it, until a
+// steward re-attaches it. No retry here. Only its own hold, as the
+// profile it answered with: one taken or handed on meanwhile is left with
+// whoever has it. Then it reads the holds again, so the subject is let go
+// here too (its other replies being written stop, as taken) without
+// waiting for reins' event. When reins cannot be reached the hold stays,
+// as reins says it: reins is the truth.
+func (d *Driver) letGo(ctx context.Context, h Hold) {
+	released, err := d.Reins.Release(ctx, h.Subject.ID, h.Profile)
+	if err != nil {
+		d.Log.Warn("could not let go after a failed reply", "subject", h.Subject.Nick, "profile", h.Profile, "err", err)
+		return
+	}
+	if released {
+		d.Log.Info("let go after a failed reply: nobody holds it", "subject", h.Subject.Nick, "profile", h.Profile)
+	} else {
+		d.Log.Info("after a failed reply, not its to let go: another holds it now", "subject", h.Subject.Nick, "profile", h.Profile)
+	}
+	if err := d.Sync(ctx); err != nil {
+		d.Log.Warn("whom it holds", "err", err)
+	}
 }
 
 // stopped ends a cancelled run. Asked to stop, what was written so far is
