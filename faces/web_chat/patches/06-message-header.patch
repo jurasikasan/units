@@ -1,0 +1,32 @@
+A slot above each message of the other side (AssistantMessageHeader): the
+page puts there who said it, with their avatar's circle, and when. The
+ghost sees every message as someone else's, and a thread of several
+avatars needs to say whose each one is (UNIT-73).
+
+--- a/src/upstream/components/assistant-ui/elements/thread.aui.tsx
++++ b/src/upstream/components/assistant-ui/elements/thread.aui.tsx
+@@ -133,6 +133,8 @@ export type ThreadComponents = {
+   ComposerExtra?: ComponentType | undefined;
+   /* Ours: when given, shown where the composer would be, instead of it. */
+   ComposerInstead?: ComponentType | undefined;
++  /* Ours: above each message of the other side, who said it and when. */
++  AssistantMessageHeader?: ComponentType | undefined;
+ };
+ 
+ const messageGroupBy = groupPartByType({
+@@ -603,6 +605,7 @@ const AssistantMessage: FC = () => {
+     ToolGroup,
+     ReasoningGroup,
+     TaskGroup: TaskGroupComponent,
++    AssistantMessageHeader,
+   } = useContext(ThreadComponentsContext);
+   const groupBy = TaskGroupComponent ? taskAwareGroupBy : messageGroupBy;
+ 
+@@ -616,6 +619,7 @@ const AssistantMessage: FC = () => {
+       data-role="assistant"
+       className="fade-in slide-in-from-bottom-1 animate-in relative -mb-7.5 pb-7.5 duration-150 [contain-intrinsic-size:auto_200px] [content-visibility:auto]"
+     >
++      {AssistantMessageHeader && <AssistantMessageHeader />}
+       <div
+         data-slot="aui_assistant-message-content"
+         className="text-foreground px-2 leading-relaxed wrap-break-word"

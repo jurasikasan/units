@@ -131,6 +131,10 @@ export type ThreadComponents = {
     | undefined;
   TaskGroup?: ComponentType<{ group: ThreadGroupPart }> | undefined;
   ComposerExtra?: ComponentType | undefined;
+  /* Ours: when given, shown where the composer would be, instead of it. */
+  ComposerInstead?: ComponentType | undefined;
+  /* Ours: above each message of the other side, who said it and when. */
+  AssistantMessageHeader?: ComponentType | undefined;
 };
 
 const messageGroupBy = groupPartByType({
@@ -275,7 +279,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
           >
             <ThreadScrollToBottom />
             <ThreadFollowupSuggestions />
-            <Composer autoFocus={autoFocus} />
+            <ComposerOrInstead autoFocus={autoFocus} />
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
             </AuiIf>
@@ -496,6 +500,12 @@ const ThreadSuggestionItem: FC = () => {
   );
 };
 
+// Ours: the composer, or what the page shows in its place (nobody to write as).
+const ComposerOrInstead: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
+  const { ComposerInstead } = useContext(ThreadComponentsContext);
+  return ComposerInstead ? <ComposerInstead /> : <Composer autoFocus={autoFocus} />;
+};
+
 const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
   return (
     <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
@@ -595,6 +605,7 @@ const AssistantMessage: FC = () => {
     ToolGroup,
     ReasoningGroup,
     TaskGroup: TaskGroupComponent,
+    AssistantMessageHeader,
   } = useContext(ThreadComponentsContext);
   const groupBy = TaskGroupComponent ? taskAwareGroupBy : messageGroupBy;
 
@@ -608,6 +619,7 @@ const AssistantMessage: FC = () => {
       data-role="assistant"
       className="fade-in slide-in-from-bottom-1 animate-in relative -mb-7.5 pb-7.5 duration-150 [contain-intrinsic-size:auto_200px] [content-visibility:auto]"
     >
+      {AssistantMessageHeader && <AssistantMessageHeader />}
       <div
         data-slot="aui_assistant-message-content"
         className="text-foreground px-2 leading-relaxed wrap-break-word"

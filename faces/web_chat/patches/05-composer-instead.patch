@@ -1,0 +1,38 @@
+A slot for what stands where the composer would be (ComposerInstead):
+with nobody to write as (the ghost, or an avatar held elsewhere), the page
+shows there who holds the avatar, in the page's flow, never floating over
+the conversation (UNIT-73).
+
+--- a/src/upstream/components/assistant-ui/elements/thread.aui.tsx
++++ b/src/upstream/components/assistant-ui/elements/thread.aui.tsx
+@@ -131,6 +131,8 @@ export type ThreadComponents = {
+     | undefined;
+   TaskGroup?: ComponentType<{ group: ThreadGroupPart }> | undefined;
+   ComposerExtra?: ComponentType | undefined;
++  /* Ours: when given, shown where the composer would be, instead of it. */
++  ComposerInstead?: ComponentType | undefined;
+ };
+ 
+ const messageGroupBy = groupPartByType({
+@@ -275,7 +277,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
+           >
+             <ThreadScrollToBottom />
+             <ThreadFollowupSuggestions />
+-            <Composer autoFocus={autoFocus} />
++            <ComposerOrInstead autoFocus={autoFocus} />
+             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
+               <ThreadSuggestions />
+             </AuiIf>
+@@ -496,6 +498,12 @@ const ThreadSuggestionItem: FC = () => {
+   );
+ };
+ 
++// Ours: the composer, or what the page shows in its place (nobody to write as).
++const ComposerOrInstead: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
++  const { ComposerInstead } = useContext(ThreadComponentsContext);
++  return ComposerInstead ? <ComposerInstead /> : <Composer autoFocus={autoFocus} />;
++};
++
+ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
+   return (
+     <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
