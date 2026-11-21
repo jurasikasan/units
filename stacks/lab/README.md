@@ -33,10 +33,11 @@ first's words without a reload, and a reload keeps the conversation.
 Who holds each avatar's reins is reins' too: one holder at a time, the
 person from a browser, a brain (one of the driver's profiles), or nobody.
 On the first login the assistant is the default brain's, and a first chat
-is opened by it, where it greets; the page takes up the person's own
-avatar. A row above the chat shows who holds each and takes, gives back
-or hands it to a brain; a brain's reply is stopped from the composer's
-row. A page gone longer than `LAB_HOLD_GRACE` lets go of what it held. The
+is opened by it, where it greets. The page lands as the ghost (the
+person without a body: every thread of their avatars, nothing to do); the
+picker at the top of its sidebar steps into an avatar, shows who holds
+each, and its radio takes, gives back or hands it to a brain; a brain's
+reply is stopped from the composer's row. A page gone longer than `LAB_HOLD_GRACE` lets go of what it held. The
 driver reads whom its profiles hold from reins' inner port (8088), which
 nginx never forwards.
 

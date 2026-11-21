@@ -24,16 +24,22 @@
 //
 // The chats are threads: a new one is opened on its first words, the first
 // is all there when switched back to, and a reload keeps the conversation
-// (E2E_ONLY=threads).
+// and the thread in the address (/t/<thread>) (E2E_ONLY=threads).
 //
-// Who holds the reins: on the first login the assistant, held by the fake
-// profile, greets first in the thread it opened; the page takes the
-// person's own avatar up. Two browsers of the same person (E2E_ONLY=two):
-// the second takes <user>-assistant's reins and the two talk, each seeing
-// the other's words without a reload, no brain answering; the second may
-// not write as <user> (409, held on another device); it hands the
-// assistant to the fake profile, which answers; it takes it back, and the
-// brain says nothing more. A reply being written is stopped from the
+// Who the page is (UNIT-73): every login lands as the ghost, the threads
+// listed, every message on the left with its sender's name and time, no
+// composer, no New thread; then it picks <user> in the sidebar's picker
+// and "this device" in its radio, and the composer comes. On the first
+// login the assistant, held by the fake profile, greets first in the
+// thread it opened. Two browsers of the same person (E2E_ONLY=two): the
+// second picks <user>-assistant and takes it, and the two talk, each
+// seeing the other's words without a reload, no brain answering; the
+// second may not write as <user> (409, held on another device); it hands
+// the assistant to the fake profile, which answers; it takes it back, and
+// the brain says nothing more. Last, the first picks the ghost again: the
+// avatar it held is given back to nobody, and the assistant, stepped into
+// and left while the fake profile holds it, stays held by it. A reply
+// being written is stopped from the
 // composer's row: what was written is kept, and nothing when nothing was
 // (E2E_ONLY=stop).
 //
@@ -143,7 +149,10 @@ async function say(text) {
 // fresh opens a new chat: nothing said there yet.
 async function fresh() {
   await page.getByRole('button', { name: 'New Thread' }).click()
+  // Nothing from either side: a thread of the assistant's words alone (its
+  // greeting) is not mistaken for the new one.
   await page.locator('[data-role="user"]').first().waitFor({ state: 'detached' })
+  await page.locator('[data-role="assistant"]').first().waitFor({ state: 'detached' })
 }
 
 // attach puts files on the message being written, through the page's own
@@ -381,8 +390,15 @@ async function threadsRound() {
     failed = true
   }
   await say('back in the first')
+  const before = new URL(page.url()).pathname
   await page.reload()
   await page.getByText('back in the first').first().waitFor()
+  const after = new URL(page.url()).pathname
+  step('the address, reloaded', `${before} -> ${after}`)
+  if (!/^\/t\/[^/]+$/.test(before) || after !== before) {
+    step('FAIL', 'the thread is not in the address, or a reload left it')
+    failed = true
+  }
   const kept = await userSaid.allInnerTexts()
   const answered = await page.locator('[data-role="assistant"]').count()
   step('after a reload', `${JSON.stringify(kept.map((t) => t.trim()))}, ${answered} answers`)
@@ -392,38 +408,68 @@ async function threadsRound() {
   }
 }
 
-// holders is the row above the chat: each avatar, and who holds its reins.
-const holders = (p) => p.getByRole('group', { name: 'Who holds the reins' })
-const chip = (p, nick) => holders(p).getByRole('button', { name: new RegExp(`^${nick}: `) }).first()
+// picker is the top of the sidebar: who the page is on this device, the
+// ghost or one of the person's avatars, each with who holds its reins.
+const picker = (p) => p.getByRole('radiogroup', { name: 'Who I am here' })
+const pickerItem = (p, nick) =>
+  nick === 'Ghost' ? picker(p).getByRole('radio', { name: 'Ghost', exact: true }) : picker(p).getByRole('radio', { name: new RegExp(`^${nick}: `) })
 
 // heldBy waits until the page shows the avatar held by `label` ("you,
-// here", "you, on another device", a profile, "offline").
+// here", "you, on another device", "brain <profile>", "nobody").
 async function heldBy(p, nick, label) {
-  await holders(p).getByRole('button', { name: `${nick}: ${label}`, exact: true }).first().waitFor()
+  await picker(p).getByRole('radio', { name: `${nick}: ${label}`, exact: true }).waitFor()
 }
 
-// reins does something with an avatar's reins, through its chip: "Take
-// the reins here", "Give back", "Hand to <profile>".
-async function reins(p, nick, action) {
-  await chip(p, nick).click()
-  await p.getByRole('button', { name: action, exact: true }).click()
-  await p.keyboard.press('Escape')
+// be picks who the page is on this device: "Ghost", or an avatar's nick.
+// Leaving an avatar held here gives it back.
+async function be(p, nick) {
+  await pickerItem(p, nick).click()
+  await pickerItem(p, nick).and(p.locator('[aria-checked="true"]')).waitFor()
 }
 
-// logIn logs a page in through the gate and waits for the chat; then the
-// person's own avatar is held here (the page takes it up when nobody holds
-// it; held on a device gone, it is taken here), unless `watch`.
+// brain picks, in the radio under the avatar picked, who is in it: "none"
+// (give back), "this device" (take), or a profile (hand).
+async function brain(p, nick, option) {
+  const radio = p.getByRole('group', { name: `${nick}'s brain` }).getByRole('radio', { name: option, exact: true })
+  await radio.click()
+  await radio.and(p.locator(':checked')).waitFor()
+}
+
+// ghostSees: a fresh login lands as the ghost: the threads listed, every
+// message on the left with its sender's name and time, no composer, no New
+// thread.
+async function ghostSees(p) {
+  await p.locator('[data-slot="aui_thread-list-item"]').first().waitFor()
+  await p.locator('[data-role="assistant"]').first().waitFor()
+  await p.waitForTimeout(1000)
+  const threads = await p.locator('[data-slot="aui_thread-list-item"]').count()
+  const left = await p.locator('[data-role="assistant"]').count()
+  const right = await p.locator('[data-role="user"]').count()
+  const named = await p.locator('[data-role="assistant"]:has([data-slot="said-by"] time)').count()
+  const composer = await p.getByRole('textbox', { name: 'Message input' }).count()
+  const fresh = await p.getByRole('button', { name: 'New Thread' }).count()
+  step('lands as the ghost', `${threads} threads; ${left} on the left, ${named} with name and time, ${right} on the right; composer ${composer}, New thread ${fresh}`)
+  if (!threads || !left || right || named !== left || composer || fresh) {
+    step('FAIL', 'the ghost does not see as it should')
+    failed = true
+  }
+}
+
+// logIn logs a page in through the gate; it lands as the ghost. Then,
+// unless `watch`, it steps into the person's own avatar and takes it on
+// this device: the composer comes.
 async function logIn(p, watch = false) {
   await p.goto(url + '/')
   await p.locator('#username-textfield').fill(user)
   await p.locator('#password-textfield').fill(password)
   await p.locator('#sign-in-button').click()
-  await p.getByRole('textbox', { name: 'Message input' }).waitFor()
-  await chip(p, user).waitFor()
+  await picker(p).getByRole('radio', { name: 'Ghost', checked: true }).waitFor()
+  await ghostSees(p)
   if (watch) return
-  const shown = await chip(p, user).getAttribute('aria-label')
-  if (!shown.endsWith(': you, here') && !shown.endsWith(': offline')) await reins(p, user, 'Take the reins here')
+  await be(p, user)
+  await brain(p, user, 'this device')
   await heldBy(p, user, 'you, here')
+  await p.getByRole('textbox', { name: 'Message input' }).waitFor()
 }
 
 // greetRound: on the first login the newest chat is the first thread,
@@ -455,7 +501,8 @@ async function twoRound() {
   await logIn(second, true)
   await heldBy(second, user, 'you, on another device')
   step(`${user} in the second browser`, 'held on another device: it watches')
-  await reins(second, assistant, 'Take the reins here')
+  await be(second, assistant)
+  await brain(second, assistant, 'this device')
   await heldBy(second, assistant, 'you, here')
   await heldBy(page, assistant, 'you, on another device')
   step(`${assistant} taken in the second`, 'the first sees it held on another device')
@@ -495,17 +542,17 @@ async function twoRound() {
     failed = true
   }
 
-  await reins(second, assistant, 'Hand to fake')
-  await heldBy(page, assistant, 'fake')
-  await heldBy(second, assistant, 'fake')
-  const brain = await say(`now the brain, please ${tag}`)
-  step(`${assistant} handed to fake, answers`, JSON.stringify(brain.slice(0, 40)))
-  if (!brain) {
+  await brain(second, assistant, 'fake')
+  await heldBy(page, assistant, 'brain fake')
+  await heldBy(second, assistant, 'brain fake')
+  const answered = await say(`now the brain, please ${tag}`)
+  step(`${assistant} handed to fake, answers`, JSON.stringify(answered.slice(0, 40)))
+  if (!answered) {
     step('FAIL', 'the brain did not answer')
     failed = true
   }
 
-  await reins(second, assistant, 'Take the reins here')
+  await brain(second, assistant, 'this device')
   await heldBy(page, assistant, 'you, on another device')
   const before = await page.locator('[data-role="assistant"]').count()
   await page.getByRole('textbox', { name: 'Message input' }).fill(`anyone there? ${tag}`)
@@ -559,9 +606,29 @@ async function twoRound() {
   }
 
   if (process.env.E2E_SHOT) await second.screenshot({ path: process.env.E2E_SHOT.replace(/(\.png)?$/, '-second.png') })
+  // Back to the fake profile for the rounds after, from the second.
+  await brain(second, assistant, 'fake')
+  await heldBy(page, assistant, 'brain fake')
   await other.close()
-  await reins(page, assistant, 'Hand to fake')
-  await heldBy(page, assistant, 'fake')
+
+  // Leaving (UNIT-73): the ghost picked again gives back the avatar held
+  // here, to nobody; an avatar held by a brain, stepped into and left, stays
+  // the brain's.
+  await be(page, 'Ghost')
+  await heldBy(page, user, 'nobody')
+  const ghostComposer = await page.getByRole('textbox', { name: 'Message input' }).count()
+  await be(page, assistant)
+  const watching = (await page.getByRole('status', { name: 'Watching' }).innerText()).replace(/\s+/g, ' ')
+  await be(page, 'Ghost')
+  await page.waitForTimeout(1500)
+  const kept = await picker(page).getByRole('radio', { name: new RegExp(`^${assistant}: `) }).getAttribute('aria-label')
+  const holds = await (await page.request.get(url + '/api/reins/me/subjects')).json()
+  const holder = (nick) => holds.find((a) => a.nick === nick)?.current_brain?.kind ?? 'offline'
+  step('the ghost again', `${user}: ${holder(user)}; composer ${ghostComposer}; in ${assistant}: ${JSON.stringify(watching)}; left: ${kept}`)
+  if (holder(user) !== 'offline' || ghostComposer || !watching.includes('brain fake') || kept !== `${assistant}: brain fake` || holder(assistant) !== 'brain') {
+    step('FAIL', 'leaving an avatar did not give back only what this device held')
+    failed = true
+  }
 }
 
 // stopRound: a reply being written is stopped from the composer's row, an
@@ -692,9 +759,8 @@ async function soundPickRound() {
 // The journal's image block carries no file name, so the mind names the
 // picture its own way.
 async function refusedRound() {
+  await handOther('fake-text')
   await fresh()
-  await reins(page, assistant, 'Hand to fake-text')
-  await heldBy(page, assistant, 'fake-text')
   await attach(dot)
   const said = await say('What is in the picture?')
   step('a picture to a text-only model', JSON.stringify(said.slice(0, 80)))
@@ -702,8 +768,19 @@ async function refusedRound() {
     step('FAIL', 'the page does not say the model takes no pictures')
     failed = true
   }
-  await reins(page, assistant, 'Hand to fake')
-  await heldBy(page, assistant, 'fake')
+  await handOther('fake')
+}
+
+// handOther hands the assistant to a profile: stepped into (leaving the
+// person's own avatar, given back), handed from its radio, then back in
+// the person's own, taken here again.
+async function handOther(profile) {
+  await be(page, assistant)
+  await brain(page, assistant, profile)
+  await heldBy(page, assistant, `brain ${profile}`)
+  await be(page, user)
+  await brain(page, user, 'this device')
+  await page.getByRole('textbox', { name: 'Message input' }).waitFor()
 }
 
 // fullRound: the conversation, tools, reasoning, attachments.
