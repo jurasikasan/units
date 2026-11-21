@@ -16,7 +16,7 @@ becomes a task with acceptance criteria.
 - One unit per directory, its own `go.mod`. No cross-unit Go imports except
   `shared/`. A unit must build, test and run without the others.
 - A unit that is a service carries `unit.yaml` (what it provides, consumes and
-  needs as config). `tools/check_unit.py` holds the manifest to the code.
+  needs as config). `scripts/check_unit.py` holds the manifest to the code.
 - Every unit has `check.sh` (build, vet, gofmt, lint if present, tests, swagger
   freshness, manifest). Services have a `showcase/` (`compose.yaml` +
   `demo.sh`) that shows them working on their own; `engines/showcase` covers
@@ -29,6 +29,9 @@ becomes a task with acceptance criteria.
 - `stacks/<name>/` assembles units into something that runs: `compose.yaml`,
   `.env.example` (a local run works from it as is; a deployment changes only
   `.env`), a `check.sh`. No unit depends on a stack.
+- `scripts/` is the repo's own scripts (manifest and secrets checks, the
+  pre-push hook, address moves, evals). `tools/` is the family of tools
+  avatars call (MCP servers), named as the AI world names them.
 
 ## Looking at the world is not perceiving it
 
@@ -60,12 +63,12 @@ filter by avatar.
 - Body: prose, why and what changed in behaviour, not a file list. Name the
   board handle (`UNIT-5`) when there is one.
 - This repository is public: no hosts, addresses, tokens or deployment
-  details in tracked files. `tools/check_secrets.sh` holds the repo to it:
+  details in tracked files. `scripts/check_secrets.sh` holds the repo to it:
   gitleaks with `.gitleaks.toml` (its defaults plus passwords in URLs) over
   every commit and the index, and every value of the local gitignored env
   files looked for literally, a value equal to a tracked `.env.example` line
   excepted. A hit names file and rule or variable, never the value. It runs
-  before every push once a clone has `git config core.hooksPath tools/hooks`.
+  before every push once a clone has `git config core.hooksPath scripts/hooks`.
 
 ## Local only
 

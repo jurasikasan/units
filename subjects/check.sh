@@ -53,7 +53,7 @@ swag_check() {
   return $rc
 }
 run "spec" swag_check
-run "unit" python3 ../tools/check_unit.py .
+run "unit" python3 ../scripts/check_unit.py .
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

@@ -19,9 +19,9 @@ reader outside the unit may trust. Per unit:
   that is no unit of this repository (a router, a database) is noted, not
   checked.
 
-    python3 tools/check_unit.py                     # every unit
-    python3 tools/check_unit.py senses/hearing      # one, by path
-    python3 ../../tools/check_unit.py .             # from inside a unit
+    python3 scripts/check_unit.py                     # every unit
+    python3 scripts/check_unit.py senses/hearing      # one, by path
+    python3 ../../scripts/check_unit.py .             # from inside a unit
 """
 
 import glob

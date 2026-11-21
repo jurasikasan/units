@@ -189,7 +189,7 @@ A flaky step is caught on purpose, not in passing: `e2e/repeat.sh
 environment names and tallies the outcomes, each run's output kept in
 `REPEAT_LOGS`. Besides the browser's, two scenarios of its own: `greet`
 makes a fresh account each run, so each is a first login, and `move`
-recreates gate, mind and face on new addresses (`tools/move_address.sh`)
+recreates gate, mind and face on new addresses (`scripts/move_address.sh`)
 and logs in through nginx. Run it beside whatever loads the machine:
 
 ```bash

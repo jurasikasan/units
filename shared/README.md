@@ -64,7 +64,7 @@ The envelope of [`contracts/events.md`](../contracts/events.md), written once:
 fields, JSON in `data`, a fresh `google/uuid` as `ce_id`, no `ce_traceparent`
 when the event has none, `ce_time` now when `Event.Time` is zero);
 `Redis{Client, Stream, Source}.Publish` writes it. Streams, sources and types
-stay in each unit, where `tools/check_unit.py` holds them to its `unit.yaml`. Used by `senses/hearing`,
+stay in each unit, where `scripts/check_unit.py` holds them to its `unit.yaml`. Used by `senses/hearing`,
 `abilities/speaking`, `devices/communications/sip_phone` and `web_audio_call`.
 
 ### `gateway`

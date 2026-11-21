@@ -1,5 +1,5 @@
 # gitleaks rules for this repository: its defaults, plus what they miss.
-# Run through tools/check_secrets.sh, which never prints a matched value.
+# Run through scripts/check_secrets.sh, which never prints a matched value.
 
 [extend]
 useDefault = true
@@ -24,6 +24,6 @@ keywords = ["://"]
     '''^(…|\*+|x+|<[^>]*>|REDACTED)$''',
   ]
 
-# Secret-looking assignments are left to tools/check_secrets.sh, which looks
+# Secret-looking assignments are left to scripts/check_secrets.sh, which looks
 # for the actual values on this machine: a pattern for them flagged every
 # TokenCount and os.environ/ reference.

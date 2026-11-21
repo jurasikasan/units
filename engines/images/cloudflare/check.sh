@@ -44,7 +44,7 @@ run "compile" compile_all
 run "dockerfile" python3 ../../check_dockerfile_copies.py .
 
 # unit.yaml against the code: env, the HTTP door.
-run "unit" python3 ../../../tools/check_unit.py .
+run "unit" python3 ../../../scripts/check_unit.py .
 
 # unittest, discovered from test_*.py anywhere in the module. A test that
 # imports server.py imports its runtime dependencies too and fails here — keep

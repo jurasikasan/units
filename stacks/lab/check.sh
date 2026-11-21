@@ -125,7 +125,7 @@ run "the pages gone, what they held lapses: nobody holds $first_user"  lapsed
 run "the program $program steers its own subjects through /api/ with its password, no page"  as_program
 run "first account: its subjects after login, chat, mail"  docker compose run --rm demo "$first_user" "$first_password" mail
 run "reins keeps two subjects for it"  keep_steered
-run "gate, mind, face on new addresses"  ../../tools/move_address.sh gate mind face
+run "gate, mind, face on new addresses"  ../../scripts/move_address.sh gate mind face
 run "nginx finds them there"  docker compose run --rm demo "$first_user" "$first_password"
 run "add carol"      add_carol
 run "backup"         backup

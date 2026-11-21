@@ -50,7 +50,7 @@ fi
 [ -n "${DRIVER_TEST_REDIS_ADDR:-}" ] || echo "  - no Redis: the live consumer-group test will skip"
 
 run "test" go test -count=1 -race ./...
-run "unit" python3 ../../tools/check_unit.py .
+run "unit" python3 ../../scripts/check_unit.py .
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

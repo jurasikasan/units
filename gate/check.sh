@@ -31,13 +31,13 @@ trap 'compose --profile demo down -v --remove-orphans >/dev/null 2>&1 || true' E
 
 run "build"  compose build -q
 run "config" compose run --rm --no-deps gate authelia validate-config
-run "unit"   python3 ../tools/check_unit.py .
+run "unit"   python3 ../scripts/check_unit.py .
 run "up"     compose up -d --wait
 run "demo"   compose run --rm demo
 run "restart" compose restart gate
 run "up again" compose up -d --wait
 run "session survives" compose run --rm demo session
-run "gate on a new address" env COMPOSE_FILE=showcase/compose.yaml ../tools/move_address.sh gate
+run "gate on a new address" env COMPOSE_FILE=showcase/compose.yaml ../scripts/move_address.sh gate
 run "nginx finds it there" compose run --rm demo session
 
 echo ""

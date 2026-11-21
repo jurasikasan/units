@@ -44,7 +44,7 @@ same files locally and deployed: [`stacks/lab`](stacks/lab/) is a site behind
   tools and voice — every kind of input and output, what each edge's standard
   and library carries, what units have, and the gaps named.
 - A unit that is a service carries a `unit.yaml`: what it provides (tools,
-  events, HTTP calls), what it consumes, its config. `tools/check_unit.py` holds
+  events, HTTP calls), what it consumes, its config. `scripts/check_unit.py` holds
   each manifest to its unit's code and to the manifests of the units it
   consumes; each such unit's `check.sh` runs it.
 

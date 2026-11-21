@@ -9,7 +9,7 @@
 #      looked for literally. Patterns guess; this knows.
 #
 # A hit names the file, line and rule (or the variable's name), never the
-# value. Exit 1 on any hit. Run from anywhere in the repo; tools/hooks/pre-push
+# value. Exit 1 on any hit. Run from anywhere in the repo; scripts/hooks/pre-push
 # runs it before every push.
 set -euo pipefail
 set +x

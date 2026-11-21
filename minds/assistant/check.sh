@@ -39,7 +39,7 @@ fi
 # (each kind) or goes silent, a client that leaves mid-answer or mid-tool,
 # who may ask, what is read of a message.
 run "tests" go test -race -count=1 ./...
-run "unit"  python3 ../../tools/check_unit.py .
+run "unit"  python3 ../../scripts/check_unit.py .
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

@@ -3,7 +3,7 @@
 // the stream entry, the payload as JSON in data.
 //
 // The envelope is all this package knows. Stream names, sources and event types
-// are each unit's own and stay in the unit, where tools/check_unit.py finds them.
+// are each unit's own and stay in the unit, where scripts/check_unit.py finds them.
 package events
 
 import (

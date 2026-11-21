@@ -9,7 +9,7 @@
 #   greet  a fresh account every run (gate-user add), so every run is a first
 #          login: the ghost sees the assistant's greeting, then steps in;
 #   move   gate, mind and face recreated on new addresses
-#          (tools/move_address.sh), then a login through nginx (demo).
+#          (scripts/move_address.sh), then a login through nginx (demo).
 #
 # Each run's output is kept in REPEAT_LOGS (a new directory under /tmp when
 # unset), <scenario>-<i>.log; a failed run's last lines are printed. Exit 1
@@ -30,7 +30,7 @@ mkdir -p "$logs"
 once() {
   case "$scenario" in
     move)
-      ../../tools/move_address.sh gate mind face || { docker compose logs --tail 30 gate; return 1; }
+      ../../scripts/move_address.sh gate mind face || { docker compose logs --tail 30 gate; return 1; }
       docker compose run --rm demo "$user" "$password"
       ;;
     greet)
