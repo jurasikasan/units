@@ -455,7 +455,7 @@ func (d *Driver) answer(ctx context.Context, subject, thread uuid.UUID, why func
 	start := time.Now()
 	publish(ReplyStarted, with(nil))
 	var written strings.Builder
-	words, err := d.Mind.Run(ctx, thread.String(), reply, messages, h.Model, func(part, text string) {
+	content, err := d.Mind.Run(ctx, thread.String(), reply, messages, h.Model, func(part, text string) {
 		if part == "text" {
 			written.WriteString(text)
 		}
@@ -465,7 +465,7 @@ func (d *Driver) answer(ctx context.Context, subject, thread uuid.UUID, why func
 		d.stopped(context.WithoutCancel(ctx), h, thread, why(), written.String(), with, publish)
 		return
 	}
-	if err == nil && len(words) == 0 {
+	if err == nil && len(content) == 0 {
 		err = &RunError{Code: "said_nothing", Message: "The model said nothing."}
 	}
 	if err != nil {
@@ -483,10 +483,6 @@ func (d *Driver) answer(ctx context.Context, subject, thread uuid.UUID, why func
 		d.Log.Info("the reins taken while it wrote: nothing said", "subject", h.Subject.Nick, "thread", thread)
 		publish(ReplyStopped, with(map[string]any{"why": stopTaken}))
 		return
-	}
-	content := make([]Block, 0, len(words))
-	for _, w := range words {
-		content = append(content, Block{Type: "text", Text: w})
 	}
 	e, err := d.Journal.Say(ctx, thread, subject, content)
 	if err != nil {

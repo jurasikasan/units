@@ -2,6 +2,8 @@ package driver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -118,6 +120,26 @@ func fakeMind(t *testing.T, seen chan<- types.RunAgentInput) *httptest.Server {
 		}
 		if strings.Contains(last, "#slow") || strings.Contains(last, "#hang") {
 			<-r.Context().Done()
+			return
+		}
+		// #draw: a tool that draws, as minds/assistant reports it: the call,
+		// its arguments in pieces, the result in words with the tool's own
+		// result (MCP's) in rawEvent, then the words.
+		if strings.Contains(last, "#draw") {
+			send(map[string]any{"type": "TOOL_CALL_START", "toolCallId": "c1", "toolCallName": "images__draw"})
+			send(map[string]any{"type": "TOOL_CALL_ARGS", "toolCallId": "c1", "delta": `{"prompt":`})
+			send(map[string]any{"type": "TOOL_CALL_ARGS", "toolCallId": "c1", "delta": ` "a red dot"}`})
+			send(map[string]any{"type": "TOOL_CALL_END", "toolCallId": "c1"})
+			send(map[string]any{"type": "TOOL_CALL_RESULT", "messageId": "t1", "toolCallId": "c1", "role": "tool",
+				"content": "A picture of a red dot\n[an image, image/png, 8 bytes]",
+				"rawEvent": map[string]any{"content": []any{
+					map[string]any{"type": "text", "text": "A picture of a red dot"},
+					map[string]any{"type": "image", "data": "UE5HQllURVM=", "mimeType": "image/png"},
+				}}})
+			send(map[string]any{"type": "TEXT_MESSAGE_START", "messageId": "m1", "role": "assistant"})
+			send(map[string]any{"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1", "delta": "Here it is."})
+			send(map[string]any{"type": "TEXT_MESSAGE_END", "messageId": "m1"})
+			send(map[string]any{"type": "RUN_FINISHED", "threadId": in.ThreadID, "runId": in.RunID})
 			return
 		}
 		send(map[string]any{"type": "REASONING_MESSAGE_CONTENT", "messageId": "r", "delta": "hm"})
@@ -281,6 +303,60 @@ func TestAnswer_SaysTheReplyAsTheSubject_PiecesOnTheBus(t *testing.T) {
 
 	d.Answer(context.Background(), helper, thread)
 	assert.Len(t, j.entries, 2, "the last word is its own: nothing more said")
+}
+
+// A picture drawn by a tool is journaled as the avatar's act in order: its
+// call, the tool's result with the picture (the tool's, a data: URL with
+// its sha256), then its words. Read back, the call and the result go to
+// the model in words, the picture named, never sent as itself.
+func TestAnswer_APictureIsTheToolsResultInsideTheAct(t *testing.T) {
+	seen := make(chan types.RunAgentInput, 2)
+	mind := fakeMind(t, seen)
+	defer mind.Close()
+	d, j, _ := newDriver(t, mind.URL)
+	thread := uuid.New()
+	j.entries = []Entry{text(alice, 1, "draw me a red dot #draw")}
+
+	d.Answer(context.Background(), helper, thread)
+	<-seen
+	require.Len(t, j.entries, 2)
+	said := j.entries[1]
+	assert.Equal(t, helper, said.Sender)
+	sum := sha256.Sum256([]byte("PNGBYTES"))
+	assert.Equal(t, []Block{
+		{Type: "tool_call", ID: "c1", Name: "images__draw", Args: json.RawMessage(`{"prompt": "a red dot"}`)},
+		{Type: "tool_result", CallID: "c1", Text: "A picture of a red dot", Media: []Block{
+			{Type: "image", URL: "data:image/png;base64,UE5HQllURVM=", MediaType: "image/png", SHA256: hex.EncodeToString(sum[:])},
+		}},
+		{Type: "text", Text: "Here it is."},
+	}, said.Content)
+
+	j.entries = append(j.entries, text(alice, 3, "thanks"))
+	d.Answer(context.Background(), helper, thread)
+	in := <-seen
+	require.Len(t, in.Messages, 5)
+	assert.Equal(t, types.RoleAssistant, in.Messages[1].Role)
+	require.Len(t, in.Messages[1].ToolCalls, 1)
+	assert.Equal(t, "images__draw", in.Messages[1].ToolCalls[0].Function.Name)
+	assert.Equal(t, types.RoleTool, in.Messages[2].Role)
+	assert.Equal(t, "c1", in.Messages[2].ToolCallID)
+	assert.Equal(t, "A picture of a red dot\n[an image, image/png]", in.Messages[2].Content, "the picture named, not sent")
+	assert.Equal(t, "Here it is.", in.Messages[3].Content)
+	b, _ := json.Marshal(in.Messages)
+	assert.NotContains(t, string(b), "UE5HQllURVM", "its own picture never goes back to the model")
+}
+
+func TestReply_ArgumentsAndUnansweredCalls(t *testing.T) {
+	r := newReply()
+	r.call("a", "t__x")
+	r.args("a", "not json")
+	r.result("a", "ok", nil)
+	r.call("b", "t__y") // never answered
+	r.result("z", "stray", nil)
+	got := r.blocks()
+	require.Len(t, got, 2)
+	assert.JSONEq(t, `{"arguments":"not json"}`, string(got[0].Args))
+	assert.Equal(t, Block{Type: "tool_result", CallID: "a", Text: "ok"}, got[1], "without the tool's own result, its words")
 }
 
 func TestAnswer_AFailureIsSaidOnTheBusOnly(t *testing.T) {

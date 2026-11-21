@@ -13,10 +13,14 @@ is `CONTRACT.md`; this file is for working inside it.
   answer and the greeting, the events on `driver_events`; a failed reply
   lets go of the subject (`letGo`), a journal refusing it does not.
 - `internal/driver/prompt.go` — the prompt from the thread's tail: roles
-  computed, who said it in the words, pictures and PDFs as AG-UI parts;
-  the greeting's cue.
+  computed, who said it in the words, pictures and PDFs as AG-UI parts,
+  the subject's own tool calls and their results in words (a picture
+  named); the greeting's cue.
 - `internal/driver/mind.go` — the AG-UI run, through the protocol's Go SDK
   (its SSE client and event decoder).
+- `internal/driver/reply.go` — the run's answer as threads' blocks, in
+  order: its words, its tool calls and what each tool returned (a picture
+  or a sound as media, a `data:` URL with its sha256).
 - `internal/driver/world.go` — the clients of `threads`, `subjects` and
   reins' inner port (`GET /holds`, `POST /holds/{id}/release`).
 - `internal/driver/driver_test.go` — the prompt, a run against a fake mind,

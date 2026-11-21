@@ -3,7 +3,7 @@
 
 unit: drivers/model
 kind: service
-summary: A chat model holding subjects' reins as one of its profiles (a brain - a name and its chat model), whenever reins says a profile of its holds a subject - woken by threads' events when someone else says something in a thread its subject is in, it builds the prompt from the thread's tail (its subject's entries the assistant's, everyone else's the user's with who said it), has minds/assistant answer as an AG-UI run with the profile's model, streams the reply's pieces on its own stream and says the reply in the thread as the subject; it greets first in a thread its subject opened where nothing is said, and a stop from reins cuts a reply, what was written said; a failed reply gives the subject back to nobody on reins (fail fast, no retry, a steward re-attaches). No database.
+summary: A chat model holding subjects' reins as one of its profiles (a brain - a name and its chat model), whenever reins says a profile of its holds a subject - woken by threads' events when someone else says something in a thread its subject is in, it builds the prompt from the thread's tail (its subject's entries the assistant's, everyone else's the user's with who said it), has minds/assistant answer as an AG-UI run with the profile's model, streams the reply's pieces on its own stream and says the reply in the thread as the subject (its words, its tool calls and what each tool returned, a picture as the tool's); it greets first in a thread its subject opened where nothing is said, and a stop from reins cuts a reply, what was written said; a failed reply gives the subject back to nobody on reins (fail fast, no retry, a steward re-attaches). No database.
 contract: CONTRACT.md
 maturity: probe
 

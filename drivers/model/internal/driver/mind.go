@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/client/sse"
@@ -14,13 +13,14 @@ import (
 )
 
 // Mind runs a prompt and says what came of it: the pieces as they come,
-// the words when it is whole.
+// the reply when it is whole.
 type Mind interface {
 	// Run asks with the messages and the model; piece is called with each
 	// piece of the answer as it comes ("text" or "reasoning"). The answer is
-	// the words of each text message, in order. A run that ends in an
-	// error is *RunError.
-	Run(ctx context.Context, thread, run string, messages []types.Message, model string, piece func(part, text string)) ([]string, error)
+	// the reply as threads' blocks, in the order it was made: each text
+	// message that said any words, each tool call that was answered and
+	// its result (reply.go). A run that ends in an error is *RunError.
+	Run(ctx context.Context, thread, run string, messages []types.Message, model string, piece func(part, text string)) ([]Block, error)
 }
 
 // RunError is the mind's RUN_ERROR, or why no run came back at all.
@@ -49,7 +49,7 @@ func NewAGUI(runURL, principal string) *AGUI {
 	}
 }
 
-func (a *AGUI) Run(ctx context.Context, thread, run string, messages []types.Message, model string, piece func(part, text string)) ([]string, error) {
+func (a *AGUI) Run(ctx context.Context, thread, run string, messages []types.Message, model string, piece func(part, text string)) ([]Block, error) {
 	in := types.RunAgentInput{
 		ThreadID: thread,
 		RunID:    run,
@@ -68,9 +68,7 @@ func (a *AGUI) Run(ctx context.Context, thread, run string, messages []types.Mes
 		return nil, &RunError{Code: "mind_unreachable", Message: "The mind did not answer: " + err.Error()}
 	}
 	dec := events.NewEventDecoder(quietLogger())
-	var words []string
-	open := -1 // index in words of the text message being said
-	ids := map[string]int{}
+	r := newReply()
 	for f := range frames {
 		var head struct {
 			Type string `json:"type"`
@@ -84,21 +82,20 @@ func (a *AGUI) Run(ctx context.Context, thread, run string, messages []types.Mes
 		}
 		switch e := ev.(type) {
 		case *events.TextMessageStartEvent:
-			ids[e.MessageID] = len(words)
-			open = len(words)
-			words = append(words, "")
+			r.start(e.MessageID)
 		case *events.TextMessageContentEvent:
-			i, ok := ids[e.MessageID]
-			if !ok {
-				i = open
-			}
-			if i < 0 {
-				ids[e.MessageID] = len(words)
-				i = len(words)
-				words = append(words, "")
-			}
-			words[i] += e.Delta
+			r.words(e.MessageID, e.Delta)
 			piece("text", e.Delta)
+		case *events.ToolCallStartEvent:
+			r.call(e.ToolCallID, e.ToolCallName)
+		case *events.ToolCallArgsEvent:
+			r.args(e.ToolCallID, e.Delta)
+		case *events.ToolCallResultEvent:
+			var raw any
+			if e.BaseEvent != nil {
+				raw = e.RawEvent
+			}
+			r.result(e.ToolCallID, e.Content, raw)
 		case *events.ReasoningMessageContentEvent:
 			piece("reasoning", e.Delta)
 		case *events.RunErrorEvent:
@@ -108,7 +105,7 @@ func (a *AGUI) Run(ctx context.Context, thread, run string, messages []types.Mes
 			}
 			return nil, &RunError{Code: code, Message: e.Message}
 		case *events.RunFinishedEvent:
-			return said(words), nil
+			return r.blocks(), nil
 		}
 	}
 	if err := <-errs; err != nil {
@@ -118,17 +115,6 @@ func (a *AGUI) Run(ctx context.Context, thread, run string, messages []types.Mes
 		return nil, ctx.Err()
 	}
 	return nil, &RunError{Code: "mind_failed", Message: "The mind's answer ended without RUN_FINISHED"}
-}
-
-// said is the words of each text message that said any.
-func said(words []string) []string {
-	var out []string
-	for _, w := range words {
-		if strings.TrimSpace(w) != "" {
-			out = append(out, w)
-		}
-	}
-	return out
 }
 
 func quietLogger() *logrus.Logger {

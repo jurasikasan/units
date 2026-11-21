@@ -76,8 +76,12 @@ without end: nothing guards against it yet (UNIT-70).
 Built from the tail, the first filter being identity's: `threads` knows no
 roles, they are computed here.
 
-- The subject's own `create` entries are the **assistant's**: their text
-  blocks (a sound by its transcript), joined.
+- The subject's own `create` entries are the **assistant's**, in the order
+  they hold: their text blocks (a sound by its transcript), joined; a
+  `tool_call` answered by a `tool_result` in the same entry as the
+  assistant's tool call, and the result as the tool's message in words: its
+  `text`, each of its `media` named (`[an image, image/png]`). Its own
+  pictures and sounds from tools never go back to the model as themselves.
 - Everyone else's are the **user's**, with **who said it** in the words: the
   first text part begins `<name>: ` (the subject's name in `subjects`, its
   nick when it has none). A picture is an AG-UI `image` part and a `file`
@@ -98,13 +102,22 @@ stays stateless; the driver names itself to it as `X-Principal-Id:
 drivers/model` (it is reached inside the stack, not through the door).
 
 - Each `TEXT_MESSAGE_CONTENT` and `REASONING_MESSAGE_CONTENT` is published as
-  it comes (section 5). Tools are the mind's: their calls and results are not
-  read here, only the words said after them.
-- `RUN_FINISHED`: the reply is said in the thread as the subject: one
-  `create` entry (`POST /threads/{id}/entries`), one `text` block per text
-  message of the run, in order. Reasoning is not journaled.
+  it comes (section 5). Tool calls are read, not published.
+- `RUN_FINISHED`: the reply is said in the thread as the subject, **the
+  avatar's act in the order it was made**: one `create` entry (`POST
+  /threads/{id}/entries`) with a `text` block per text message that said
+  words, a `tool_call` per call the mind made (`TOOL_CALL_START`, its
+  `TOOL_CALL_ARGS` joined: a JSON object, else `{"arguments": "<as it
+  came>"}`), and after it the `tool_result` the tool gave
+  (`TOOL_CALL_RESULT`). What a tool returns is the tool's, not the avatar's
+  words: the result's `text` is the tool's own text blocks and its `media`
+  the tool's pictures and sounds, read from the event's `rawEvent` (MCP's
+  `CallToolResult`, contracts/edges.md), the bytes as a `data:` URL with
+  their sha256 until they have a store (UNIT-68); without a `rawEvent`,
+  `text` is the event's `content`. A call no result answered is left out.
+  Reasoning is not journaled.
 - `RUN_ERROR`, a mind that does not answer or breaks off, or a run that said
-  no words: **nothing is journaled** — the journal holds what was said. The
+  and did nothing: **nothing is journaled** — the journal holds what was said. The
   failure is published (`driver.reply.failed`, the mind's `code` and
   `message`) and logged, and **the subject is given back** (fail fast): the
   driver lets go of its own hold on reins' inner `POST

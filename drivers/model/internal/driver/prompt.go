@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
@@ -24,9 +25,7 @@ func Prompt(ctx context.Context, subject uuid.UUID, tail []Entry, names Registry
 			continue
 		}
 		if e.Sender == subject {
-			if text := ownWords(e.Content); text != "" {
-				out = append(out, types.Message{ID: e.ID.String(), Role: types.RoleAssistant, Content: text})
-			}
+			out = append(out, own(e)...)
 			continue
 		}
 		parts := userParts(names.Name(ctx, e.Sender), e.Content)
@@ -65,17 +64,98 @@ func Greeting(ctx context.Context, subject uuid.UUID, members []uuid.UUID, names
 	return []types.Message{{ID: uuid.NewString(), Role: types.RoleUser, Content: "(" + cue + ")"}}
 }
 
-// ownWords is what the subject said before, as words: its text blocks, a
-// sound by its transcript.
-func ownWords(blocks []Block) string {
-	var words []string
-	for _, b := range blocks {
-		switch {
-		case b.Type == "text" && b.Text != "":
-			words = append(words, b.Text)
-		case b.Type == "audio" && b.Transcript != "":
-			words = append(words, b.Transcript)
+// own is what the subject said and did before, in the order it did it: its
+// words (text blocks, a sound by its transcript) as the assistant's, a tool
+// call it made as the assistant's call, and what the tool returned as the
+// tool's result in words — a picture or a sound named, never sent back as
+// itself. A call with no result in the entry is left out (a model refuses
+// a call nobody answered), and so is a result with no call.
+func own(e Entry) []types.Message {
+	var out []types.Message
+	var cur *types.Message
+	id := func() string {
+		if len(out) == 0 {
+			return e.ID.String()
 		}
+		return fmt.Sprintf("%s-%d", e.ID, len(out))
+	}
+	flush := func() {
+		if cur != nil {
+			out = append(out, *cur)
+			cur = nil
+		}
+	}
+	answered, called := map[string]bool{}, map[string]bool{}
+	for _, b := range e.Content {
+		if b.Type == "tool_result" {
+			answered[b.CallID] = true
+		}
+	}
+	for _, b := range e.Content {
+		switch b.Type {
+		case "text", "audio":
+			w := b.Text
+			if b.Type == "audio" {
+				w = b.Transcript
+			}
+			if w == "" {
+				continue
+			}
+			if cur != nil && len(cur.ToolCalls) > 0 {
+				flush()
+			}
+			if cur == nil {
+				cur = &types.Message{Role: types.RoleAssistant}
+			}
+			if s, _ := cur.Content.(string); s != "" {
+				cur.Content = s + "\n" + w
+			} else {
+				cur.Content = w
+			}
+		case "tool_call":
+			if !answered[b.ID] {
+				continue
+			}
+			if cur == nil {
+				cur = &types.Message{Role: types.RoleAssistant}
+			}
+			args := string(b.Args)
+			if args == "" {
+				args = "{}"
+			}
+			cur.ToolCalls = append(cur.ToolCalls, types.ToolCall{ID: b.ID, Type: types.ToolCallTypeFunction, Function: types.FunctionCall{Name: b.Name, Arguments: args}})
+			called[b.ID] = true
+		case "tool_result":
+			if !called[b.CallID] {
+				continue
+			}
+			if cur != nil {
+				cur.ID = id()
+			}
+			flush()
+			out = append(out, types.Message{ID: id(), Role: types.RoleTool, ToolCallID: b.CallID, Content: resultWords(b)})
+		}
+	}
+	if cur != nil {
+		cur.ID = id()
+	}
+	flush()
+	return out
+}
+
+// resultWords is a tool's result as the model reads it back: its words,
+// and its media named.
+func resultWords(b Block) string {
+	words := []string{}
+	if b.Text != "" {
+		words = append(words, b.Text)
+	}
+	for _, m := range b.Media {
+		kind := "an image"
+		if m.Type == "audio" {
+			kind = "a sound"
+		}
+		words = append(words, fmt.Sprintf("[%s, %s]", kind, m.MediaType))
 	}
 	return strings.Join(words, "\n")
 }

@@ -35,6 +35,13 @@ type Block struct {
 	SHA256     string `json:"sha256,omitempty"`
 	Name       string `json:"name,omitempty"`
 	Transcript string `json:"transcript,omitempty"`
+	// tool_call
+	ID   string          `json:"id,omitempty"`
+	Args json.RawMessage `json:"args,omitempty"`
+	// tool_result: what the tool returned, its words and its media
+	CallID  string  `json:"call_id,omitempty"`
+	IsError bool    `json:"is_error,omitempty"`
+	Media   []Block `json:"media,omitempty"`
 }
 
 // ThreadInfo is a thread as the driver reads it: who opened it, who is in
