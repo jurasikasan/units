@@ -127,6 +127,7 @@ self-signed, so the browser asks first. Mail lands in Mailpit,
 http://localhost:8025.
 
 `./check.sh` runs the whole round from `.env.example` on free ports: up; in a
+real browser, scenario by scenario (below),
 real browser (Playwright, `e2e/chat.mjs`) a person logs in, says something,
 asks what they said first and gets it back, which only happens when the
 conversation goes page → reins → threads → driver → mind → LiteLLM → model,
@@ -157,6 +158,47 @@ refuses someone not logged in; after the first login the person steers
 everything is deleted with its volumes, the backup is restored, and the
 second account logs in again, and the first steers the same subjects as
 before.
+
+### Scenarios
+
+The browser's part is cut into scenarios, each a run of its own (a fresh
+browser and login) and a line of its own in `check.sh`'s report,
+`✓ e2e <name>: …` or `✗ e2e <name>: …`. One runs alone by name,
+`E2E_ONLY=<name>`, against a running lab:
+
+| Scenario | |
+|---|---|
+| `greet` | a login lands as the ghost, who sees every thread and does nothing, then steps into its avatar; on a first login the assistant has greeted first |
+| `conversation` | page → reins → threads → driver → mind → model and back, streamed; a tool, reasoning, attachments, a file over the limit, a model answering 429 and 500 |
+| `stop` | a reply stopped is kept as far as it went, an empty one not at all (fake model) |
+| `model` | the driver's model answers, no pick in the composer; a name set survives a reload; avatars alike (fake model) |
+| `threads` | chats apart, the first all there when switched back to, kept on reload with `/t/<thread>` |
+| `voice` | the mic into the composer, an answer read aloud to the end, a refusal said |
+| `sound` | the ear, mouth and voice picked in the settings are what answer (fake ear) |
+| `call` | a call through the mind, interrupted, muted, hung up (`LAB_REALTIME_MODEL` set) |
+| `me` | who is logged in at the sidebar's foot; log-out ends the session |
+| `two` | two browsers of one person talk, hand the assistant over and back, rename and delete a chat, leave |
+| `refused` | handed to a text-only profile, a picture is refused in words |
+| `failed` | a model answering 429 and 500, alone (fake model) |
+
+Without `E2E_ONLY`, the browser runs `conversation` to `me` in one go
+(`greet` first with `E2E_FIRST_LOGIN=1`).
+
+A flaky step is caught on purpose, not in passing: `e2e/repeat.sh
+<scenario> <n>` runs one scenario n times against the running lab the
+environment names and tallies the outcomes, each run's output kept in
+`REPEAT_LOGS`. Besides the browser's, two scenarios of its own: `greet`
+makes a fresh account each run, so each is a first login, and `move`
+recreates gate, mind and face on new addresses (`tools/move_address.sh`)
+and logs in through nginx. Run it beside whatever loads the machine:
+
+```bash
+COMPOSE_ENV_FILES=$PWD/.env.mine COMPOSE_PROJECT_NAME=mine docker compose up -d --wait
+COMPOSE_ENV_FILES=$PWD/.env.mine COMPOSE_PROJECT_NAME=mine e2e/repeat.sh greet 20
+# greet 1/20: pass in 8 s, load 6.10
+# …
+# greet: 20 of 20 passed, 0 failed (logs in /tmp/repeat-…)
+```
 
 The same browser against a running lab and whatever model it asks, a real
 one included (the answer is then the model's, so give it time):

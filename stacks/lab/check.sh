@@ -1,6 +1,7 @@
 #!/bin/bash
 # The lab from .env.example, on free ports, the whole round: up; in a real
-# browser a person logs in (landing as the ghost, then stepping into their
+# browser, scenario by scenario (e2e/chat.mjs, each its own run and its own
+# line, `e2e <name>`), a person logs in (landing as the ghost, then stepping into their
 # avatar), says something and asks what they said first,
 # and the answer carries it back (the fake model: the page writes into
 # threads through reins, the driver holding <login>-assistant answers there
@@ -91,20 +92,35 @@ steered() { docker compose exec -T reins-db psql -U reins -tAc "SELECT subject_i
 keep_steered() { steered > "$work/steered"; [ "$(wc -l < "$work/steered")" = 2 ] || { cat "$work/steered"; exit 1; }; }
 same_steered() { [ "$(steered)" = "$(cat "$work/steered")" ] || { echo "before:"; cat "$work/steered"; echo "after:"; steered; exit 1; }; }
 
+# A browser's scenario (e2e/chat.mjs) by name, a run of its own, as the
+# first account; what follows the label is set in its environment.
+e2e() {
+  local name=$1 label=$2; shift 2
+  run "e2e $name: $label" env "$@" E2E_ONLY="$name" docker compose run --rm e2e "$first_user" "$first_password"
+}
+
 run "build"          docker compose --profile e2e build -q
 run "up"             docker compose up -d --wait
-run "e2e: a login lands as the ghost, who sees all and does nothing, then steps into its avatar; the assistant greets first; a conversation goes through threads and the driver whole, streamed, stopped, failed, the driver's model, avatars alike, chats apart and kept on reload with /t/<thread>, who is logged in, logged out"  env E2E_FIRST_LOGIN=1 docker compose run --rm e2e "$first_user" "$first_password"
-run "e2e: two browsers as $first_user and $first_user-assistant talk; the assistant handed to the fake profile answers, then taken back; the chat renamed in one shows renamed in the other, then deleted for both; the ghost picked again gives back what this device held, an avatar a brain holds stays its"  env E2E_ONLY=two docker compose run --rm e2e "$first_user" "$first_password"
+e2e greet "a login lands as the ghost, who sees all and does nothing, then steps into its avatar; the assistant greets first"
+e2e conversation "a conversation through threads and the driver whole: streamed, a tool, reasoning, attachments, a model failing"
+e2e stop "a reply stopped is kept as far as it went"
+e2e model "the driver's model answers, a name set survives a reload, avatars alike"
+e2e threads "chats apart, and kept on reload with /t/<thread>"
+e2e voice "the mic into the composer, an answer read aloud"
+e2e sound "the ear, mouth and voice picked in the settings answer"
+e2e call "a call through the mind, interrupted, muted, hung up"
+e2e me "who is logged in, logged out"
+e2e two "two browsers as $first_user and $first_user-assistant talk; the assistant handed to the fake profile answers, then taken back; the chat renamed in one shows renamed in the other, then deleted for both; the ghost picked again gives back what this device held, an avatar a brain holds stays its"
 run "the driver said the answers as $first_user-assistant, and the failures only on the bus"  bash -c 'l=$(docker compose logs driver); echo "$l" | grep -q "msg=replied subject=$0-assistant" && echo "$l" | grep -q "msg=\"reply failed\".*code=model_rate_limited"' "$first_user"
 run "the stream carried the reply as it was written"  bash -c '[ "$(docker compose exec -T bus redis-cli XLEN driver_events)" -gt 20 ]'
 run "the mind logged the call, each event"  bash -c 'docker compose logs mind | grep -q "dir=in .*type=conversation.item.truncate" && docker compose logs mind | grep -q "dir=out .*type=response.output_audio.delta" && docker compose logs mind | grep -q "realtime call closed .*by=client code=1000"'
 run "mind on the whole Realtime set"  env LAB_REALTIME_MODEL=fake-realtime-full docker compose up -d --wait mind
-run "e2e: a call, interrupted by speech_started"  env LAB_REALTIME_MODEL=fake-realtime-full E2E_ONLY=call docker compose run --rm e2e "$first_user" "$first_password"
+e2e call "a call, interrupted by speech_started" LAB_REALTIME_MODEL=fake-realtime-full
 run "the model was told what was heard"  bash -c 'docker compose logs mind | grep -q "dir=out .*type=conversation.item.truncated"'
 run "mind on our own realtime"  env LAB_REALTIME_MODEL=cascade docker compose up -d --wait mind
-run "e2e: a call on cascade, hearing and speaking"  env LAB_REALTIME_MODEL=cascade E2E_ONLY=call docker compose run --rm e2e "$first_user" "$first_password"
+e2e call "a call on cascade, hearing and speaking" LAB_REALTIME_MODEL=cascade
 run "cascade: the page's ear and voice, heard, answered, talked over, truncated"  bash -c 'l=$(docker compose logs realtime); for w in "ear=fake-stt-b" "voice=fake-tts-b_irina" "type=speechrecog.recognition-complete" "msg=answered" "reason=turn_detected" "answer truncated" "type=conversation.item.truncated"; do echo "$l" | grep -q "$w" || { echo "no $w"; exit 1; }; done'
-run "e2e: handed to a text-only profile, a picture is refused, said"  env E2E_ONLY=refused docker compose run --rm e2e "$first_user" "$first_password"
+e2e refused "handed to a text-only profile, a picture is refused, said"
 run "the pages gone, what they held lapses: nobody holds $first_user"  lapsed
 run "the program $program steers its own subjects through /api/ with its password, no page"  as_program
 run "first account: its subjects after login, chat, mail"  docker compose run --rm demo "$first_user" "$first_password" mail

@@ -74,6 +74,13 @@
 // model takes no pictures (fake-text), a picture sent ends the reply with
 // the mind's error, said while writing, and the page shows it; then back
 // to fake.
+//
+// Each round is a scenario, run alone by name with E2E_ONLY=<name> (the
+// list is at the foot, `scenarios`): greet, conversation (the conversation,
+// tools, reasoning, attachments, failures), stop, model, threads, voice,
+// sound, call, me, two, refused, failed. check.sh runs them one by one,
+// each its own run and its own line; e2e/repeat.sh runs one many times.
+// On a failure, what reins holds now is printed beside what the page shows.
 import { chromium } from 'playwright'
 import { writeFileSync } from 'node:fs'
 
@@ -165,7 +172,11 @@ async function attach(...files) {
 
 // failedRound: a model that fails, twice. The driver says so while writing,
 // never in the journal: after a reload it is gone, and the person's words
-// are still there. Nothing stops a reply being written yet.
+// are still there. Nothing stops a reply being written yet. A brain that
+// failed lets go of the avatar (UNIT-94, fail fast): the page shows it held
+// by nobody. A brain handed it again answers what was said last and left
+// unanswered, which would fail again: the person says something else first,
+// then hands it to the fake profile, which answers that.
 async function failedRound() {
   for (const [tag, status] of [['#fail_429', '429'], ['#fail_500', '500']]) {
     const said = await say(`Say anything. ${tag}`)
@@ -174,6 +185,18 @@ async function failedRound() {
       step('FAIL', `the page does not say the model answered ${status}`)
       failed = true
     }
+    await heldBy(page, assistant, 'nobody')
+    await page.getByRole('textbox', { name: 'Message input' }).fill(`Never mind ${status}.`)
+    await page.keyboard.press('Enter')
+    await page.getByText(`Never mind ${status}.`).first().waitFor()
+    await handOther('fake')
+    await page.waitForFunction(() => {
+      const said = [...document.querySelectorAll('[data-role="user"], [data-role="assistant"]')]
+      const last = said.at(-1)
+      return last?.dataset.role === 'assistant' && !last.innerText.includes('answered')
+    })
+    await page.getByRole('status', { name: 'Writing' }).waitFor({ state: 'detached' })
+    step('the brain failed, the assistant', 'held by nobody; handed to fake again, it answers')
   }
   await page.reload()
   await page.getByText('Say anything. #fail_500').first().waitFor()
@@ -861,36 +884,72 @@ async function fullRound() {
   if (fake) await failedRound()
 }
 
+// The scenarios, each a run of its own by name (E2E_ONLY=<name>): a login,
+// then its round. `needs` is what a scenario asks of the lab, `has` whether
+// this one has it; without it the scenario is skipped, and says so. Without
+// E2E_ONLY, the whole round in one browser: `greet` (with E2E_FIRST_LOGIN)
+// and then the scenarios in `whole`, in order.
+const scenarios = {
+  greet: { round: greetRound },
+  conversation: { round: fullRound },
+  stop: { round: stopRound, needs: 'the fake model', has: fake },
+  model: { round: modelRound, needs: 'the fake model', has: fake },
+  threads: { round: threadsRound },
+  voice: { round: voiceRound },
+  sound: { round: soundPickRound, needs: 'the fake ear', has: fakeEar },
+  call: { round: callRound, needs: 'a realtime model', has: !!realtime },
+  me: { round: meRound },
+  two: { round: twoRound },
+  refused: { round: refusedRound },
+  failed: { round: failedRound, needs: 'the fake model', has: fake },
+}
+const whole = ['conversation', 'stop', 'model', 'threads', 'voice', 'sound', 'call', 'me']
+const runs = (name) => !scenarios[name].needs || scenarios[name].has
+if (only && !scenarios[only]) {
+  console.log(`  FAIL no scenario ${JSON.stringify(only)}; there are ${Object.keys(scenarios).join(', ')}`)
+  await browser.close()
+  process.exit(2)
+}
+if (only && !runs(only)) {
+  console.log(`  scenario ${only}: skipped, it needs ${scenarios[only].needs}`)
+  await browser.close()
+  process.exit(0)
+}
+
 try {
+  if (only) console.log(`  scenario ${only}`)
   await page.goto(url + '/')
   step('no session: the login page', new URL(page.url()).pathname)
   await logIn(page)
   step(`${user} logs in, the chat`, await page.title())
 
-  if (only === 'refused') await refusedRound()
-  else if (only === 'voice') await voiceRound()
-  else if (only === 'call') await callRound()
-  else if (only === 'model') await modelRound()
-  else if (only === 'threads') await threadsRound()
-  else if (only === 'sound') await soundPickRound()
-  else if (only === 'me') await meRound()
-  else if (only === 'two') await twoRound()
-  else if (only === 'stop') await stopRound()
-  else if (only === 'failed') await failedRound()
+  // A scenario alone starts where the first login leaves the lab: the
+  // assistant held by the fake profile (one before may have left it to
+  // nobody: a brain that failed lets go). greet looks at that state itself.
+  if (only && only !== 'greet') {
+    const held = await pickerItem(page, assistant).getAttribute('aria-label')
+    if (held !== `${assistant}: brain fake`) {
+      step('the assistant, first', `${held}; handed to fake`)
+      await handOther('fake')
+    }
+  }
+  if (only) await scenarios[only].round()
   else {
     if (process.env.E2E_FIRST_LOGIN) await greetRound()
-    await fullRound()
-    if (fake) await stopRound()
-    if (fake) await modelRound()
-    await threadsRound()
-    await voiceRound()
-    if (fakeEar) await soundPickRound()
-    if (realtime) await callRound()
-    await meRound()
+    for (const name of whole) if (runs(name)) await scenarios[name].round()
   }
 } catch (e) {
   console.log(`  FAIL ${e.message.split('\n')[0]}`)
   await page.screenshot({ path: '/tmp/e2e-fail.png' }).catch(() => {})
+  // What reins holds now, read afresh beside what the page showed: a step
+  // the page missed is told from one that never happened.
+  try {
+    const threads = await (await page.request.get(url + '/api/reins/me/threads')).json()
+    const newest = threads[0]
+    const entries = newest ? await (await page.request.get(`${url}/api/reins/threads/${newest.id}/entries`)).json() : []
+    console.log(`  reins now: ${threads.length} threads; the newest's entries ${JSON.stringify(entries.map((x) => `${x.seq} ${x.kind}`))}`)
+    console.log(`  the page: ${await page.locator('[data-slot="aui_thread-list-item"]').count()} threads listed, ${await page.locator('[data-role="assistant"]').count()} on the left, at ${new URL(page.url()).pathname}`)
+  } catch {}
   failed = true
 } finally {
   await browser.close()
