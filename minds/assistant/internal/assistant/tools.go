@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared"
@@ -116,31 +117,41 @@ func (k *kit) close() {
 	}
 }
 
+// answer is what came of a tool call: the words the model reads back, and
+// the tool's own result as MCP gave it (nil when no tool answered: no such
+// tool, arguments that are not JSON, a server gone). The result is the
+// tool's, pictures included; it goes on to whoever listens to the run.
+type answer struct {
+	words  string
+	result *mcp.CallToolResult
+}
+
 // call runs one tool call as the model made it and says what came of it,
 // in words the model reads back. A call that cannot be made, or a tool that
 // reports an error, is an answer too: the model hears it and goes on.
-func (k *kit) call(ctx context.Context, name, args string) (result string, failed bool) {
+func (k *kit) call(ctx context.Context, name, args string) answer {
 	r, ok := k.route[name]
 	if !ok {
-		return fmt.Sprintf("there is no tool %q", name), true
+		return answer{words: fmt.Sprintf("there is no tool %q", name)}
 	}
 	var a map[string]any
 	if strings.TrimSpace(args) != "" {
 		if err := json.Unmarshal([]byte(args), &a); err != nil {
-			return "the arguments are not a JSON object: " + err.Error(), true
+			return answer{words: "the arguments are not a JSON object: " + err.Error()}
 		}
 	}
 	res, err := r.session.CallTool(ctx, &mcp.CallToolParams{Name: r.tool, Arguments: a})
 	if err != nil {
-		return "the tool could not be called: " + err.Error(), true
+		return answer{words: "the tool could not be called: " + err.Error()}
 	}
-	return words(res), res.IsError
+	return answer{words: words(res), result: res}
 }
 
 // words is a tool's result as text for the model. Text is passed as it is;
 // structured content, when there is no text, as JSON; an image, a sound or
-// a binary resource is named, not carried, until results with media reach
-// models (UNIT-34).
+// a binary resource is named, not carried: the model reads a tool's
+// picture as words (the picture itself goes to the run's listener, in
+// TOOL_CALL_RESULT's rawEvent).
 func words(res *mcp.CallToolResult) string {
 	var out []string
 	for _, c := range res.Content {
@@ -169,19 +180,33 @@ func words(res *mcp.CallToolResult) string {
 	return strings.Join(out, "\n")
 }
 
+// toolResult is a call's TOOL_CALL_RESULT. AG-UI has no event or part for
+// media an agent's tool makes, and its content is a string: content is the
+// words the model read back, as any AG-UI client shows them, and rawEvent
+// is the tool's result as MCP gave it (CallToolResult: its content blocks,
+// an image's base64 bytes and mimeType among them, isError). Without a
+// tool's answer there is no rawEvent (contracts/edges.md).
+func toolResult(callID string, a answer) events.Event {
+	e := events.NewToolCallResultEvent(events.GenerateMessageID(), callID, a.words)
+	if a.result != nil {
+		e.RawEvent = a.result
+	}
+	return e
+}
+
 // callAll makes a turn's calls at once and returns what each said, in the
 // order the model made them. With no kit every call is answered as unknown.
-func (k *kit) callAll(ctx context.Context, calls []call) []string {
-	out := make([]string, len(calls))
+func (k *kit) callAll(ctx context.Context, calls []call) []answer {
+	out := make([]answer, len(calls))
 	done := make(chan struct{}, len(calls))
 	for i, c := range calls {
 		go func() {
 			defer func() { done <- struct{}{} }()
 			if k == nil {
-				out[i] = fmt.Sprintf("there is no tool %q", c.name)
+				out[i] = answer{words: fmt.Sprintf("there is no tool %q", c.name)}
 				return
 			}
-			out[i], _ = k.call(ctx, c.name, c.args)
+			out[i] = k.call(ctx, c.name, c.args)
 		}()
 	}
 	for range calls {

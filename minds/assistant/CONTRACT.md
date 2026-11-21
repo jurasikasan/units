@@ -153,10 +153,19 @@ When the model calls tools, in the same stream:
   they arrive, `TOOL_CALL_END` when the model's turn is over. A model may
   say words in the same turn: they come as a text message of their own.
 - The calls of one turn are made at once; a `TOOL_CALL_RESULT` per call, in
-  the order the model made them, `content` being what the tool said: its
-  text, or its structured content as JSON; an image, a sound or a binary
-  resource is named, not carried, for now. A tool that fails, one that does
-  not exist, or arguments that are not JSON are a result too, saying so.
+  the order the model made them. `content` is what the model reads back:
+  the tool's text, or its structured content as JSON; an image, a sound or
+  a binary resource named in words (`[an image, image/png, 1234 bytes]`).
+  `rawEvent` is the tool's result as MCP gave it, `CallToolResult` whole:
+  its `content` blocks (an `image` with its base64 `data` and
+  `mimeType`, `audio` alike), `structuredContent`, `isError`. AG-UI has
+  no event or part for media an agent's tool makes; this is how it reaches
+  the listener (contracts/edges.md). What a tool returns is the tool's: a
+  listener that keeps the run keeps the picture as the call's result, not
+  as the agent's words. A tool that fails, one that does not exist, or
+  arguments that are not JSON are a result too, saying so; when no tool
+  answered (no such tool, arguments that are not JSON, a server gone)
+  there is no `rawEvent`.
 - The model is asked again with its calls and their results, and the run
   goes on, at most `MAX_TOOL_STEPS` turns. A model still calling tools
   after that ends the run with `RUN_ERROR`.
@@ -299,7 +308,8 @@ model generated. Neither is built yet; nothing here is shaped against them.
 ## Not yet
 
 - No storage: a thread is only as long as the client remembers it.
-- No video read into the prompt, nor images from tools' results.
+- No video read into the prompt; a tool's picture reaches the model only
+  as words.
 - A part a model cannot take is refused, never turned into one it can
   (UNIT-43).
 - The words of a model's reasoning are not given back to it, not even to

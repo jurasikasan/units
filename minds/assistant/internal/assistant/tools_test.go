@@ -88,6 +88,10 @@ func toolServer(t *testing.T) *httptest.Server {
 		func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
 			return nil, nil, fmt.Errorf("out of order")
 		})
+	mcp.AddTool(s, &mcp.Tool{Name: "draw", Description: "a picture and a line"},
+		func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "a red dot"}, &mcp.ImageContent{Data: []byte("PNGBYTES"), MIMEType: "image/png"}}}, nil, nil
+		})
 	mcp.AddTool(s, &mcp.Tool{Name: "slow", Description: "answers after a while"},
 		func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
 			time.Sleep(300 * time.Millisecond)
@@ -112,12 +116,13 @@ func serveWithTools(t *testing.T, f *scriptedModel, servers []Server, maxSteps i
 
 // toolEvent is an AG-UI tool event as a client reads it.
 type toolEvent struct {
-	Type         string `json:"type"`
-	ToolCallID   string `json:"toolCallId"`
-	ToolCallName string `json:"toolCallName"`
-	Delta        string `json:"delta"`
-	Content      string `json:"content"`
-	Message      string `json:"message"`
+	Type         string          `json:"type"`
+	ToolCallID   string          `json:"toolCallId"`
+	ToolCallName string          `json:"toolCallName"`
+	Delta        string          `json:"delta"`
+	Content      string          `json:"content"`
+	Message      string          `json:"message"`
+	RawEvent     json.RawMessage `json:"rawEvent"`
 }
 
 func runEvents(t *testing.T, mind *httptest.Server, question string) []toolEvent {
@@ -214,6 +219,56 @@ func callsAndResults(req map[string]any) string {
 		}
 	}
 	return strings.Join(out, "; ")
+}
+
+// A tool's picture: the model reads it as words, the run's listener gets
+// the tool's result whole in rawEvent, the picture's bytes in it.
+func TestAToolsPictureGoesToTheListenerAsTheToolsResult(t *testing.T) {
+	f := &scriptedModel{turns: []turn{
+		{calls: []scriptedCall{{id: "c1", name: "calc__draw", args: []string{"{}"}}, {id: "c2", name: "calc__add", args: []string{`{"a":1,"b":1}`}}}},
+		{words: "Here it is."},
+	}}
+	evs := runEvents(t, serveWithTools(t, f, []Server{{Name: "calc", URL: toolServer(t).URL}}, 0), "draw")
+	var results []toolEvent
+	for _, e := range evs {
+		if e.Type == "TOOL_CALL_RESULT" {
+			results = append(results, e)
+		}
+	}
+	if len(results) != 2 {
+		t.Fatalf("results %+v", results)
+	}
+	if results[0].Content != "a red dot\n[an image, image/png, 8 bytes]" {
+		t.Errorf("content, the words the model read: %q", results[0].Content)
+	}
+	var raw struct {
+		Content []struct {
+			Type, Text, Data, MimeType string
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+	if err := json.Unmarshal(results[0].RawEvent, &raw); err != nil {
+		t.Fatalf("rawEvent %s: %v", results[0].RawEvent, err)
+	}
+	if len(raw.Content) != 2 || raw.Content[0].Type != "text" || raw.Content[1].Type != "image" ||
+		raw.Content[1].MimeType != "image/png" || raw.Content[1].Data != "UE5HQllURVM=" {
+		t.Errorf("rawEvent, the tool's result: %s", results[0].RawEvent)
+	}
+	if !strings.Contains(string(results[1].RawEvent), `"text":"2"`) {
+		t.Errorf("a text tool's rawEvent: %s", results[1].RawEvent)
+	}
+	msgs, _ := json.Marshal(f.asked[1]["messages"])
+	if strings.Contains(string(msgs), "UE5HQllURVM") || !strings.Contains(string(msgs), "[an image, image/png, 8 bytes]") {
+		t.Errorf("the model reads the picture as words: %s", msgs)
+	}
+
+	// No tool answered: no rawEvent.
+	f2 := &scriptedModel{turns: []turn{{calls: []scriptedCall{{id: "c", name: "nobody__x", args: []string{"{}"}}}}, {words: "no"}}}
+	for _, e := range runEvents(t, serveWithTools(t, f2, nil, 0), "x") {
+		if e.Type == "TOOL_CALL_RESULT" && len(e.RawEvent) != 0 {
+			t.Errorf("a result no tool gave has a rawEvent: %s", e.RawEvent)
+		}
+	}
 }
 
 func TestParallelCallsAreMadeAtOnce(t *testing.T) {

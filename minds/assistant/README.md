@@ -5,7 +5,9 @@ A chat assistant. An [AG-UI](https://docs.ag-ui.com) run comes in at
 over server-sent events. The model is anything that speaks OpenAI's chat
 completions: LiteLLM in front of a provider, or one engine. When the model
 calls tools, the mind calls them on MCP servers (MCP 2026-07-28) and gives
-it what they said, until it answers in words. What the model thinks is
+it what they said, until it answers in words; a tool's picture reaches the
+model as words, and the client whole, as the tool's result
+(`TOOL_CALL_RESULT`'s `rawEvent`). What the model thinks is
 shown as AG-UI reasoning; what only the model can read again (a signature)
 rides with it to the client and goes back to that same model, never to
 another. A picture, a PDF or a sound goes with a

@@ -321,10 +321,10 @@ func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversat
 		p = append(p, entry{said: s})
 		results := k.callAll(ctx, s.calls)
 		for i, c := range s.calls {
-			if err := emit(events.NewToolCallResultEvent(events.GenerateMessageID(), c.id, results[i])); err != nil {
+			if err := emit(toolResult(c.id, results[i])); err != nil {
 				return err
 			}
-			p = append(p, entry{msg: openai.ToolMessage(results[i], c.id)})
+			p = append(p, entry{msg: openai.ToolMessage(results[i].words, c.id)})
 		}
 	}
 	return emit(events.NewRunErrorEvent(fmt.Sprintf("the model was still calling tools after %d steps", a.maxSteps), events.WithRunID(in.RunID), events.WithErrorUsage(used)))
