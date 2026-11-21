@@ -203,10 +203,19 @@ export function useWorld(fetcher: typeof fetch, me: Avatar | undefined, writes: 
     writingRef.current = writing
   })
 
+  // The list is read again whenever the stream brings a thread not listed,
+  // so reads overlap; one asked earlier may answer later. Only an answer to
+  // a read asked after the one shown is kept: a list from before a thread
+  // was opened never hides it again.
+  const asked = useRef(0)
+  const shown = useRef(0)
   const loadThreads = useCallback(async () => {
+    const n = ++asked.current
     const r = await fetcher(THREADS)
     if (!r.ok) return
     const list: Thread[] = await r.json()
+    if (n < shown.current) return
+    shown.current = n
     setThreads(list)
     // A few words of each, to call it by.
     for (const t of list.slice(0, 30)) {
