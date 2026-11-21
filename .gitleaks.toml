@@ -1,0 +1,29 @@
+# gitleaks rules for this repository: its defaults, plus what they miss.
+# Run through tools/check_secrets.sh, which never prints a matched value.
+
+[extend]
+useDefault = true
+
+# A password inside a URL: postgres://user:pass@host, redis://:pass@host,
+# https://user:pass@host. The defaults let a plain DSN through.
+[[rules]]
+id = "url-password"
+description = "Password inside a URL (DSN, basic auth in a link)"
+regex = '''[a-zA-Z][a-zA-Z0-9+.-]{1,20}://[^:/?#@\s"'`]*:([^@/?#\s"'`]{1,200})@[^\s"'`]'''
+secretGroup = 1
+keywords = ["://"]
+
+  # Showcase and test databases on internal compose networks use the user
+  # name as the password; values that come from the environment are not
+  # values at all.
+  [[rules.allowlists]]
+  regexTarget = "secret"
+  regexes = [
+    '''^(auth|board|reins|store|subjects|threads|t|postgres|password|pass|secret|user)$''',
+    '''^\$''',
+    '''^(…|\*+|x+|<[^>]*>|REDACTED)$''',
+  ]
+
+# Secret-looking assignments are left to tools/check_secrets.sh, which looks
+# for the actual values on this machine: a pattern for them flagged every
+# TokenCount and os.environ/ reference.

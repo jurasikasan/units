@@ -46,9 +46,15 @@ becomes a task with acceptance criteria.
 - Body: prose, why and what changed in behaviour, not a file list. Name the
   board handle (`UNIT-5`) when there is one.
 - This repository is public: no hosts, addresses, tokens or deployment
-  details in tracked files.
+  details in tracked files. `tools/check_secrets.sh` holds the repo to it:
+  gitleaks with `.gitleaks.toml` (its defaults plus passwords in URLs) over
+  every commit and the index, and every value of the local gitignored env
+  files looked for literally, a value equal to a tracked `.env.example` line
+  excepted. A hit names file and rule or variable, never the value. It runs
+  before every push once a clone has `git config core.hooksPath tools/hooks`.
 
 ## Local only
 
-- `_ignored/` and `.claude/` are gitignored. `_ignored/` holds secrets
-  (`tasks-token.env`) and scratch; never print its contents.
+- `_ignored/` and `.claude/` are gitignored. `_ignored/` is scratch (eval
+  results, probes); the board's token sits beside the `/tasks` skill in
+  `.claude/skills/tasks/`. Never print a secret file's contents.
