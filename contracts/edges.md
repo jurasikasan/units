@@ -35,13 +35,13 @@ people ──AG-UI 1.0──▶ faces/web_chat ──AG-UI──▶ minds/assist
 |---|---|---|---|---|---|---|
 | text, streamed | ✓ | ✓ | ✓ | ✓ result content | ✓ | mind ✓; threads `text` |
 | images in | ✓ user parts | ✓ | ✓ | ✓ result content | ✓ | threads `image`; face and mind: carried (UNIT-25) |
-| images out | – (a capability flag only) | ext (LiteLLM `message.images`) | ✓ hosted tool | ✓ result content | – | – |
+| images out | – (a capability flag only) | ext (LiteLLM `message.images`) | ✓ hosted tool | ✓ result content | – | a tool's answer (UNIT-34): `tools/images` draws (MCP `image`); mind: the model reads it in words, `TOOL_CALL_RESULT.rawEvent` carries it on; threads `tool_result.media`; face: the call's tool card |
 | documents in | ✓ user parts | ✓ | ✓ | ✓ resources | – | artifact_store keeps bytes; threads has no block; face and mind: a PDF, text files (UNIT-25) |
 | audio as a part | ✓ in only | ✓ in and out | in ✓, out *(unverified)* | ✓ result content | — | engines ✓ (OpenAI audio API); threads `audio`; mind: in, WAV and MP3 |
 | what a model takes | – | ext (LiteLLM `/v1/model/info`, `supports_vision` …) | – | – | – | mind: a part the model does not take, or nothing carries, ends the run with `RUN_ERROR` (UNIT-33) |
 | speech to text, text to speech | – | – (the audio API beside it) | – | – | ✓ (transcripts, voice out) | engines ✓, models in the lab's LiteLLM (UNIT-46); mind: the audio API handed on to LiteLLM, the picked model or its own, logged (UNIT-45, UNIT-46); face: mic into the composer, read-aloud, ear, mouth and voice picked in the sidebar |
 | live voice | – | – | – | – | ✓ | face: a call in the schema (mic, voice out, mute, hang up, transcripts in the thread, truncate); mind: relays it to LiteLLM, each event logged (UNIT-40); minds/realtime: the schema's whole set from hearing, a chat model and speaking (UNIT-47); web_audio_call, sip_phone: RTP lines, not this schema |
-| tool calls | ✓ | ✓ | ✓, + hosted and remote MCP | ✓ | ✓, + MCP | MCP servers on go-sdk v1.1.0 (web_audio_call v1.8.0); threads `tool_call`/`tool_result`; mind: none |
+| tool calls | ✓ | ✓ | ✓, + hosted and remote MCP | ✓ | ✓, + MCP | MCP servers on go-sdk v1.1.0 (web_audio_call, tools/images v1.8.0); threads `tool_call`/`tool_result`; mind: an MCP client (`MCP_SERVERS`); driver: journals calls and results as the avatar's act |
 | reasoning shown | ✓ | ext (`reasoning_content`) | ✓ summary | – | config only | mind ✓ as AG-UI reasoning; threads has no block |
 | reasoning returned to the model | ✓ `encryptedValue` | ext (`thinking_blocks`, `provider_specific_fields`) | ✓ `encrypted_content` | – | – | mind ✓, to the model that made it only |
 | asking a person mid-run | ✓ interrupts, `resume` | – | approvals for MCP | ✓ MRTR, elicitation | approvals for MCP | – |
@@ -117,6 +117,21 @@ every result has `resultType`; a tool result carries `text`, `image`,
 `audio`, `resource_link`, `resource` and `structuredContent`. Five units'
 MCP servers are on go-sdk v1.1.0, two revisions behind.
 
+**A tool's media over AG-UI (UNIT-34).** AG-UI 1.0 has no event or part
+for an image or a sound the agent makes, and `TOOL_CALL_RESULT.content` is
+a string. Ours: `content` stays the words the model read back (a tool's
+picture named in them, `[an image, image/png, 1234 bytes]`), so any AG-UI
+client shows what the model read; the event's `rawEvent` — AG-UI's own
+field for the source event an event was made from — carries the tool's
+result as MCP gave it, `CallToolResult` whole (`content` blocks, an
+`image`'s base64 `data` and `mimeType`, `audio` alike, `structuredContent`,
+`isError`). No `rawEvent` when no tool answered. Whoever keeps the run
+keeps the picture as the call's result, not as the agent's words: the
+driver journals it as threads' `tool_result.media` (a `data:` URL with
+its sha256 until UNIT-68), and the face shows it on the call's tool card.
+A client that reads only `content` loses the picture and keeps the words;
+when AG-UI gains a media part, it takes `rawEvent`'s place.
+
 **Reasoning.** Two things travel separately. What a person may see:
 AG-UI `REASONING_START`, `REASONING_MESSAGE_*`, `REASONING_END`; Responses
 `reasoning.summary` and `response.reasoning_summary_text.delta`; in Chat
@@ -166,7 +181,7 @@ exists only as a child thread.
 |---|---|---|
 | mind ignores audio and video parts | adapter (mind) | images and documents carried (UNIT-25); audio when a model here takes it |
 | sound is not streamed, either way | the standard's, partly | the audio API answers a transcription once, for the whole recording, and the face plays speech when it has all come; OpenAI's `stream` for both is not tried here (UNIT-40 is the live way) |
-| AG-UI has no agent-made images or sound | the standard's | an image the agent makes reaches the face as a tool result or activity, until AG-UI carries it |
+| AG-UI has no agent-made images or sound | the standard's | an image the agent's tool makes rides on `TOOL_CALL_RESULT.rawEvent` as MCP's result (UNIT-34), until AG-UI carries it |
 | Chat Completions or Responses toward models | adapter (mind) | Chat Completions now, with LiteLLM's extensions as an explicit layer; Responses when LiteLLM carries it for our providers (see Probed) |
 | mind calls no tools | adapter (mind) | an MCP client on go-sdk v1.8 |
 | units' MCP on 2025-06-18 | unit | each unit to go-sdk v1.8, stateless, before the mind calls it |
