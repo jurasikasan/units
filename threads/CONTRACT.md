@@ -1,5 +1,9 @@
 # threads — contract
 
+Status: v0.2.0 — v0.1.0 plus a `file` block, and a `tool_result` that
+carries what the tool returned beside its words (`media`); every entry
+valid under v0.1.0 is valid still.
+
 The traces subjects leave in the world: a thread is a journal of what happened
 in one place — what was said, who came and went. Shared by whoever takes part,
 re-readable, never rewritten. Not a subject's situation: that is the subject's
@@ -56,7 +60,13 @@ uses today. A new kind is added when a writer needs it.
 | `image` | `url`, `media_type`, `sha256` |
 | `file` | `url`, `media_type`, `sha256`, `name` (optional) — a document such as a PDF |
 | `tool_call` | `id`, `name`, `args` (a JSON object) |
-| `tool_result` | `call_id`, `text`, `is_error` (optional) |
+| `tool_result` | `call_id`, `text`, `is_error` (optional), `media` (optional) — a list of `image` and `audio` blocks |
+
+A `tool_result` is what a tool returned: its words in `text`, and in
+`media` a picture or a sound it made, each a block of its own type with
+that type's fields. What a tool returns is the tool's: whoever made the
+call wrote it into the journal, but a picture in `media` is not the
+caller's own words or picture. A media block has no `media` of its own.
 
 `url` is opaque here: threads never fetches it. `sha256` is the bytes'
 digest, so a reader can tell when what the url serves is no longer what was

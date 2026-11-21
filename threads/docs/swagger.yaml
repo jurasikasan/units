@@ -9,6 +9,13 @@ definitions:
         type: string
       is_error:
         type: boolean
+      media:
+        description: |-
+          Media: a tool_result's only — what the tool returned beside its
+          words, as image and audio blocks. The tool's, not the caller's.
+        items:
+          $ref: '#/definitions/thread.Block'
+        type: array
       media_type:
         type: string
       name:

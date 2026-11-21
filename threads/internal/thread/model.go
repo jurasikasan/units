@@ -79,4 +79,7 @@ type Block struct {
 	Args       json.RawMessage `json:"args,omitempty" swaggertype:"object"`
 	CallID     string          `json:"call_id,omitempty"`
 	IsError    bool            `json:"is_error,omitempty"`
+	// Media: a tool_result's only — what the tool returned beside its
+	// words, as image and audio blocks. The tool's, not the caller's.
+	Media []Block `json:"media,omitempty"`
 }

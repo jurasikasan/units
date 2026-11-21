@@ -187,7 +187,9 @@ func TestLiveBlocksRoundTrip(t *testing.T) {
 	_, err = svc.Append(ctx, th.ID, NewEntry{Sender: alice, Kind: KindCreate, Content: in})
 	require.NoError(t, err)
 	_, err = svc.Append(ctx, th.ID, NewEntry{Sender: alice, Kind: KindCreate, Content: []Block{
-		{Type: BlockToolResult, CallID: "c1", Text: "wet", IsError: true},
+		{Type: BlockToolResult, CallID: "c1", Text: "wet", IsError: true, Media: []Block{
+			{Type: BlockImage, URL: "data:image/png;base64,AA==", MediaType: "image/png", SHA256: digest},
+		}},
 		{Type: BlockAudio, URL: "u", MediaType: "audio/wav", SHA256: digest, Transcript: "wet"},
 	}})
 	require.NoError(t, err)
@@ -198,6 +200,8 @@ func TestLiveBlocksRoundTrip(t *testing.T) {
 	require.Equal(t, "look", es[0].Content[1].Name)
 	require.JSONEq(t, `{"q":"rain"}`, string(es[0].Content[1].Args))
 	require.True(t, es[1].Content[0].IsError)
+	require.Len(t, es[1].Content[0].Media, 1)
+	require.Equal(t, "data:image/png;base64,AA==", es[1].Content[0].Media[0].URL)
 	require.Equal(t, digest, es[1].Content[1].SHA256)
 	require.False(t, es[1].At.IsZero())
 }

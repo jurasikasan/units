@@ -22,8 +22,11 @@ var blockFields = map[string]struct{ allowed, required []string }{
 	BlockImage:      {[]string{"url", "media_type", "sha256"}, []string{"url", "media_type", "sha256"}},
 	BlockFile:       {[]string{"url", "media_type", "sha256", "name"}, []string{"url", "media_type", "sha256"}},
 	BlockToolCall:   {[]string{"id", "name", "args"}, []string{"id", "name", "args"}},
-	BlockToolResult: {[]string{"call_id", "text", "is_error"}, []string{"call_id"}},
+	BlockToolResult: {[]string{"call_id", "text", "is_error", "media"}, []string{"call_id"}},
 }
+
+// mediaTypes: the blocks a tool_result's media may hold.
+var mediaTypes = map[string]bool{BlockImage: true, BlockAudio: true}
 
 func invalid(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalid, fmt.Sprintf(format, a...))
@@ -91,6 +94,14 @@ func validateBlock(b Block) error {
 	if b.SHA256 != "" && !sha256Pattern.MatchString(b.SHA256) {
 		return invalid("sha256 is 64 lower-case hex digits")
 	}
+	for i, m := range b.Media {
+		if !mediaTypes[m.Type] {
+			return invalid("media %d: a tool_result's media is image or audio, not %q", i, m.Type)
+		}
+		if err := validateBlock(m); err != nil {
+			return fmt.Errorf("media %d: %w", i, err)
+		}
+	}
 	if b.Args != nil {
 		t := bytes.TrimSpace(b.Args)
 		if len(t) == 0 || t[0] != '{' {
@@ -118,5 +129,6 @@ func setFields(b Block) []string {
 	add("args", len(b.Args) > 0)
 	add("call_id", b.CallID != "")
 	add("is_error", b.IsError)
+	add("media", len(b.Media) > 0)
 	return out
 }

@@ -363,6 +363,13 @@
                 "is_error": {
                     "type": "boolean"
                 },
+                "media": {
+                    "description": "Media: a tool_result's only — what the tool returned beside its\nwords, as image and audio blocks. The tool's, not the caller's.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/thread.Block"
+                    }
+                },
                 "media_type": {
                     "type": "string"
                 },
