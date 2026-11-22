@@ -22,7 +22,10 @@ export function ChatSidebar({ picker, me, acts }: { picker?: ReactNode; me?: Rea
   return (
     <Sidebar>
       {picker && (
-        <SidebarHeader className="border-b">
+        // Bounded, and scrolled on its own: with many avatars (made from
+        // the settings' "+") the picker would push the threads and the
+        // foot, the way to the settings, out of the sidebar.
+        <SidebarHeader className="max-h-[45svh] overflow-y-auto overscroll-contain border-b">
           {picker}
         </SidebarHeader>
       )}

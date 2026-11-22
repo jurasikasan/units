@@ -19,6 +19,7 @@ consumes:
     - GET /api/v1/realtime                # a call: OpenAI's Realtime schema over a WebSocket, PCM16 24 kHz both ways
     - GET /api/v1/userinfo                # who is logged in, at the sidebar's foot: OIDC UserInfo claims, end_session_endpoint for log out
     - GET /api/reins/me/subjects          # reins: the avatars the person steers; the settings show only when answered
+    - POST /api/reins/me/subjects         # reins: a new avatar the person steers, made from the settings
     - PATCH /api/reins/subjects/{id}      # reins: a change of an avatar's name, bio or preferences (keys in reins' CONTRACT.md)
     - GET /api/reins/me/threads           # reins: the chats, threads the person's avatars are in
     - POST /api/reins/me/threads          # reins: a new chat, the avatar picked and held here with the first other one

@@ -22,7 +22,7 @@ components from its registry. React, Vite, Tailwind.
 | `src/ToolCard.tsx` | ours: an avatar's tool call and what the tool returned (a picture), one card inside its message |
 | `src/Sidebar.tsx`, `src/Composer.tsx`, `src/Said.tsx` | ours: the sidebar (the picker on top, upstream's thread list, who is logged in at its foot); the composer's row (a call's buttons, who is writing, Stop) and what stands in the composer's place with nobody to write as; who said a message of the other side, and when |
 | `src/Picker.tsx`, `src/who.ts`, `src/device.ts` | ours: who the person is on this device (the ghost or an avatar, each with who holds it, the radio of the picked one's brains), kept per device; this browser's device id |
-| `src/Settings.tsx`, `src/avatars.ts`, `src/Models.tsx` | ours: the settings (the avatars, their profiles and bodies), the avatars from reins and who holds each, the models offered |
+| `src/Settings.tsx`, `src/avatars.ts`, `src/Models.tsx` | ours: the settings (the avatars, their profiles and bodies, a new one made from the "+" beside them), the avatars from reins and who holds each, the models offered |
 | `src/upstream/` | **generated**: what assistant-ui's registry gives today (the thread, its parts, shadcn's base components, the stylesheet). Never edited by hand |
 | `patches/` | our changes to upstream, each with why; applied on top of it |
 | `upstream.sh` | `src/upstream` again from the registry, patches on top |
@@ -52,7 +52,7 @@ is about the UI's edge, not to learn the face.
 | `PATCH`, `DELETE /api/reins/threads/{id}` | reins: a chat renamed as the person's avatar, and deleted for good |
 | `POST /api/reins/threads/{id}/stop` | reins: the reply a brain writes as one of the person's avatars, stopped |
 | `GET /api/v1/models` | OpenAI's list of models, with `mode` and a speech model's `voices` beside OpenAI's fields; each mode's first is the agent's own. The preferences show in the settings only when this answers |
-| `GET /api/reins/me/subjects`, `PATCH /api/reins/subjects/{id}` | [reins](../../reins/CONTRACT.md): the avatars the person steers, and a change of one's name, bio or preferences. The settings show only when this answers |
+| `GET`, `POST /api/reins/me/subjects`, `PATCH /api/reins/subjects/{id}` | [reins](../../reins/CONTRACT.md): the avatars the person steers, a new one made, and a change of one's name, bio or preferences. The settings show only when this answers |
 | `POST /api/v1/audio/transcriptions` | OpenAI's: a recording in, `{text}` out. The mic shows only when this is answered |
 | `POST /api/v1/audio/speech` | OpenAI's: `{input}` in, a sound out. Read-aloud shows only when this is answered |
 | `GET /api/v1/realtime` | OpenAI's Realtime API, a WebSocket: a call. The call button shows only when this is answered |

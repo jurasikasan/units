@@ -103,7 +103,7 @@ export default function App() {
   const { dictation, speech, call } = useVoice(sound)
   const offers = useModels(fetchOrLogIn)
   const me = useMe(fetchOrLogIn)
-  const { avatars, save, reload, held, take, giveBack, hand, profiles } = useAvatars(fetchReins)
+  const { avatars, save, create, reload, held, take, giveBack, hand, profiles } = useAvatars(fetchReins)
   const [kept, keep] = useWho()
   // An avatar no longer steered (or not read yet) is nobody: the ghost.
   const who = avatars?.some((a) => a.id === kept) ? kept : ''
@@ -171,7 +171,7 @@ export default function App() {
             </div>
           </SidebarInset>
         </SidebarProvider>
-        {avatars && <Settings open={settings} onOpenChange={setSettings} avatars={avatars} first={wired.me} offers={offers} save={save} />}
+        {avatars && <Settings open={settings} onOpenChange={setSettings} avatars={avatars} first={wired.me} offers={offers} save={save} create={create} />}
         <Notice />
       </TooltipProvider>
     </AssistantRuntimeProvider>

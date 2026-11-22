@@ -104,7 +104,60 @@ export function useAvatars(fetcher: typeof fetch) {
     },
     [fetcher],
   )
-  return { avatars, save, reload, held, take, giveBack, hand, profiles }
+  // create makes a new avatar the principal steers, offline, and reads
+  // the avatars again: the picker and the settings list it at once. A
+  // refusal throws a Refused with reins' status, for the form to say in
+  // its own words.
+  const create = useCallback(
+    async (n: NewAvatar) => {
+      const resp = await fetcher(MINE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(n),
+      })
+      if (!resp.ok) throw new Refused(resp.status, (await resp.text()).trim())
+      const made: Avatar = await resp.json()
+      setAvatars((list) => (list?.some((a) => a.id === made.id) ? list : [...(list ?? []), made]))
+      void reload()
+      return made
+    },
+    [fetcher, reload],
+  )
+  return { avatars, save, create, reload, held, take, giveBack, hand, profiles }
+}
+
+// A new avatar, as reins takes it: the nick is set once and never
+// changes; name and bio may be empty.
+export type NewAvatar = { nick: string; name?: string; bio?: string }
+
+// Refused is reins saying no, with its status: 409 a nick taken, 422 a
+// nick against subjects' rules.
+export class Refused extends Error {
+  status: number
+  constructor(status: number, reason: string) {
+    super(reason || `refused (${status})`)
+    this.status = status
+  }
+}
+
+// The nick rules as subjects keeps them (subjects/CONTRACT.md): 2 to 32
+// characters of a-z, 0-9, - and _, starting with a letter. The face only
+// uses them to say why it cannot create yet; subjects judges.
+export const NICK = /^[a-z][a-z0-9_-]{1,31}$/
+
+// nickOf makes a nick from a name: lowercase, letters stripped of their
+// accents, anything else outside a-z and 0-9 a single "-", none at either
+// end, starting with a letter, at most 32 characters. A name with no Latin
+// letter gives "", for the person to type one.
+export function nickOf(name: string) {
+  return name
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^[^a-z]+/, '')
+    .slice(0, 32)
+    .replace(/-+$/, '')
 }
 
 // Every avatar is a body like any other: each has an ear (`ear`) and a
