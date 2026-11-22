@@ -17,6 +17,12 @@ set +x
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 fail=0
+# In a worktree (git worktree add) .git is a file naming a directory inside
+# the main repository's; gitleaks in docker sees it only when that is mounted
+# too, at the same absolute path.
+common=$(cd "$(git rev-parse --git-common-dir)" && pwd)
+common_mount=()
+case "$common" in "$root"/*) ;; *) common_mount=(-v "$common:$common") ;; esac
 
 # --- 1. gitleaks -------------------------------------------------------------
 GITLEAKS_IMAGE=zricethezav/gitleaks:v8.21.2
@@ -28,7 +34,7 @@ run_gitleaks() { # mode args...
         gitleaks "$@" --config .gitleaks.toml --redact --no-banner --log-level error \
             -f json -r "$report" --exit-code 0
     else
-        docker run --rm -u "$(id -u):$(id -g)" -v "$root":/repo -v "$report":/report.json \
+        docker run --rm -u "$(id -u):$(id -g)" -v "$root":/repo "${common_mount[@]}" -v "$report":/report.json \
             -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
             "$GITLEAKS_IMAGE" "$1" "${2/#./\/repo}" "${@:3}" \
             --config /repo/.gitleaks.toml --redact --no-banner --log-level error \
