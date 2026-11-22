@@ -15,7 +15,7 @@ services:
 
   images:
     build: ..
-    image: units-tools-images:local
+    image: units-tools-images:${UNITS_TAG:-local}
     environment:
       IMAGES_URL: http://fake_images:8000/v1
       IMAGES_MODEL: images

@@ -5,7 +5,7 @@ services:
   # X-Principal-Id itself.
   assistant:
     build: ..
-    image: units-minds-assistant:local
+    image: units-minds-assistant:${UNITS_TAG:-local}
     environment:
       LLM_URL: http://litellm:4000
       LLM_MODEL: assistant

@@ -59,10 +59,13 @@ sed -e "s|^LAB_URL=.*|LAB_URL=https://lab.localhost:$port|" \
     -e "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=mailpit,everything|" \
     -e "s|^LAB_MCP_SERVERS=\(.*\)|LAB_MCP_SERVERS=\1,everything=http://everything:3001/mcp|" \
     -e "s|^LAB_HOLD_GRACE=.*|LAB_HOLD_GRACE=45s|" .env.example > "$work/env"
-export COMPOSE_ENV_FILES="$work/env" COMPOSE_PROJECT_NAME="lab-check-$$"
+# Its own images too: another checkout's check running at the same time
+# builds units-*:<its tag>, never these.
+export COMPOSE_ENV_FILES="$work/env" COMPOSE_PROJECT_NAME="lab-check-$$" UNITS_TAG="lab-check-$$"
 first_user=$(sed -n 's/^LAB_FIRST_USER=//p' .env.example)
 first_password=$(sed -n 's/^LAB_FIRST_PASSWORD=//p' .env.example)
-trap 'docker compose --profile "*" down -v --remove-orphans >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+own_images() { docker images --filter "reference=units-*:$UNITS_TAG" --format '{{.Repository}}:{{.Tag}}'; }
+trap 'docker compose --profile "*" down -v --remove-orphans >/dev/null 2>&1 || true; own_images | xargs -r docker image rm >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
 
 program=$(sed -n 's/^LAB_PROGRAM=//p' .env.example)
 program_password=$(sed -n 's/^LAB_PROGRAM_PASSWORD=//p' .env.example)

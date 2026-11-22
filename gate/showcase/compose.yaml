@@ -2,7 +2,7 @@ name: gate-showcase
 
 x-gate: &gate
   build: ..
-  image: units-gate:local
+  image: units-gate:${UNITS_TAG:-local}
   environment: &gate-env
     GATE_DOMAIN: gate.localhost
     GATE_URL: https://gate.localhost:${GATE_PORT:-8443}

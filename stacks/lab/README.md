@@ -176,6 +176,13 @@ sha256, pulled again after the box lost its first archive and a byte and
 both still kept, a copy a day old called stale on the box and here, and a
 third account, `dave`, back after a wipe from the pulled copy alone.
 
+The images built from units are tagged `${UNITS_TAG:-local}`: a plain run
+builds and runs `units-*:local`. `check.sh` sets `UNITS_TAG` to its own
+compose project's name, so two checks run at once from two checkouts (agents
+in worktrees) each build and run their own code, never the other's, and the
+images it tagged are removed when it ends (their layers stay in the build
+cache). gate's check does the same with its showcase.
+
 ### Scenarios
 
 The browser's part is cut into scenarios, each a run of its own (a fresh

@@ -25,9 +25,11 @@ free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",
 GATE_PORT=$(free_port)
 MAILPIT_PORT=$(free_port)
 export GATE_PORT MAILPIT_PORT
-export COMPOSE_PROJECT_NAME="gate-check-$$"
+# Its own image too: lab's check, building units-gate at the same time, tags
+# its own.
+export COMPOSE_PROJECT_NAME="gate-check-$$" UNITS_TAG="gate-check-$$"
 compose() { docker compose -f showcase/compose.yaml "$@"; }
-trap 'compose --profile demo down -v --remove-orphans >/dev/null 2>&1 || true' EXIT
+trap 'compose --profile demo down -v --remove-orphans >/dev/null 2>&1 || true; docker image rm "units-gate:$UNITS_TAG" >/dev/null 2>&1 || true' EXIT
 
 run "build"  compose build -q
 run "config" compose run --rm --no-deps gate authelia validate-config

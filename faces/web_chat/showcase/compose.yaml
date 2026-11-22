@@ -15,7 +15,7 @@ services:
   # The page, as built by its Dockerfile.
   face:
     build: ..
-    image: units-faces-web-chat:local
+    image: units-faces-web-chat:${UNITS_TAG:-local}
 
   bus:
     image: redis:7-alpine

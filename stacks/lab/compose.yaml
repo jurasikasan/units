@@ -2,7 +2,7 @@ name: lab
 
 x-gate: &gate
   build: ../../gate
-  image: units-gate:local
+  image: units-gate:${UNITS_TAG:-local}
   environment:
     GATE_DOMAIN: ${LAB_DOMAIN}
     GATE_URL: ${LAB_URL}
@@ -133,13 +133,13 @@ services:
   # The page: static files whose chats are threads, through reins.
   face:
     build: ../../faces/web_chat
-    image: units-faces-web-chat:local
+    image: units-faces-web-chat:${UNITS_TAG:-local}
     restart: unless-stopped
 
   # The mind behind /api/: AG-UI in, a model's answer out.
   mind:
     build: ../../minds/assistant
-    image: units-minds-assistant:local
+    image: units-minds-assistant:${UNITS_TAG:-local}
     restart: unless-stopped
     environment:
       LLM_URL: http://litellm:4000
@@ -168,7 +168,7 @@ services:
   # as they come. It reads whom its profiles hold from reins' inner port.
   driver:
     build: ../../drivers/model
-    image: units-drivers-model:local
+    image: units-drivers-model:${UNITS_TAG:-local}
     restart: unless-stopped
     environment:
       PROFILES: ${LAB_PROFILES:-fake=fake,fake-text=fake-text,chat=chat}
@@ -196,7 +196,7 @@ services:
   # on a network only it joins.
   subjects:
     build: ../../subjects
-    image: units-subjects:local
+    image: units-subjects:${UNITS_TAG:-local}
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://subjects:subjects@subjects-db:5432/subjects?sslmode=disable
@@ -213,7 +213,7 @@ services:
   # outside: reins is the face's door into it.
   threads:
     build: ../../threads
-    image: units-threads:local
+    image: units-threads:${UNITS_TAG:-local}
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://threads:threads@threads-db:5432/threads?sslmode=disable
@@ -263,7 +263,7 @@ services:
       start_period: 60s
   reins:
     build: ../../reins
-    image: units-reins:local
+    image: units-reins:${UNITS_TAG:-local}
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://reins:reins@reins-db:5432/reins?sslmode=disable
@@ -311,7 +311,7 @@ services:
   # images-fast draw at Cloudflare under the engines profile).
   tool-images:
     build: ../../tools/images
-    image: units-tools-images:local
+    image: units-tools-images:${UNITS_TAG:-local}
     restart: unless-stopped
     environment:
       IMAGES_URL: http://litellm:4000/v1
@@ -327,7 +327,7 @@ services:
   # public besides.
   tool-web:
     build: ../../tools/web
-    image: units-tools-web:local
+    image: units-tools-web:${UNITS_TAG:-local}
     restart: unless-stopped
     environment:
       WEB_FETCHER_URL: http://tool-web-fetcher:8080
@@ -335,7 +335,7 @@ services:
     networks: [default, web-egress]
   tool-web-fetcher:
     build: ../../tools/web
-    image: units-tools-web:local
+    image: units-tools-web:${UNITS_TAG:-local}
     command: [fetcher]
     restart: unless-stopped
     networks: [web-egress]
@@ -344,7 +344,7 @@ services:
   # (everything/Dockerfile), under its profile; check.sh's e2e uses it.
   everything:
     build: ./everything
-    image: units-lab-everything:local
+    image: units-lab-everything:${UNITS_TAG:-local}
     profiles: [everything]
     restart: unless-stopped
     healthcheck:
@@ -386,21 +386,21 @@ services:
   # elsewhere, at the URLs in .env.
   piper:
     build: ../../engines/tts/piper
-    image: units-engines-tts-piper:local
+    image: units-engines-tts-piper:${UNITS_TAG:-local}
     profiles: [engines]
     restart: unless-stopped
   silero:
     build:
       context: ../../engines/tts/silero
       args: {ACCEL: "${LAB_SILERO_ACCEL:-xpu}"}
-    image: units-engines-tts-silero:local
+    image: units-engines-tts-silero:${UNITS_TAG:-local}
     profiles: [engines]
     restart: unless-stopped
   # Pictures, drawn at Cloudflare on the same account as the chat model:
   # models images and images-fast in LiteLLM.
   images:
     build: ../../engines/images/cloudflare
-    image: units-engines-images-cloudflare:local
+    image: units-engines-images-cloudflare:${UNITS_TAG:-local}
     profiles: [engines]
     restart: unless-stopped
     environment:
@@ -414,7 +414,7 @@ services:
   #   build:
   #     context: ../../engines/images/diffusers
   #     args: {ACCEL: "${LAB_IMAGES_LOCAL_ACCEL:-xpu}"}
-  #   image: units-engines-images-diffusers:local
+  #   image: units-engines-images-diffusers:${UNITS_TAG:-local}
   #   profiles: [engines]
   #   restart: unless-stopped
   #   devices: ["/dev/dri:/dev/dri"]
@@ -432,7 +432,7 @@ services:
   # language is found by STT in each utterance.
   realtime:
     build: ../../minds/realtime
-    image: units-minds-realtime:local
+    image: units-minds-realtime:${UNITS_TAG:-local}
     restart: unless-stopped
     environment:
       LLM_URL: http://litellm:4000
@@ -450,7 +450,7 @@ services:
       speaking: {condition: service_started}
   hearing:
     build: ../../senses/hearing
-    image: units-senses-hearing:local
+    image: units-senses-hearing:${UNITS_TAG:-local}
     restart: unless-stopped
     environment:
       REDIS_ADDR: bus:6379
@@ -465,7 +465,7 @@ services:
       bus: {condition: service_healthy}
   speaking:
     build: ../../abilities/speaking
-    image: units-abilities-speaking:local
+    image: units-abilities-speaking:${UNITS_TAG:-local}
     restart: unless-stopped
     environment:
       REDIS_ADDR: bus:6379
@@ -498,7 +498,7 @@ services:
   # one was seen to send: fake_realtime/README.md.
   fake_realtime:
     build: ./fake_realtime
-    image: units-lab-fake-realtime:local
+    image: units-lab-fake-realtime:${UNITS_TAG:-local}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8090), 1)"]
@@ -513,7 +513,7 @@ services:
   # change to Chromium, which aborts what it was loading.
   e2e:
     build: ./e2e
-    image: units-lab-e2e:local
+    image: units-lab-e2e:${UNITS_TAG:-local}
     profiles: [e2e]
     extra_hosts:
       - ${LAB_DOMAIN}:127.0.0.1

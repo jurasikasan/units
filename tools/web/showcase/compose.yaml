@@ -21,7 +21,7 @@ services:
 
   web:
     build: ..
-    image: units-tools-web:local
+    image: units-tools-web:${UNITS_TAG:-local}
     environment:
       WEB_FETCHER_URL: http://web-fetcher:8080
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
@@ -30,7 +30,7 @@ services:
       web-fetcher: {condition: service_started}
 
   web-fetcher:
-    image: units-tools-web:local
+    image: units-tools-web:${UNITS_TAG:-local}
     command: [fetcher]
     environment:
       FETCH_MAX_CHARS: "4000"
