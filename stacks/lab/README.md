@@ -198,6 +198,7 @@ browser and login) and a line of its own in `check.sh`'s report,
 | `two` | two browsers of one person talk, hand the assistant over and back, rename and delete a chat, leave |
 | `refused` | handed to a text-only profile, a picture reaches the model as a placeholder in words, the run goes on |
 | `failed` | a model answering 429 and 500, alone (fake model) |
+| `factory` | the settings' "+" makes a new avatar: the nick follows the name, its own form opens, the picker lists it without a reload; renamed there, the picker shows it; the same nick again is refused under the nick in plain words. With `E2E_SHOT` the form is pictured, at the browser's width and a phone's. Last in `check.sh`: it adds to the two subjects the rounds before count |
 
 Without `E2E_ONLY`, the browser runs `conversation` to `me` in one go
 (`greet` first with `E2E_FIRST_LOGIN=1`).

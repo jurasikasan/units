@@ -29,7 +29,8 @@
 # box (offbox/, the pull run here without SSH): a dump and the store's bytes
 # pulled and checked, nothing pulled ever deleted, a copy a day old called
 # stale on both sides, and a third account, dave, back from the pulled copy
-# alone.
+# alone; last, a new avatar is made from the settings, listed in the picker
+# without a reload and renamed, and a taken nick is refused in plain words.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -183,6 +184,8 @@ run "wipe"           wipe
 run "restore from the pulled copy"  restore_pulled
 run "dave is back"   docker compose run --rm demo dave dave-lab
 run "the first account steers the same subjects"  same_steered
+# Last: a new avatar made adds to the two subjects every check above counts.
+e2e factory "a new avatar made from the settings is in the picker without a reload, renamed, and a taken nick refused in plain words"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

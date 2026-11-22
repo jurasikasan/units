@@ -75,10 +75,14 @@
 // the mind's error, said while writing, and the page shows it; then back
 // to fake.
 //
+// E2E_ONLY=factory makes a new avatar from the settings' "+": it is in the
+// picker without a reload, renamed through its own form, and a second one
+// with the same nick is refused in plain words.
+//
 // Each round is a scenario, run alone by name with E2E_ONLY=<name> (the
 // list is at the foot, `scenarios`): greet, conversation (the conversation,
 // tools, reasoning, attachments, failures), stop, model, threads, voice,
-// sound, call, me, two, refused, failed. check.sh runs them one by one,
+// sound, call, me, two, refused, failed, factory. check.sh runs them one by one,
 // each its own run and its own line; e2e/repeat.sh runs one many times.
 // On a failure, what reins holds now is printed beside what the page shows.
 import { chromium } from 'playwright'
@@ -764,6 +768,80 @@ async function settings(nick, picks = {}, text = {}, read = []) {
   return got
 }
 
+// factoryRound: the avatar factory (UNIT-90). The settings' "+" opens an
+// empty profile; the nick follows the name; "Create avatar" makes it, its
+// own form opens in place of the empty one, and the picker lists it
+// without a reload. Renamed through that form, the picker shows the new
+// name. A second one made with the same nick is refused under the nick in
+// plain words, and nothing is added. Nicks are unique forever, so each run
+// makes its own.
+async function factoryRound() {
+  const tag = Date.now().toString(36)
+  const name = `Scribe ${tag}`
+  const nick = `scribe-${tag}`
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  const open = async () => {
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await dialog.waitFor()
+    await dialog.getByRole('button', { name: 'New avatar' }).click()
+    const form = dialog.getByRole('form', { name: 'New avatar' })
+    await form.waitFor()
+    await form.getByLabel('Name', { exact: true }).fill(name)
+    return form
+  }
+  const close = async () => {
+    await page.keyboard.press('Escape')
+    await dialog.waitFor({ state: 'detached' })
+  }
+
+  // E2E_SHOT names a file for a picture of the form, at the browser's width
+  // and at a phone's (375 px): `-phone` and, refused, `-taken` beside it.
+  const shot = async (suffix) => {
+    if (!process.env.E2E_SHOT) return
+    const path = (s) => process.env.E2E_SHOT.replace(/(\.png)?$/, `${s}.png`)
+    const was = page.viewportSize()
+    await page.waitForTimeout(300) // the button's own transition, enabled
+    await page.screenshot({ path: path(suffix) })
+    await page.setViewportSize({ width: 375, height: 812 })
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: path(`${suffix}-phone`) })
+    await page.setViewportSize(was)
+    await page.waitForTimeout(300)
+  }
+
+  let form = await open()
+  const followed = await form.getByLabel('Nick', { exact: true }).inputValue()
+  await shot('')
+  await form.getByRole('button', { name: 'Create avatar' }).click()
+  await dialog.getByRole('form', { name: `Avatar ${nick}` }).waitFor()
+  await close()
+  await pickerItem(page, nick).waitFor()
+  const listed = await pickerItem(page, nick).innerText()
+  step('made from the settings, in the picker', `nick ${JSON.stringify(followed)}; ${JSON.stringify(listed.split('\n').find((l) => l.includes(tag)))}`)
+  if (followed !== nick || !listed.includes(name)) {
+    step('FAIL', 'the nick did not follow the name, or the picker does not list the new avatar')
+    failed = true
+  }
+
+  const renamed = `Scribe renamed ${tag}`
+  await settings(nick, {}, { Name: renamed })
+  await picker(page).getByRole('radio', { name: new RegExp(`^${nick}: `) }).filter({ hasText: renamed }).waitFor()
+  step('renamed through its form', renamed)
+
+  const before = await picker(page).getByRole('radio').count()
+  form = await open()
+  await form.getByRole('button', { name: 'Create avatar' }).click()
+  const said = await form.getByRole('alert').innerText()
+  await shot('-taken')
+  await close()
+  const after = await picker(page).getByRole('radio').count()
+  step('the same nick again', `${JSON.stringify(said)}; ${before} → ${after} in the picker`)
+  if (said !== 'That nick is taken. Try another.' || after !== before) {
+    step('FAIL', 'a taken nick was not refused in plain words, or something was added')
+    failed = true
+  }
+}
+
 // soundPickRound: the person's ear and the assistant's mouth set to the
 // second fake ones in the settings, and a voice of the mouth's own: what
 // comes back is theirs.
@@ -975,6 +1053,7 @@ const scenarios = {
   two: { round: twoRound },
   refused: { round: refusedRound },
   failed: { round: failedRound, needs: 'the fake model', has: fake },
+  factory: { round: factoryRound },
 }
 const whole = ['conversation', 'draw', 'stop', 'model', 'threads', 'voice', 'sound', 'call', 'me']
 const runs = (name) => !scenarios[name].needs || scenarios[name].has
