@@ -319,18 +319,19 @@ services:
       IMAGES_MODEL: ${LAB_IMAGES_MODEL:-fake-images}
       IMAGES_FAST_MODEL: ${LAB_IMAGES_FAST_MODEL:-}
 
-  # A tool that looks at the web (tools/web): search (Brave, with
-  # BRAVE_API_KEY; without, it says it is not configured) and fetch. In
-  # LAB_MCP_SERVERS as `web`: web__search, web__fetch. It does not fetch
-  # itself: tool-web-fetcher does, on web-egress alone, where nothing of
-  # the stack but tool-web is, and it refuses every address that is not
-  # public besides.
+  # A tool that looks at the web (tools/web): search, by the lab's own
+  # SearXNG (LAB_SEARXNG_URL; emptied, Brave with BRAVE_API_KEY, else it
+  # says it is not configured), and fetch. In LAB_MCP_SERVERS as `web`:
+  # web__search, web__fetch. It does not fetch itself: tool-web-fetcher
+  # does, on web-egress alone, where nothing of the stack but tool-web and
+  # searxng is, and it refuses every address that is not public besides.
   tool-web:
     build: ../../tools/web
     image: units-tools-web:${UNITS_TAG:-local}
     restart: unless-stopped
     environment:
       WEB_FETCHER_URL: http://tool-web-fetcher:8080
+      SEARXNG_URL: ${LAB_SEARXNG_URL-http://searxng:8080}
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
     networks: [default, web-egress]
   tool-web-fetcher:
@@ -339,6 +340,23 @@ services:
     command: [fetcher]
     restart: unless-stopped
     networks: [web-egress]
+  # The web tool's search engine: SearXNG, a metasearch that keeps no index
+  # and asks public engines (searxng/settings.yml: json on, no limiter, no
+  # image proxy). On web-egress only: tool-web asks it, nothing outside
+  # reaches it.
+  searxng:
+    image: searxng/searxng:2026.11.1-9ded3bec1
+    restart: unless-stopped
+    environment:
+      # Signs nothing this instance uses (no image proxy, no limiter); it
+      # only has to differ from SearXNG's own default to start.
+      SEARXNG_SECRET: lab-searxng
+    volumes: [./searxng/settings.yml:/etc/searxng/settings.yml:ro]
+    networks: [web-egress]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 2s
+      retries: 30
 
   # Tools for the model to try: MCP's own reference server
   # (everything/Dockerfile), under its profile; check.sh's e2e uses it.
@@ -564,6 +582,6 @@ networks:
     internal: true
   threads-db:
     internal: true
-  # The web fetcher's way out to the internet: not internal, and of the
-  # stack only tool-web joins it.
+  # The web's way out to the internet, for the fetcher and searxng: not
+  # internal, and of the rest of the stack only tool-web joins it.
   web-egress:
