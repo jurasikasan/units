@@ -118,3 +118,19 @@ func TestLiveHandover(t *testing.T) {
 	assert.Equal(t, []uuid.UUID{s}, ids)
 	require.ErrorIs(t, repo.Handover(ctx, s, a, b), ErrNotSteward, "a former steward may not")
 }
+
+func TestLiveSteerRecordsOutsideProvisioning(t *testing.T) {
+	repo := liveRepo(t)
+	ctx := context.Background()
+	p := "p" + uuid.NewString()[:8]
+	s := uuid.New()
+
+	require.NoError(t, repo.Steer(ctx, p, s))
+	require.NoError(t, repo.Steer(ctx, p, s), "twice is once")
+	ids, err := repo.Steered(ctx, p)
+	require.NoError(t, err)
+	assert.Equal(t, []uuid.UUID{s}, ids)
+	ok, err := repo.Settled(ctx, p)
+	require.NoError(t, err)
+	assert.False(t, ok, "steering a new avatar does not settle the principal")
+}

@@ -75,6 +75,18 @@ definitions:
         example: bob
         type: string
     type: object
+  stewardship.NewSubject:
+    properties:
+      bio:
+        example: Writes the release notes.
+        type: string
+      name:
+        example: Scribe
+        type: string
+      nick:
+        example: scribe
+        type: string
+    type: object
   stewardship.Subject:
     properties:
       bio:
@@ -354,6 +366,61 @@ paths:
           schema:
             type: string
       summary: The subjects the caller steers
+      tags:
+      - reins
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Made in `subjects` (its POST) with the nick, name and bio
+        given, and recorded as steered by the principal in
+        X-Principal-Id. Nobody holds it: it is offline, no brain is
+        handed it, and nothing is written into `threads`. The nick
+        is `subjects`' to judge, and its answer is passed on: taken
+        by any subject ever made, deleted ones included, is 409;
+        against its rules (2-32 characters of a-z, 0-9, - and _,
+        starting with a letter) is 422, with its reason.
+      parameters:
+      - description: who is asking, as the door sets it
+        in: header
+        name: X-Principal-Id
+        required: true
+        type: string
+      - description: the new avatar
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/stewardship.NewSubject'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/stewardship.Subject'
+        "400":
+          description: A body that is not JSON, or names a field but nick, name and
+            bio
+          schema:
+            type: string
+        "401":
+          description: No X-Principal-Id
+          schema:
+            type: string
+        "409":
+          description: The nick is taken
+          schema:
+            type: string
+        "422":
+          description: The nick breaks subjects' rules
+          schema:
+            type: string
+        "502":
+          description: subjects or the database did not answer
+          schema:
+            type: string
+      summary: Make a new avatar the caller steers
       tags:
       - reins
   /me/threads:

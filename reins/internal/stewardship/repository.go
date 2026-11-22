@@ -22,6 +22,9 @@ type Store interface {
 	// Provisioning runs fn while holding the principal's lock, so two first
 	// visits of one principal do not both make its subjects.
 	Provisioning(ctx context.Context, principal string, fn func(Locked) error) error
+	// Steer records that a principal steers a subject: committed at once,
+	// outside any provisioning.
+	Steer(ctx context.Context, principal string, subject uuid.UUID) error
 	// Handover moves the reins of a subject from one principal to another,
 	// in one transaction. ErrNotSteward when `from` does not hold them.
 	Handover(ctx context.Context, subject uuid.UUID, from, to string) error
@@ -103,6 +106,10 @@ func (r *PGXRepository) Provisioning(ctx context.Context, principal string, fn f
 	return fn(&locked{q: conn, principal: principal})
 }
 
+func (r *PGXRepository) Steer(ctx context.Context, principal string, subject uuid.UUID) error {
+	return record(ctx, r.pool, principal, subject)
+}
+
 func (r *PGXRepository) Handover(ctx context.Context, subject uuid.UUID, from, to string) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -140,9 +147,13 @@ func (l *locked) Settled(ctx context.Context) (bool, error) {
 }
 
 func (l *locked) Record(ctx context.Context, subject uuid.UUID) error {
-	_, err := l.q.Exec(ctx,
+	return record(ctx, l.q, l.principal, subject)
+}
+
+func record(ctx context.Context, q querier, principal string, subject uuid.UUID) error {
+	_, err := q.Exec(ctx,
 		`INSERT INTO stewardship (principal_id, subject_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-		l.principal, subject)
+		principal, subject)
 	if err != nil {
 		return fmt.Errorf("record stewardship: %w", err)
 	}

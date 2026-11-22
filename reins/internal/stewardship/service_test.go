@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -22,6 +23,8 @@ type fakeStore struct {
 	// recordFails makes the nth Record fail, to cut a run half way.
 	recordFails int
 	records     int
+	// steerFails makes every Steer fail.
+	steerFails bool
 }
 
 func newFakeStore() *fakeStore {
@@ -50,6 +53,18 @@ func (f *fakeStore) Provisioning(_ context.Context, p string, fn func(Locked) er
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	return fn(&fakeLocked{f, p})
+}
+
+func (f *fakeStore) Steer(_ context.Context, p string, s uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.steerFails {
+		return errors.New("database went away")
+	}
+	if indexOf(f.rows[p], s) < 0 {
+		f.rows[p] = append(f.rows[p], s)
+	}
+	return nil
 }
 
 func (f *fakeStore) Handover(_ context.Context, s uuid.UUID, from, to string) error {
@@ -175,12 +190,15 @@ func (r *fakeRegistry) Get(_ context.Context, id uuid.UUID) (Subject, bool, erro
 func (r *fakeRegistry) Create(_ context.Context, n NewSubject) (Subject, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if !nickPattern.MatchString(n.Nick) {
+		return Subject{}, fmt.Errorf("%w: nick must be 2-32 characters of a-z, 0-9, - and _, starting with a letter", ErrNickRefused)
+	}
 	for _, s := range r.byID {
 		if s.Nick == n.Nick {
 			return Subject{}, ErrNickTaken
 		}
 	}
-	s := Subject{ID: uuid.New(), Nick: n.Nick, Name: n.Name}
+	s := Subject{ID: uuid.New(), Nick: n.Nick, Name: n.Name, Bio: n.Bio}
 	r.byID[s.ID] = s
 	r.created++
 	return s, nil
@@ -430,4 +448,73 @@ func TestChangeOfAStoredPreferencesThatIsNoObject(t *testing.T) {
 	reg.byID[mine[0].ID] = s
 	_, err := svc.Change(ctx, "alice", mine[0].ID, Change{Preferences: map[string]json.RawMessage{"ear": json.RawMessage(`"fake-stt"`)}})
 	assert.ErrorIs(t, err, ErrBadChange)
+}
+
+// A new avatar is made in subjects and steered by its maker, nothing more:
+// no personas made on the way, no welcome.
+func TestCreateMakesAnAvatarTheCallerSteers(t *testing.T) {
+	store, reg := newFakeStore(), newFakeRegistry()
+	svc := NewService(store, reg)
+	welcomed := false
+	svc.Welcome = func(context.Context, string, uuid.UUID, uuid.UUID) error { welcomed = true; return nil }
+	ctx := context.Background()
+
+	sub, err := svc.Create(ctx, "alice", NewSubject{Nick: "scribe", Name: "Scribe", Bio: "Writes."})
+	require.NoError(t, err)
+	assert.Equal(t, "scribe", sub.Nick)
+	assert.Equal(t, "Scribe", sub.Name)
+	assert.Equal(t, "Writes.", sub.Bio)
+	assert.Equal(t, []uuid.UUID{sub.ID}, store.rows["alice"], "the maker steers it")
+	assert.Equal(t, 1, reg.created, "no personas made on the way")
+	assert.False(t, welcomed)
+	assert.False(t, store.settled["alice"], "the first visit is still the first visit's")
+
+	got, err := svc.Subject(ctx, "alice", sub.ID)
+	require.NoError(t, err)
+	assert.Equal(t, sub, got)
+	_, err = svc.Subject(ctx, "bob", sub.ID)
+	assert.ErrorIs(t, err, ErrNotSteward, "only its maker steers it")
+
+	// The first visit after keeps it and makes the personas beside it.
+	subs, err := svc.MySubjects(ctx, "alice")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"scribe", "alice", "alice-assistant"}, nicks(subs))
+}
+
+func TestCreatePassesSubjectsAnswerOn(t *testing.T) {
+	store, reg := newFakeStore(), newFakeRegistry()
+	svc := NewService(store, reg)
+	ctx := context.Background()
+	gone, _ := reg.Create(ctx, NewSubject{Nick: "ghost"})
+	reg.deleted[gone.ID] = true
+
+	cases := []struct {
+		nick string
+		want int
+	}{
+		{"ghost", 409}, // deleted subjects keep their nicks
+		{"Scribe", 422},
+		{"", 422},
+		{"s", 422},
+		{"олена", 422},
+	}
+	for _, tc := range cases {
+		_, err := svc.Create(ctx, "alice", NewSubject{Nick: tc.nick})
+		var ref *Refusal
+		if assert.ErrorAs(t, err, &ref, tc.nick) {
+			assert.Equal(t, tc.want, ref.Status, tc.nick)
+			assert.NotEmpty(t, ref.Reason)
+		}
+	}
+	assert.Empty(t, store.rows["alice"], "nothing refused is steered")
+}
+
+func TestCreateWhoseRecordFailsIsNotARefusal(t *testing.T) {
+	store, reg := newFakeStore(), newFakeRegistry()
+	store.steerFails = true
+	svc := NewService(store, reg)
+	_, err := svc.Create(context.Background(), "alice", NewSubject{Nick: "scribe"})
+	require.Error(t, err)
+	var ref *Refusal
+	assert.False(t, errors.As(err, &ref), "not the caller's fault: a 502, not a refusal")
 }

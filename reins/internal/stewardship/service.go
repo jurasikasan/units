@@ -122,6 +122,36 @@ func (s *Service) provision(ctx context.Context, principal string) error {
 	})
 }
 
+// Create makes a new subject in `subjects` and records that the caller
+// steers it: an avatar from the factory. Nobody holds it (it is offline, no
+// brain is handed it) and nothing is written into `threads`: making a
+// character is not an act in the world. The nick is `subjects`' to judge:
+// taken (live or deleted) is a 409 Refusal, against its rules a 422, each
+// with `subjects`' reason.
+//
+// The caller's own personas are not made here: that is the first visit's
+// (MySubjects), and a login that cannot become a nick must not stop its
+// owner from making other avatars.
+//
+// Known gap, as in provisioning: a record lost after `subjects`' 201 leaves
+// the nick held by a subject nobody steers.
+func (s *Service) Create(ctx context.Context, caller string, n NewSubject) (Subject, error) {
+	sub, err := s.registry.Create(ctx, n)
+	switch {
+	case errors.Is(err, ErrNickTaken):
+		return Subject{}, &Refusal{Status: 409, Reason: fmt.Sprintf("nick %q is taken", n.Nick)}
+	case errors.Is(err, ErrNickRefused):
+		return Subject{}, &Refusal{Status: 422, Reason: err.Error()}
+	case err != nil:
+		return Subject{}, err
+	}
+	if err := s.store.Steer(ctx, caller, sub.ID); err != nil {
+		return Subject{}, fmt.Errorf("subject %s (%s) made, its stewardship not recorded: %w", sub.ID, sub.Nick, err)
+	}
+	log.Printf("reins: %q made and steers subject %s (%s)", caller, sub.ID, sub.Nick)
+	return sub, nil
+}
+
 // Handover moves the reins of a subject from the caller to another
 // principal. Only a current steward may. Nothing is written to `subjects` or
 // `threads`: who steers a subject is not a world event.

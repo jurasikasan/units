@@ -21,6 +21,7 @@ const PrincipalHeader = "X-Principal-Id"
 // Reins is what the handler needs of the service.
 type Reins interface {
 	MySubjects(ctx context.Context, principal string) ([]Subject, error)
+	Create(ctx context.Context, caller string, n NewSubject) (Subject, error)
 	Handover(ctx context.Context, caller string, subject uuid.UUID, to string) error
 	Subject(ctx context.Context, caller string, subject uuid.UUID) (Subject, error)
 	Change(ctx context.Context, caller string, subject uuid.UUID, c Change) (Subject, error)
@@ -61,6 +62,7 @@ func (h *Handler) withBrains(r *http.Request, p string, subs []Subject) {
 
 func RegisterRoutes(r *mux.Router, h *Handler) {
 	r.HandleFunc("/me/subjects", h.MySubjects).Methods(http.MethodGet)
+	r.HandleFunc("/me/subjects", h.Create).Methods(http.MethodPost)
 	r.HandleFunc("/subjects/{id}", h.Subject).Methods(http.MethodGet)
 	r.HandleFunc("/subjects/{id}", h.Change).Methods(http.MethodPatch)
 	r.HandleFunc("/subjects/{id}/handover", h.Handover).Methods(http.MethodPost)
@@ -111,6 +113,56 @@ func (h *Handler) MySubjects(w http.ResponseWriter, r *http.Request) {
 	}
 	h.withBrains(r, p, subs)
 	httpHelper.RespondWithJSON(w, http.StatusOK, subs)
+}
+
+// Create godoc
+// @Summary      Make a new avatar the caller steers
+// @Description  Made in `subjects` (its POST) with the nick, name and bio
+// @Description  given, and recorded as steered by the principal in
+// @Description  X-Principal-Id. Nobody holds it: it is offline, no brain is
+// @Description  handed it, and nothing is written into `threads`. The nick
+// @Description  is `subjects`' to judge, and its answer is passed on: taken
+// @Description  by any subject ever made, deleted ones included, is 409;
+// @Description  against its rules (2-32 characters of a-z, 0-9, - and _,
+// @Description  starting with a letter) is 422, with its reason.
+// @Tags         reins
+// @Accept       json
+// @Produce      json
+// @Param        X-Principal-Id header string true "who is asking, as the door sets it"
+// @Param        body body  stewardship.NewSubject true "the new avatar"
+// @Success      201  {object}  stewardship.Subject
+// @Failure      400  {string}  string "A body that is not JSON, or names a field but nick, name and bio"
+// @Failure      401  {string}  string "No X-Principal-Id"
+// @Failure      409  {string}  string "The nick is taken"
+// @Failure      422  {string}  string "The nick breaks subjects' rules"
+// @Failure      502  {string}  string "subjects or the database did not answer"
+// @Router       /me/subjects [post]
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	p, ok := principal(w, r)
+	if !ok {
+		return
+	}
+	var n NewSubject
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&n); err != nil {
+		http.Error(w, "invalid request body: a new avatar is nick, name and bio: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sub, err := h.svc.Create(r.Context(), p, n)
+	if err != nil {
+		var ref *Refusal
+		if errors.As(err, &ref) {
+			http.Error(w, ref.Reason, ref.Status)
+			return
+		}
+		log.Printf("reins: new subject %q for %q: %v", n.Nick, p, err)
+		http.Error(w, "the avatar could not be made", http.StatusBadGateway)
+		return
+	}
+	one := []Subject{sub}
+	h.withBrains(r, p, one)
+	httpHelper.RespondWithJSON(w, http.StatusCreated, one[0])
 }
 
 // Handover godoc

@@ -279,6 +279,75 @@
                         }
                     }
                 }
+            },
+            "post": {
+                "description": "Made in `subjects` (its POST) with the nick, name and bio\ngiven, and recorded as steered by the principal in\nX-Principal-Id. Nobody holds it: it is offline, no brain is\nhanded it, and nothing is written into `threads`. The nick\nis `subjects`' to judge, and its answer is passed on: taken\nby any subject ever made, deleted ones included, is 409;\nagainst its rules (2-32 characters of a-z, 0-9, - and _,\nstarting with a letter) is 422, with its reason.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "reins"
+                ],
+                "summary": "Make a new avatar the caller steers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "who is asking, as the door sets it",
+                        "name": "X-Principal-Id",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "the new avatar",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/stewardship.NewSubject"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/stewardship.Subject"
+                        }
+                    },
+                    "400": {
+                        "description": "A body that is not JSON, or names a field but nick, name and bio",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "No X-Principal-Id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "409": {
+                        "description": "The nick is taken",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "422": {
+                        "description": "The nick breaks subjects' rules",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "502": {
+                        "description": "subjects or the database did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
             }
         },
         "/me/threads": {
@@ -1401,6 +1470,23 @@
                 "to": {
                     "type": "string",
                     "example": "bob"
+                }
+            }
+        },
+        "stewardship.NewSubject": {
+            "type": "object",
+            "properties": {
+                "bio": {
+                    "type": "string",
+                    "example": "Writes the release notes."
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Scribe"
+                },
+                "nick": {
+                    "type": "string",
+                    "example": "scribe"
                 }
             }
         },

@@ -20,6 +20,15 @@ type fakeReins struct {
 	gotCaller   string
 	gotTo       string
 	gotChange   Change
+	gotNew      NewSubject
+}
+
+func (f *fakeReins) Create(_ context.Context, caller string, n NewSubject) (Subject, error) {
+	f.gotCaller, f.gotNew = caller, n
+	if f.err != nil {
+		return Subject{}, f.err
+	}
+	return Subject{ID: uuid.New(), Nick: n.Nick, Name: n.Name, Bio: n.Bio}, nil
 }
 
 func (f *fakeReins) Subject(_ context.Context, caller string, id uuid.UUID) (Subject, error) {
@@ -156,4 +165,36 @@ func TestChangeAnswers(t *testing.T) {
 	}
 	assert.Nil(t, f.gotChange.Name)
 	assert.Equal(t, "null", string(f.gotChange.Preferences["voice"]))
+}
+
+func TestCreateAnswers(t *testing.T) {
+	cases := []struct {
+		name, principal, body string
+		err                   error
+		want                  int
+	}{
+		{"made", "alice", `{"nick":"scribe","name":"Scribe","bio":"Writes."}`, nil, http.StatusCreated},
+		{"no principal", "", `{"nick":"scribe"}`, nil, http.StatusUnauthorized},
+		{"bad body", "alice", `{`, nil, http.StatusBadRequest},
+		{"a field it does not take", "alice", `{"nick":"scribe","preferences":{}}`, nil, http.StatusBadRequest},
+		{"taken", "alice", `{"nick":"scribe"}`, &Refusal{Status: 409, Reason: `nick "scribe" is taken`}, http.StatusConflict},
+		{"against the rules", "alice", `{"nick":"S"}`, &Refusal{Status: 422, Reason: "nick must be 2-32 characters"}, http.StatusUnprocessableEntity},
+		{"subjects down", "alice", `{"nick":"scribe"}`, errors.New("subjects: connection refused"), http.StatusBadGateway},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeReins{err: tc.err}
+			rec := serve(f, http.MethodPost, "/me/subjects", tc.principal, tc.body)
+			assert.Equal(t, tc.want, rec.Code, rec.Body.String())
+			if tc.want == http.StatusCreated {
+				assert.Equal(t, "alice", f.gotCaller)
+				assert.Equal(t, NewSubject{Nick: "scribe", Name: "Scribe", Bio: "Writes."}, f.gotNew)
+				assert.Contains(t, rec.Body.String(), `"nick":"scribe"`)
+			}
+			var ref *Refusal
+			if errors.As(tc.err, &ref) {
+				assert.Contains(t, rec.Body.String(), ref.Reason, "the reason is passed on")
+			}
+		})
+	}
 }

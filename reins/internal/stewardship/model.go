@@ -2,7 +2,7 @@
 // a relation out of the world, between an account at the door and a
 // character in `subjects`. Nothing here is a world event, and nothing here is
 // written into `subjects` beyond the two personas a principal first seen is
-// given.
+// given, the avatars a principal makes, and a steward's changes.
 package stewardship
 
 import (
@@ -29,10 +29,13 @@ type Subject struct {
 	CurrentBrain *holds.Brain `json:"current_brain,omitempty"`
 }
 
-// NewSubject is what reins asks `subjects` to make.
+// NewSubject is what reins asks `subjects` to make, and what a principal
+// asks reins to make as a new avatar it steers (POST /me/subjects). The nick
+// is checked by `subjects`, under its own rules; reins passes its answer on.
 type NewSubject struct {
-	Nick string `json:"nick"`
-	Name string `json:"name"`
+	Nick string `json:"nick" example:"scribe"`
+	Name string `json:"name" example:"Scribe"`
+	Bio  string `json:"bio,omitempty" example:"Writes the release notes."`
 }
 
 // Change is what a steward may change of a subject: its name, its bio, its

@@ -3,7 +3,7 @@
 
 unit: reins
 kind: service
-summary: Where a principal holds the reins of its subjects — which subjects an account at the door may look into and take up, out of the world, and who holds each one's reins now (one holder - a principal on a device, a brain, or nobody - taken, handed, given back, lapsing with the device, announced on reins_events); a principal first seen is given `<login>` and `<login>-assistant` in subjects (the assistant handed to the default brain, a first thread opened by it), and a steward changes their name, bio and preferences. The face's door into the world - it writes into threads only as an avatar the principal steers and holds, and streams the threads its avatars are in over SSE (entries read back on threads' events, replies being written relayed). Own database; each compose runs its own.
+summary: Where a principal holds the reins of its subjects — which subjects an account at the door may look into and take up, out of the world, and who holds each one's reins now (one holder - a principal on a device, a brain, or nobody - taken, handed, given back, lapsing with the device, announced on reins_events); a principal first seen is given `<login>` and `<login>-assistant` in subjects (the assistant handed to the default brain, a first thread opened by it), a principal makes new avatars it steers there (offline, nothing journaled), and a steward changes their name, bio and preferences. The face's door into the world - it writes into threads only as an avatar the principal steers and holds, and streams the threads its avatars are in over SSE (entries read back on threads' events, replies being written relayed). Own database; each compose runs its own.
 contract: CONTRACT.md
 maturity: probe
 
@@ -13,6 +13,7 @@ provides:
     spec: docs/swagger.yaml
     routes:
       - "GET /me/subjects"
+      - "POST /me/subjects"            # a new avatar the caller steers, offline: {"nick", "name"?, "bio"?}
       - "GET /subjects/{id}"
       - "PATCH /subjects/{id}"
       - "POST /subjects/{id}/handover"
@@ -45,7 +46,7 @@ provides:
 
 consumes:
   units:
-    - unit: subjects    # the registry; reins reads its subjects, makes a principal's two personas, writes a steward's changes
+    - unit: subjects    # the registry; reins reads its subjects, makes a principal's two personas and the avatars it makes, writes a steward's changes
       via: http
       env: SUBJECTS_URL
       calls: ["GET /subjects/{id}", "POST /subjects", "PUT /subjects/{id}"]

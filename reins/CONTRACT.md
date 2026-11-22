@@ -45,6 +45,19 @@ reached only through the door.
   - 502 when `subjects` or the database does not answer.
   Each with its `current_brain` (section 5), as the caller sees it from
   its device (`X-Device-Id`).
+- `POST /me/subjects {"nick", "name"?, "bio"?}` — 201 with a new subject
+  the caller steers, in the shape `GET /me/subjects` gives: made in
+  `subjects` (its `POST`), and the stewardship recorded. Nobody holds it:
+  the avatar is offline, no brain is handed it, and nothing is written into
+  `threads` (making a character is not an act in the world). The nick is
+  `subjects`' to judge and its answer is passed on with its reason: 409
+  when any subject ever made has it, deleted ones included; 422 when it
+  breaks `subjects`' rules (2–32 characters of `a-z 0-9 - _`, starting
+  with a letter). 400 for a body that is not JSON or names any other
+  field; 502 when `subjects` or the database does not answer. The caller's
+  own personas are not made here: that is the first `GET /me/subjects`'s.
+  Known gap, as in provisioning (section 4): a record lost after
+  `subjects`' 201 leaves the nick held by a subject nobody steers.
 - `GET /subjects/{id}` — one subject the caller steers, as `subjects`
   returns it, with its `current_brain`. 403 when the caller does not steer it; 404 when it does but
   `subjects` has it no more; 502 when `subjects` or the database does not

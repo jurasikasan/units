@@ -2,7 +2,8 @@
 
 Where a principal holds the reins of its subjects: which subjects an account
 at the door may look into and take up, the two personas a principal first
-seen is given in `subjects`, and a steward's changes to a subject's name,
+seen is given in `subjects`, the new avatars a principal makes there and
+steers, and a steward's changes to a subject's name,
 bio and preferences (whose keys are named in the contract), who holds each
 subject's reins now (a principal on a device, a brain, or nobody), and the face's door
 into the world: threads written into only as an avatar the principal steers,
