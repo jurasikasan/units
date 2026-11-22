@@ -1,7 +1,6 @@
 #!/bin/sh
 # The tool over MCP, stateless: its list, a public page read, the stack and
-# the cloud's metadata refused, and a search (Brave's, when BRAVE_API_KEY is
-# set; else said to be not configured, as the tool's error).
+# the cloud's metadata refused, and a search by the showcase's SearXNG.
 set -u
 T=http://web:8080/mcp
 step() { printf '\n== %s\n' "$1"; }
@@ -40,12 +39,8 @@ echo "$md" | grep -q 'not a public address' || { echo "FAIL: not refused"; exit 
 step "fetch: not http, refused"
 mcp tools/call '{"name":"fetch","arguments":{"url":"file:///etc/passwd"}}'; echo
 
-step "search"
+step "search, by SearXNG"
 found=$(mcp tools/call '{"name":"search","arguments":{"query":"model context protocol","count":3}}')
 echo "$found" | short; echo
-if [ -n "${BRAVE_API_KEY:-}" ]; then
-  echo "$found" | grep -q '"isError":true' && { echo "FAIL: search failed"; exit 1; }
-else
-  echo "$found" | grep -q 'search is not configured' || { echo "FAIL: not said"; exit 1; }
-  echo "(no BRAVE_API_KEY here: search says so; fetch works all the same)"
-fi
+echo "$found" | grep -q '"isError":true' && { echo "FAIL: search failed"; exit 1; }
+echo "$found" | grep -q 'results for: model context protocol' || { echo "FAIL: nothing found"; exit 1; }

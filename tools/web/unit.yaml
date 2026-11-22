@@ -3,7 +3,7 @@
 
 unit: tools/web
 kind: tool              # a thing in the world an avatar's hands use
-summary: A tool that looks at the web. Two MCP tools, search (Brave's Search API; not configured without a key) and fetch (a public page's words, HTML as markdown), fetching only public addresses, from a process that can sit on an egress-only network. Keeps nothing.
+summary: A tool that looks at the web. Two MCP tools, search (a SearXNG beside it, or Brave's Search API with a key; else not configured) and fetch (a public page's words, HTML as markdown), fetching only public addresses, from a process that can sit on an egress-only network. Keeps nothing.
 contract: CONTRACT.md
 maturity: probe
 
@@ -18,7 +18,11 @@ provides:
 
 consumes:
   units:
-    - unit: brave-search  # Brave's Search API, on the internet; when BRAVE_API_KEY is set
+    - unit: searxng       # a SearXNG instance (metasearch, no index, no key); when SEARXNG_URL is set
+      via: http
+      env: SEARXNG_URL
+      calls: ["GET /search?format=json"]
+    - unit: brave-search  # Brave's Search API, on the internet; when BRAVE_API_KEY is set and SEARXNG_URL is not
       via: http
       calls: [GET https://api.search.brave.com/res/v1/web/search]
     - unit: tools/web     # the MCP server asks its own fetcher, when WEB_FETCHER_URL is set
@@ -31,6 +35,7 @@ wire: []
 config:
   required: {}
   optional:
+    SEARXNG_URL: "a SearXNG instance's base, e.g. http://searxng:8080, its settings allowing the json format; set, search asks it"
     WEB_FETCHER_URL: "the fetcher (`web fetcher`) the MCP server asks to fetch, e.g. http://tool-web-fetcher:8080; empty: it fetches itself"
     FETCH_TIMEOUT: "how long one fetch may take, redirects included; a Go duration, 20s"
     FETCH_MAX_BYTES: "the most of a body read, in bytes; 5242880"
@@ -39,4 +44,4 @@ config:
     SEARCH_TIMEOUT: "how long one search may take; a Go duration, 15s"
     PORT: "8080"
   secrets:
-    BRAVE_API_KEY: Brave Search API's subscription token; empty, search answers that it is not configured
+    BRAVE_API_KEY: Brave Search API's subscription token, asked when SEARXNG_URL is empty; both empty, search answers that it is not configured

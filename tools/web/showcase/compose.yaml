@@ -7,8 +7,9 @@ name: web-tool-showcase
 # `egress`, that goes out to the internet and holds nothing of the stack
 # but `web` itself (one network, not two: a host has few to give).
 # `egress-probe` shows that the stack cannot even be named from egress.
-# `docker compose up --build --exit-code-from demo`; with BRAVE_API_KEY in
-# the environment, search asks Brave too.
+# `searxng` is the search engine the tool asks, on egress too: it keeps no
+# index, it asks public engines on the internet.
+# `docker compose up --build --exit-code-from demo`.
 services:
   page:
     image: python:3.12-alpine
@@ -24,10 +25,24 @@ services:
     image: units-tools-web:${UNITS_TAG:-local}
     environment:
       WEB_FETCHER_URL: http://web-fetcher:8080
-      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      SEARXNG_URL: http://searxng:8080
     networks: [default, egress]
     depends_on:
       web-fetcher: {condition: service_started}
+      searxng: {condition: service_healthy}
+
+  searxng:
+    image: searxng/searxng:2026.11.1-9ded3bec1
+    environment:
+      # Signs nothing this instance uses (no image proxy, no limiter); it
+      # only has to differ from SearXNG's own default to start.
+      SEARXNG_SECRET: web-tool-showcase-searxng
+    volumes: [./searxng/settings.yml:/etc/searxng/settings.yml:ro]
+    networks: [egress]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 2s
+      retries: 30
 
   web-fetcher:
     image: units-tools-web:${UNITS_TAG:-local}
@@ -60,8 +75,6 @@ services:
       web: {condition: service_started}
       egress-probe: {condition: service_healthy}
     volumes: [./demo.sh:/demo.sh:ro]
-    environment:
-      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
     entrypoint: ["sh", "/demo.sh"]
 
 networks:

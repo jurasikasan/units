@@ -52,8 +52,11 @@ func main() {
 		how = "fetches through " + u
 	}
 	var s search.Searcher
-	searching := "search not configured (no BRAVE_API_KEY)"
-	if key := os.Getenv("BRAVE_API_KEY"); key != "" {
+	searching := "search not configured (no SEARXNG_URL, no BRAVE_API_KEY)"
+	if u := os.Getenv("SEARXNG_URL"); u != "" {
+		s = search.NewSearXNG(u, envDuration("SEARCH_TIMEOUT", 15*time.Second))
+		searching = "search by SearXNG at " + u
+	} else if key := os.Getenv("BRAVE_API_KEY"); key != "" {
 		s = search.NewBrave(key, envDuration("SEARCH_TIMEOUT", 15*time.Second))
 		searching = "search by Brave"
 	}

@@ -2,8 +2,8 @@
 
 A tool that looks at the web, one of the `tools/` family: things in the
 world an avatar's hands use (the repo's CLAUDE.md, "Words for what an
-avatar has"). Two MCP tools: `search` asks a search engine (Brave's Search
-API) and returns what it found; `fetch` reads one public page and returns
+avatar has"). Two MCP tools: `search` asks a search engine (a SearXNG run
+beside it, or Brave's Search API) and returns what it found; `fetch` reads one public page and returns
 its words, HTML as markdown. It keeps nothing.
 
 Fetching cannot reach into the stack: the fetching runs in a process of
@@ -18,7 +18,7 @@ v1.8. `GET /health` answers `{"status":"ok","version"}`.
 
 | tool | arguments | result |
 |---|---|---|
-| `search` | `query`; `count` (1–20, 5) optional | the results in words (title, url, snippet each) and as `structuredContent`; without `BRAVE_API_KEY` the tool's error `search is not configured` |
+| `search` | `query`; `count` (1–20, 5) optional | the results in words (title, url, snippet each) and as `structuredContent`; with neither `SEARXNG_URL` nor `BRAVE_API_KEY` the tool's error `search is not configured` |
 | `fetch` | `url`; `max_chars` optional | `Title`, `URL`, the page's text (HTML as markdown), and as `structuredContent`; a refused address, a 4xx/5xx, a body that is not text: `isError` with the reason |
 
 ## Run
@@ -35,7 +35,8 @@ In a stack, `web` joins the stack's network and the `egress` one,
 
 | env | default | |
 |---|---|---|
-| `BRAVE_API_KEY` | — | Brave Search API's token (secret); empty: search is not configured |
+| `SEARXNG_URL` | — | a SearXNG instance's base (`http://searxng:8080`), its settings allowing the `json` format; set, search asks it |
+| `BRAVE_API_KEY` | — | Brave Search API's token (secret), asked when `SEARXNG_URL` is empty; both empty: search is not configured |
 | `WEB_FETCHER_URL` | — | the fetcher the MCP server asks; empty: it fetches itself |
 | `FETCH_TIMEOUT` | `20s` | one fetch, redirects included |
 | `FETCH_MAX_BYTES` | `5242880` | the most of a body read |
@@ -54,7 +55,6 @@ parses it and reads its charset.
 
 ```bash
 cd showcase && docker compose up --build --exit-code-from demo
-BRAVE_API_KEY=… docker compose up --build --exit-code-from demo   # and search
 ```
 
 Laid out as a stack runs it: `web` beside the demo and `page` (a service
@@ -62,7 +62,8 @@ of the stack), `web-fetcher` on the egress network only. The tool list; a
 public page read (example.com: the showcase needs the internet); the
 stack's page refused (the fetcher cannot even name it), `web` itself
 refused by the address check, the cloud's metadata and `file://` refused;
-search, Brave's results with a key, else said to be not configured. A
+search by the showcase's own SearXNG (`searxng/settings.yml`: json on,
+its limiter off, as a private instance only the tool asks). A
 probe on the egress network shows the stack is out of its reach.
 
 ## Checks
@@ -71,5 +72,6 @@ probe on the egress network shows the stack is out of its reach.
 pages: markdown, charsets, limits; the refusals: loopback, private,
 169.254.169.254, `[::1]`, mapped forms, a redirect to a private address, a
 name resolving to one, DNS rebinding at the dial; the fetcher over HTTP;
-Brave against a fake endpoint; both tools over MCP with a fake engine),
-`unit.yaml` against the code. No call reaches Brave.
+SearXNG and Brave against fake endpoints, a SearXNG whose engines all
+failed said as such; both tools over MCP with a fake engine), `unit.yaml`
+against the code. No call reaches a real search engine.

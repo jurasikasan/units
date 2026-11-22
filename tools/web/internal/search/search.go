@@ -1,6 +1,6 @@
 // Package search asks a web search engine and hands back what it found:
-// a title, a url and a snippet per result. The engine is behind Searcher;
-// Brave's Search API is the one there is.
+// a title, a url and a snippet per result. The engine is behind Searcher:
+// a SearXNG beside the tool (no key) or Brave's Search API (a key).
 package search
 
 import (
@@ -31,7 +31,7 @@ type Searcher interface {
 }
 
 // ErrNotConfigured is search's answer when no engine is set up.
-var ErrNotConfigured = errors.New("search is not configured: the tool has no search engine key (BRAVE_API_KEY)")
+var ErrNotConfigured = errors.New("search is not configured: the tool has no search engine (SEARXNG_URL or BRAVE_API_KEY)")
 
 // MaxCount is the most results one search returns (Brave's own most).
 const MaxCount = 20
@@ -104,6 +104,11 @@ func braveError(raw []byte) string {
 	if json.Unmarshal(raw, &e) == nil && e.Error.Detail != "" {
 		return e.Error.Detail
 	}
+	return short(raw)
+}
+
+// short is a body as it came, trimmed for an error's words.
+func short(raw []byte) string {
 	s := strings.TrimSpace(string(raw))
 	if len(s) > 300 {
 		s = s[:300] + "…"

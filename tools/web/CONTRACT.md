@@ -1,6 +1,6 @@
 # tools/web — contract
 
-Status: v0.1.0 — two tools, `search` and `fetch`.
+Status: v0.2.0 — two tools, `search` and `fetch`; search by SearXNG or Brave.
 
 ## 1. What it is
 
@@ -31,8 +31,8 @@ and snippet on lines of their own; `Nothing found for: <query>` when
 nothing was. The structure: `{query, results: [{title, url, snippet}]}`,
 the snippets without the engine's markup.
 
-Without `BRAVE_API_KEY`, search is the tool's error, `search is not
-configured: …`; fetch works all the same.
+With neither `SEARXNG_URL` nor `BRAVE_API_KEY`, search is the tool's
+error, `search is not configured: …`; fetch works all the same.
 
 ### `fetch`
 
@@ -59,11 +59,21 @@ not answer in time.
 
 ## 3. What it asks
 
-- Brave's Search API: `GET https://api.search.brave.com/res/v1/web/search?q=&count=`
-  with `X-Subscription-Token: {BRAVE_API_KEY}`; `web.results[]`'s `title`,
+- With `SEARXNG_URL`: SearXNG, `GET {SEARXNG_URL}/search?q=&format=json`,
+  no key; `results[]`'s `title`, `url`, `content` are read, the first
+  `count` whose url is an http(s) url with a host (an engine's own
+  redirect without one is left out). SearXNG keeps no index: it asks public engines and merges their
+  answers, so an engine may refuse it (a rate limit, a captcha); when
+  nothing was found and engines failed, the tool's error names them
+  (`searxng found nothing, its engines failing: duckduckgo: CAPTCHA; …`).
+  A 403 is a SearXNG whose settings leave the `json` format out.
+- Else with `BRAVE_API_KEY`: Brave's Search API, `GET
+  https://api.search.brave.com/res/v1/web/search?q=&count=` with
+  `X-Subscription-Token: {BRAVE_API_KEY}`; `web.results[]`'s `title`,
   `url`, `description` are read. Brave's error `detail` is the tool's
-  error's words. The engine is an interface (`search.Searcher`): another
-  is a new implementation and a key of its own.
+  error's words.
+- The engine is an interface (`search.Searcher`): another is a new
+  implementation and a setting of its own.
 - The page, from the fetcher (§4).
 
 ## 4. Fetching stays out of the stack (SSRF)

@@ -1,0 +1,10 @@
+# A private SearXNG that only the web tool asks: its defaults, plus the json
+# format the tool reads, without the limiter (it guards a public instance
+# from bots; the only caller here is the tool) and without the image proxy.
+use_default_settings: true
+server:
+  limiter: false
+  image_proxy: false
+  public_instance: false
+search:
+  formats: [html, json]
