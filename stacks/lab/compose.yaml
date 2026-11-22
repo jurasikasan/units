@@ -478,15 +478,21 @@ services:
       interval: 1s
       retries: 30
 
-  # A person in a real browser: e2e/chat.mjs. On the host's network, so the
-  # browser goes to LAB_URL exactly as a person's would.
+  # A person in a real browser: e2e/chat.mjs. The browser goes to LAB_URL
+  # as a person's would, its name and port as they are, but on the lab's
+  # own network: LAB_DOMAIN is this container's loopback, where a door
+  # (E2E_DOOR) leads to nginx. Not on the host's network, where every
+  # bridge Docker adds or removes (another lab up or down) is a network
+  # change to Chromium, which aborts what it was loading.
   e2e:
     build: ./e2e
     image: units-lab-e2e:local
     profiles: [e2e]
-    network_mode: host
+    extra_hosts:
+      - ${LAB_DOMAIN}:127.0.0.1
     environment:
       LAB_URL: ${LAB_URL}
+      E2E_DOOR: nginx:443
       LAB_LLM_MODEL: ${LAB_LLM_MODEL:-fake}
       LAB_STT_MODEL: ${LAB_STT_MODEL:-}
       LAB_REALTIME_MODEL: ${LAB_REALTIME_MODEL:-}

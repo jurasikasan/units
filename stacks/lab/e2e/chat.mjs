@@ -83,6 +83,7 @@
 // On a failure, what reins holds now is printed beside what the page shows.
 import { chromium } from 'playwright'
 import { writeFileSync } from 'node:fs'
+import net from 'node:net'
 
 const [user, password] = process.argv.slice(2)
 const assistant = `${user}-assistant`
@@ -121,8 +122,30 @@ function tone(path) {
 }
 const voiceFile = process.env.E2E_VOICE_FILE || tone('/tmp/tone.wav')
 
+// The door (E2E_DOOR, host:port): LAB_URL's port on this container's
+// loopback leads there, and LAB_URL's host name is the loopback, for the
+// browser (a resolver rule) and for requests made beside it (the
+// container's hosts file). The address bar still says LAB_URL, which the
+// gate and the certificate are tied to; only the way there is the lab's
+// own network, which nothing else on the machine changes under it.
+const door = process.env.E2E_DOOR ?? ''
+const doorArgs = []
+if (door) {
+  const [host, port] = door.split(':')
+  const lab = new URL(url)
+  await new Promise((resolve, reject) => {
+    net.createServer((inside) => {
+      const outside = net.connect(Number(port), host)
+      inside.pipe(outside).pipe(inside)
+      inside.on('error', () => outside.destroy())
+      outside.on('error', () => inside.destroy())
+    }).on('error', reject).listen(Number(lab.port || 443), '127.0.0.1', resolve)
+  })
+  doorArgs.push(`--host-resolver-rules=MAP ${lab.hostname} 127.0.0.1`)
+}
+
 const browser = await chromium.launch({
-  args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${voiceFile}`, '--autoplay-policy=no-user-gesture-required'],
+  args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${voiceFile}`, '--autoplay-policy=no-user-gesture-required', ...doorArgs],
 })
 const context = await browser.newContext({ ignoreHTTPSErrors: true, permissions: ['microphone'] })
 const page = await context.newPage()

@@ -209,6 +209,13 @@ COMPOSE_ENV_FILES=$PWD/.env.mine COMPOSE_PROJECT_NAME=mine e2e/repeat.sh greet 2
 # greet: 20 of 20 passed, 0 failed (logs in /tmp/repeat-…)
 ```
 
+The browser runs on the lab's own network, not the host's: the address bar
+says `LAB_URL`, but its host name is the container's loopback, where a
+door leads to nginx (`E2E_DOOR`). On the host's network every bridge Docker
+adds or removes, another lab brought up or down beside it, was a network
+change to Chromium, which aborted the page it was loading
+(`net::ERR_NETWORK_CHANGED`); the lab's own network changes under nobody.
+
 The same browser against a running lab and whatever model it asks, a real
 one included (the answer is then the model's, so give it time):
 
