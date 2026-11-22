@@ -1,0 +1,42 @@
+# Manifest: what a reader outside the unit reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: tools/web
+kind: tool              # a thing in the world an avatar's hands use
+summary: A tool that looks at the web. Two MCP tools, search (Brave's Search API; not configured without a key) and fetch (a public page's words, HTML as markdown), fetching only public addresses, from a process that can sit on an egress-only network. Keeps nothing.
+contract: CONTRACT.md
+maturity: probe
+
+provides:
+  mcp:
+    port: 8080          # MCP 2026-07-28, Streamable HTTP on /mcp, stateless
+    tools: [search, fetch]
+  http:
+    port: 8080          # `web fetcher`: the same image, fetching only
+    calls: [POST /fetch]
+  health: GET :8080/health
+
+consumes:
+  units:
+    - unit: brave-search  # Brave's Search API, on the internet; when BRAVE_API_KEY is set
+      via: http
+      calls: [GET https://api.search.brave.com/res/v1/web/search]
+    - unit: tools/web     # the MCP server asks its own fetcher, when WEB_FETCHER_URL is set
+      via: http
+      env: WEB_FETCHER_URL
+      calls: [POST /fetch]
+
+wire: []
+
+config:
+  required: {}
+  optional:
+    WEB_FETCHER_URL: "the fetcher (`web fetcher`) the MCP server asks to fetch, e.g. http://tool-web-fetcher:8080; empty: it fetches itself"
+    FETCH_TIMEOUT: "how long one fetch may take, redirects included; a Go duration, 20s"
+    FETCH_MAX_BYTES: "the most of a body read, in bytes; 5242880"
+    FETCH_MAX_CHARS: "the most characters of text returned, and the most a call may ask; 20000"
+    FETCH_MAX_REDIRECTS: "5"
+    SEARCH_TIMEOUT: "how long one search may take; a Go duration, 15s"
+    PORT: "8080"
+  secrets:
+    BRAVE_API_KEY: Brave Search API's subscription token; empty, search answers that it is not configured

@@ -1,0 +1,70 @@
+name: web-tool-showcase
+
+# The tool on its own, laid out as a stack runs it. `web` is the MCP server,
+# on the stack's network beside whoever calls it (here the demo, and `page`,
+# a service of the stack that must stay out of the web's reach). It does
+# not fetch: it asks `web-fetcher`, which sits only on a network of its own,
+# `egress`, that goes out to the internet and holds nothing of the stack
+# but `web` itself (one network, not two: a host has few to give).
+# `egress-probe` shows that the stack cannot even be named from egress.
+# `docker compose up --build --exit-code-from demo`; with BRAVE_API_KEY in
+# the environment, search asks Brave too.
+services:
+  page:
+    image: python:3.12-alpine
+    command: [python3, -m, http.server, "8000"]
+    working_dir: /srv
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/')"]
+      interval: 1s
+      retries: 30
+
+  web:
+    build: ..
+    image: units-tools-web:local
+    environment:
+      WEB_FETCHER_URL: http://web-fetcher:8080
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+    networks: [default, egress]
+    depends_on:
+      web-fetcher: {condition: service_started}
+
+  web-fetcher:
+    image: units-tools-web:local
+    command: [fetcher]
+    environment:
+      FETCH_MAX_CHARS: "4000"
+    networks: [egress]
+
+  egress-probe:
+    image: curlimages/curl:8.11.1
+    networks: [egress]
+    depends_on:
+      page: {condition: service_healthy}
+    entrypoint: ["sh", "-c"]
+    # It stays up, healthy once it has seen it: a container that ended
+    # would end the showcase (--exit-code-from stops at the first exit).
+    command:
+      - |
+        if curl -s -m 3 -o /dev/null http://page:8000/; then echo "FAIL: page reached from egress"; exit 1; fi
+        echo "from the egress network, the stack's page is not even a name: refused before any check of ours"
+        touch /tmp/seen && exec sleep infinity
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/seen"]
+      interval: 1s
+      retries: 30
+
+  demo:
+    image: curlimages/curl:8.11.1
+    depends_on:
+      web: {condition: service_started}
+      egress-probe: {condition: service_healthy}
+    volumes: [./demo.sh:/demo.sh:ro]
+    environment:
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+    entrypoint: ["sh", "/demo.sh"]
+
+networks:
+  default:
+  # web-fetcher's way out to the internet; of the stack only web is on it.
+  egress:
