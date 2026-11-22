@@ -24,6 +24,16 @@ func (e Event) Str(key string) string {
 	return s
 }
 
+// Uint32 is a field of the data as a whole number (JSON's, a float64 here);
+// ok is false when absent or not one.
+func (e Event) Uint32(key string) (uint32, bool) {
+	f, ok := e.Data[key].(float64)
+	if !ok || f < 0 || f > 1<<32-1 || f != float64(uint32(f)) {
+		return 0, false
+	}
+	return uint32(f), true
+}
+
 // Time is a field of the data as an RFC 3339 time; zero when absent.
 func (e Event) Time(key string) time.Time {
 	t, _ := time.Parse(time.RFC3339Nano, e.Str(key))

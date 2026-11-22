@@ -58,16 +58,26 @@ type piece struct {
 	cause   string // speaking's completion cause; "" while it plays
 	startMs int
 	endMs   int
+	// speaking's marker: the timestamp its sound began at in speaking's
+	// stream, and whether that place in the answer's sound is known (placed:
+	// startMs is exact, not the previous phrase's end as speak-complete told).
+	marked, placed bool
+	markTs         uint32
 }
 
 // heard is what of an answer was heard, given that its sound was played up
-// to ms. speaking reports what went out per phrase and when it ended, not
-// where each word lay, so within a phrase the place is a guess by the share
-// of letters, cut at a word, a word more than half heard counting
-// (UNIT-51 would make it exact).
+// to ms. A phrase's start is exact where speaking marked it (its marker's
+// timestamp found in the sound, UNIT-51), and a phrase ends where the next
+// one placed begins; else both come from speak-complete, as it arrived.
+// Within a phrase the place is a guess by the share of letters, cut at a
+// word, a word more than half heard counting: no word timings (no karaoke).
 func heard(pieces []*piece, ms int) string {
 	var out []string
-	for _, p := range pieces {
+	for i, p := range pieces {
+		end := p.endMs
+		if i+1 < len(pieces) && pieces[i+1].placed && p.cause != "" {
+			end = pieces[i+1].startMs
+		}
 		said := p.spoken
 		if p.cause == "normal" || p.cause == "" {
 			said = p.text
@@ -75,12 +85,12 @@ func heard(pieces []*piece, ms int) string {
 		if said == "" {
 			break
 		}
-		if ms >= p.endMs {
+		if ms >= end {
 			out = append(out, said)
 			continue
 		}
-		if ms > p.startMs && p.endMs > p.startMs {
-			if part := share(said, float64(ms-p.startMs)/float64(p.endMs-p.startMs)); part != "" {
+		if ms > p.startMs && end > p.startMs {
+			if part := share(said, float64(ms-p.startMs)/float64(end-p.startMs)); part != "" {
 				out = append(out, part)
 			}
 		}

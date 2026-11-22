@@ -48,7 +48,7 @@ func TestSenderToReceiver(t *testing.T) {
 	}
 	defer r.Close()
 	got := make(chan []byte, 16)
-	go r.Run(func(pcm []byte) { got <- pcm })
+	go r.Run(func(pcm []byte, _ uint32) { got <- pcm })
 
 	s, err := NewSender(r.Address("127.0.0.1"))
 	if err != nil {

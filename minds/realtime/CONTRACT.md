@@ -94,9 +94,13 @@ reported every phrase. The answer in the conversation is what went out
 wants. An utterance's words arriving while an answer goes end it the same way,
 and the utterance gets its own answer after it.
 
-**Truncate.** speaking reports what went out per phrase and when the phrase
-ended, not where each word lay; within a phrase the place is a guess by the
-share of letters, a word more than half heard counting. UNIT-51 makes it exact.
+**Truncate.** Where each phrase begins in the answer's sound is exact:
+speaking marks each sentence's start with its RTP timestamp
+(`speechsynth.speech-marker`), and the call finds that packet in the sound
+it relayed, whichever of the two came first. A phrase ends where the next
+begins; the last, or one never marked, where speak-complete said. Within a
+phrase the place is a guess by the share of letters, a word more than half
+heard counting: speaking knows no word timings (no karaoke, on purpose).
 
 ## 3. Audio
 

@@ -35,6 +35,7 @@ consumes:
       via: events
       stream: speech_events
       types:
+        - speechsynth.speech-marker
         - speechsynth.speak-complete
         - speechsynth.session-closed
     - unit: litellm      # or any OpenAI-shaped chat endpoint

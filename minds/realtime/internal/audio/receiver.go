@@ -55,8 +55,8 @@ type Receiver struct {
 func (r *Receiver) Address(host string) string { return net.JoinHostPort(host, strconv.Itoa(r.Port)) }
 
 // Run reads until Close, handing each packet's payload on as PCM16
-// little-endian at 24 kHz.
-func (r *Receiver) Run(got func(pcm24 []byte)) {
+// little-endian at 24 kHz, with the packet's RTP timestamp.
+func (r *Receiver) Run(got func(pcm24 []byte, ts uint32)) {
 	buf := make([]byte, 1<<16) // a 20 ms L16 packet is 1932 bytes, past an Ethernet MTU
 	var owner uint32
 	owned := false
@@ -75,7 +75,7 @@ func (r *Receiver) Run(got func(pcm24 []byte)) {
 		} else if ssrc != owner {
 			continue
 		}
-		got(Down(payload))
+		got(Down(payload), binary.BigEndian.Uint32(buf[4:]))
 	}
 }
 

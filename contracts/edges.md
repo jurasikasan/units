@@ -263,7 +263,7 @@ Client → server:
 | `input_audio_buffer.append` | RTP to hearing's `audio_in` | equal |
 | `input_audio_buffer.commit`, `.clear` (turns by the client, `turn_detection: null`) | hearing always finds utterances itself; no "end it now", no "forget it" | not now: push-to-talk, when a face needs it |
 | `conversation.item.create` (text, a `function_call_output`) | — | the cascade's |
-| `conversation.item.truncate` `{item_id, audio_end_ms}` | speaking's `spoken`: the prefix sent, once, at `speak-complete` | **bug** (UNIT-51): speaking says what went out only at the end and not where in the sound each piece began, so "heard up to 3.2 s" cannot be turned into words but by guessing; a marker per piece (MRCP's SPEECH-MARKER, by the stream's own clock) would |
+| `conversation.item.truncate` `{item_id, audio_end_ms}` | speaking's `speech-marker` (each sentence's start, by the RTP clock) and `spoken` at `speak-complete` | equal since UNIT-51: "heard up to 3.2 s" is found to the sentence exactly, within it by the share of letters (no word timings, on purpose); the page then shows what was heard (`conversation.item.retrieve` after `truncated`) |
 | `conversation.item.retrieve`, `.delete` | — | the cascade's |
 | `response.create` | — | the cascade's: one turn of the model, its words to `speak` sentence by sentence |
 | `response.cancel` | speaking `stop` → `speak-complete` `cancelled` | equal |
@@ -483,7 +483,8 @@ says it with piper).
 - **What it does not carry yet**: tools in the session, push-to-talk
   (`commit`, `clear`), text-only answers; the ear and turn timings are
   hearing's, per deployment (UNIT-49, since taken per session from the
-  call); `truncate` within a sentence is a guess by letters (UNIT-51).
+  call); `truncate` within a sentence is a guess by letters (to the
+  sentence exact since UNIT-51).
 
 ## Not verified
 

@@ -69,8 +69,11 @@ type response struct {
 	reason   string // cancelled: turn_detected or client_cancelled
 	audioMs  int    // ms of its sound sent to the client
 	pending  []byte // sound not yet sent
-	truncate *int   // the client's audio_end_ms, come before the answer was done
-	next     bool   // an utterance waits for an answer of its own
+	// at is where each of speaking's packets begins in the answer's sound,
+	// ms, by its RTP timestamp: a marker finds its sentence's start here.
+	at       map[uint32]int
+	truncate *int // the client's audio_end_ms, come before the answer was done
+	next     bool // an utterance waits for an answer of its own
 }
 
 type (
@@ -86,7 +89,10 @@ type (
 		resp string
 		err  error
 	}
-	sound struct{ pcm []byte }
+	sound struct {
+		pcm []byte
+		ts  uint32
+	}
 )
 
 // Call is one call: the WebSocket, an actor owning everything below, and
@@ -244,9 +250,9 @@ func (c *Call) openMouth(ctx context.Context) error {
 	ev := make(chan organs.Event, 256)
 	c.o.SpeakingEv.Subscribe(c.speaking, ev)
 	go forward(ctx, ev, c.in)
-	go r.Run(func(pcm []byte) {
+	go r.Run(func(pcm []byte, ts uint32) {
 		select {
-		case c.in <- sound{pcm}:
+		case c.in <- sound{pcm, ts}:
 		case <-ctx.Done():
 		}
 	})
@@ -376,7 +382,7 @@ func (c *Call) run(ctx context.Context) {
 		case written:
 			c.written(ctx, m)
 		case sound:
-			c.sound(ctx, m.pcm)
+			c.sound(ctx, m.pcm, m.ts)
 		}
 		if c.stopped {
 			return
@@ -632,6 +638,10 @@ func (c *Call) organ(ctx context.Context, ev organs.Event) {
 		c.send(ctx, errorEvent("server_error", "", "hearing closed the call's session: "+ev.Str("reason")))
 		_ = c.ws.Close(websocket.StatusInternalError, "hearing is gone")
 		c.hearing, c.stopped = "", true
+	case "speechsynth.speech-marker":
+		if ts, ok := ev.Uint32("rtp_timestamp"); ok {
+			c.marked(ev.Str("request_id"), ts)
+		}
 	case "speechsynth.speak-complete":
 		c.spoke(ctx, ev.Str("request_id"), ev.Str("completion_cause"), ev.Str("spoken"))
 	case "speechsynth.session-closed":
@@ -813,11 +823,22 @@ func (c *Call) say(ctx context.Context, r *response, s string) {
 }
 
 // sound is speaking's sound coming back, sent to the client as the
-// answer's.
-func (c *Call) sound(ctx context.Context, pcm []byte) {
+// answer's. Where each packet begins in the answer's sound is kept by its
+// timestamp, and a sentence marked at it is placed there.
+func (c *Call) sound(ctx context.Context, pcm []byte, ts uint32) {
 	r := c.resp
 	if r == nil {
 		return
+	}
+	pos := r.audioMs + len(r.pending)/bytesPerMs
+	if r.at == nil {
+		r.at = map[uint32]int{}
+	}
+	r.at[ts] = pos
+	for _, p := range r.pieces {
+		if p.marked && !p.placed && p.markTs == ts {
+			p.startMs, p.placed = pos, true
+		}
 	}
 	r.pending = append(r.pending, pcm...)
 	if len(r.pending) >= deltaBytes {
@@ -835,6 +856,26 @@ func (c *Call) flushSound(ctx context.Context, r *response) {
 	r.pending = r.pending[:0]
 }
 
+// marked is speaking's marker: a phrase's first sentence began at ts in its
+// stream. Placed now if that packet has come, else when it comes (the event
+// and the sound travel apart).
+func (c *Call) marked(request string, ts uint32) {
+	r := c.resp
+	if r == nil {
+		return
+	}
+	for _, p := range r.pieces {
+		if p.request != request || p.marked {
+			continue
+		}
+		p.marked, p.markTs = true, ts
+		if pos, ok := r.at[ts]; ok {
+			p.startMs, p.placed = pos, true
+		}
+		return
+	}
+}
+
 // spoke is speaking's word on one phrase: what went out, and why it ended.
 func (c *Call) spoke(ctx context.Context, request, cause, spoken string) {
 	r := c.resp
@@ -850,7 +891,10 @@ func (c *Call) spoke(ctx context.Context, request, cause, spoken string) {
 			continue
 		}
 		c.flushSound(ctx, r)
-		p.cause, p.spoken, p.startMs, p.endMs = cause, spoken, start, r.audioMs
+		p.cause, p.spoken, p.endMs = cause, spoken, r.audioMs
+		if !p.placed {
+			p.startMs = start
+		}
 		if cause == "error" && r.failure == "" {
 			r.failure = "speaking could not say: " + p.text
 		}
