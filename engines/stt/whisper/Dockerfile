@@ -8,11 +8,15 @@ ARG GPU=false
 
 FROM python:3.11-slim AS base-false
 RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir faster-whisper fastapi uvicorn python-multipart
+# Versions pinned 2026-11-22 from pip freeze of the CPU and GPU images running
+# then; each branch keeps what its own image runs.
+RUN pip install --no-cache-dir faster-whisper==1.2.1 fastapi==0.163.1 uvicorn==0.54.0 \
+    python-multipart==0.0.33
 
 FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04 AS base-true
 RUN apt-get update && apt-get install -y python3 python3-pip ffmpeg && rm -rf /var/lib/apt/lists/*
-RUN pip3 install --no-cache-dir faster-whisper fastapi uvicorn python-multipart
+RUN pip3 install --no-cache-dir faster-whisper==1.2.1 fastapi==0.162.0 uvicorn==0.54.0 \
+    python-multipart==0.0.32
 
 FROM base-${GPU} AS final
 WORKDIR /app
