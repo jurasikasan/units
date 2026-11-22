@@ -73,6 +73,22 @@ filter by avatar.
 - README and `unit.yaml` match the code; a new unit gets a row in the root
   README table.
 
+## Heavy runs belong to the main thread
+
+A stack (`stacks/*/check.sh`, a second lab, a showcase that builds many
+images, anything on the GPU box) costs minutes, machine and tokens. It runs
+once, in the conversation the person is in, on the code that will be
+merged, so they can see it and take part.
+
+- A delegated piece of work (a subagent, a session in a worktree) runs only
+  the `check.sh` of the units it touched and of their consumers, and says in
+  its report which stack runs its change needs. It does not bring up a stack
+  unless its brief asks for one.
+- The main thread merges the pieces, then runs the stack check once on the
+  merged code.
+- Where a person does something faster (a look in the browser, a click, a
+  key, a VPN), ask them rather than build a workaround.
+
 ## Commits
 
 - One unit (or one concern) per commit. Subject: `<unit path>: <what it is or
