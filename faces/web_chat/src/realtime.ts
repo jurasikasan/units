@@ -14,9 +14,17 @@ import { VOICE_FAILED } from '@/voice'
 // input_audio_buffer.speech_started while an answer plays, or the answer's
 // response.done before its output_audio.done. Either stops what is playing
 // and tells the model how much of the answer was heard (truncate).
+//
+// A cut answer shows what was heard of it, not what was generated: once the
+// server says it cut it (conversation.item.truncated), the page asks for
+// the item (conversation.item.retrieve) and shows its transcript as the
+// server now holds it. A server that drops truncate (LiteLLM's Gemini, the
+// fake-realtime) or empties the transcript (OpenAI's, which then keeps no
+// text) leaves the answer as generated, after HELD at most.
 
 const RATE = 24000
 const CHUNK = RATE / 10 // 100 ms of the mic per message
+const HELD = 2000 // ms a cut answer waits for what the server heard of it
 
 function said(what: string, error?: unknown) {
   console.error(what, error)
@@ -104,6 +112,8 @@ export class RealtimeCallAdapter implements RealtimeVoiceAdapter {
       const playing = new Set<AudioBufferSourceNode>()
       let next = 0 // AudioContext time the next sound starts
       let answer: Answer | undefined
+      // Cut answers waiting for the server's word on what was heard, by item.
+      const held = new Map<string, { a: Answer; timer: ReturnType<typeof setTimeout> }>()
       let mode: RealtimeVoiceAdapter.Mode = 'listening'
 
       const setMode = (m: RealtimeVoiceAdapter.Mode) => {
@@ -131,8 +141,28 @@ export class RealtimeCallAdapter implements RealtimeVoiceAdapter {
         send({ type: 'conversation.item.truncate', item_id: answer.item, content_index: 0, audio_end_ms: Math.round(heard * 1000) })
         setMode('listening')
       }
+      const say = (a: Answer) => {
+        if (a.text) h.emitTranscript({ role: 'assistant', text: a.text, isFinal: true })
+      }
+      // An answer done is said, unless it was cut: then held until the
+      // server says what was heard of it, or HELD passes.
       const finish = () => {
-        if (answer && answer.text) h.emitTranscript({ role: 'assistant', text: answer.text, isFinal: true })
+        if (!answer) return
+        if (!answer.cut) return say(answer)
+        if (held.has(answer.item)) return
+        const a = answer
+        held.set(a.item, { a, timer: setTimeout(() => release(a.item), HELD) })
+      }
+      const release = (item: string, heard?: string) => {
+        const w = held.get(item)
+        if (!w) return
+        clearTimeout(w.timer)
+        held.delete(item)
+        if (heard) w.a.text = heard
+        say(w.a)
+      }
+      const releaseAll = () => {
+        for (const item of [...held.keys()]) release(item)
       }
       const answering = (item: string, response?: string) => {
         if (answer?.item === item) return answer
@@ -201,6 +231,18 @@ export class RealtimeCallAdapter implements RealtimeVoiceAdapter {
               if (!answer.audioDone || r.status === 'cancelled') cut()
               finish()
               answer = undefined
+            }
+            break
+          }
+          case 'conversation.item.truncated':
+            if (item && held.has(item)) send({ type: 'conversation.item.retrieve', item_id: item })
+            break
+          case 'conversation.item.retrieved': {
+            const it = (ev.item ?? {}) as { id?: string; role?: string; content?: { transcript?: unknown; text?: unknown }[] }
+            if (it.id && it.role === 'assistant' && held.has(it.id)) {
+              const c = it.content?.[0]
+              const heard = typeof c?.transcript === 'string' ? c.transcript : typeof c?.text === 'string' ? c.text : ''
+              release(it.id, heard.trim())
             }
             break
           }
@@ -284,6 +326,7 @@ export class RealtimeCallAdapter implements RealtimeVoiceAdapter {
       }
       ws.onclose = (e) => {
         finish()
+        releaseAll()
         cleanup()
         if (hungUp) return
         if (e.code === 1000) {
@@ -301,6 +344,7 @@ export class RealtimeCallAdapter implements RealtimeVoiceAdapter {
           hungUp = true
           ws?.close(1000, 'hung up')
           finish()
+          releaseAll()
           cleanup()
         },
         mute() {

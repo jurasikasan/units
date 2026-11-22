@@ -302,7 +302,13 @@ goes: mute (nothing is sent), hang up. An interruption is taken from
 answer's `response.done` before its `output_audio.done` (all a model behind
 LiteLLM was seen to send, `contracts/edges.md`): the sound stops and the
 model is told how much was heard (`conversation.item.truncate`,
-`audio_end_ms`). A close the page did not ask for, or the endpoint's
+`audio_end_ms`). The cut answer then shows what was heard of it, not what
+was generated: once the server says it cut it
+(`conversation.item.truncated`), the page asks for the item
+(`conversation.item.retrieve`) and shows its transcript as the server now
+holds it (our cascade keeps the heard words). A server that drops
+`truncate` (LiteLLM's Gemini, `fake-realtime`) or empties the transcript
+(OpenAI's) leaves the answer as generated, after 2 s at most. A close the page did not ask for, or the endpoint's
 `error`, is said at the top of the page. Typed text does not go into a
 call.
 
