@@ -306,7 +306,9 @@ other; and `pg/`, dumps of subjects' and reins' databases. Gate, subjects
 and reins stop for the seconds the copy takes, so each is copied whole and
 the two databases agree. An archive from before they joined restores gate
 and leaves their databases as they are. Sessions are not kept; a restore
-logs everyone out.
+logs everyone out. A database restored into is first waited for until its
+real server takes connections (on an empty volume the image's init runs
+a temporary one, then restarts it), `RESTORE_WAIT` seconds at most (180).
 
 ## Not here yet
 

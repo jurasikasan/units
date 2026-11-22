@@ -238,10 +238,14 @@ services:
     networks: [threads-db]
     volumes:
       - threads-db:/var/lib/postgresql/data
+    # Healthy is the server that stays: on an empty volume the image's init
+    # runs a temporary one on the socket alone, then restarts; only the
+    # real one answers on TCP. So for the databases below too.
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "threads"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "threads"]
       interval: 1s
       retries: 30
+      start_period: 60s
   subjects-db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -253,9 +257,10 @@ services:
     volumes:
       - subjects-db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "subjects"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "subjects"]
       interval: 1s
       retries: 30
+      start_period: 60s
   reins:
     build: ../../reins
     image: units-reins:local
@@ -294,9 +299,10 @@ services:
     volumes:
       - reins-db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "reins"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "reins"]
       interval: 1s
       retries: 30
+      start_period: 60s
 
   # A tool that draws (tools/images): its picture is the tool's, shown on
   # the call's card in the page. In LAB_MCP_SERVERS as `images`, so the
