@@ -25,7 +25,11 @@
 # recreated on new addresses and the site still reaches them without touching
 # nginx; a second account is added, a backup is taken,
 # everything is deleted, the backup restored, the second account logs in, and
-# the first steers the same subjects as before.
+# the first steers the same subjects as before; then the backups leave the
+# box (offbox/, the pull run here without SSH): a dump and the store's bytes
+# pulled and checked, nothing pulled ever deleted, a copy a day old called
+# stale on both sides, and a third account, dave, back from the pulled copy
+# alone.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -94,6 +98,39 @@ steered() { docker compose exec -T reins-db psql -U reins -tAc "SELECT subject_i
 keep_steered() { steered > "$work/steered"; [ "$(wc -l < "$work/steered")" = 2 ] || { cat "$work/steered"; exit 1; }; }
 same_steered() { [ "$(steered)" = "$(cat "$work/steered")" ] || { echo "before:"; cat "$work/steered"; echo "after:"; steered; exit 1; }; }
 
+# Off the box: offbox/pull.sh with no SSH, the box's side run in this
+# directory with its backups in $work/box, the store's bytes a directory of
+# files named by sha256; the copy kept in $work/offbox.
+pull() { env LAB_PULL_ENV=/dev/null LAB_PULL_SSH= LAB_PULL_LAB="${lab_dir:-$PWD}" LAB_PULL_DEST="$work/offbox" LAB_PULL_NOTIFY= LAB_PULL_DUMP=yes \
+  LAB_BACKUPS="$work/box" LAB_BYTES_DIR="$work/box-bytes" offbox/pull.sh "$@"; }
+box_stale() { LAB_BACKUPS="$work/box" offbox/box.sh stale; }
+held() { echo "$(find "$work/offbox/dumps" -name 'lab-*' | wc -l) $(find "$work/offbox/bytes" -type f | wc -l)"; }
+first_pull() {
+  mkdir -p "$work/box-bytes"
+  for b in one two; do echo "$b" > "$work/box-bytes/tmp"; mv "$work/box-bytes/tmp" "$work/box-bytes/$(sha256sum < "$work/box-bytes/tmp" | cut -d' ' -f1)"; done
+  pull --now && box_stale && [ "$(held)" = "1 2" ] || { held; exit 1; }
+}
+box_says_stale() {
+  touch -d '25 hours ago' "$work/box/.pulled"
+  local out
+  if out=$(box_stale); then echo "$out"; exit 1; fi
+  echo "$out"; echo "$out" | grep -q "nobody has pulled"
+}
+add_dave() { echo dave-lab | docker compose run --rm --no-deps -T gate gate-user add dave dave@example.com Dave; }
+# The box loses its first archive and a byte; the copy here keeps them.
+keeps_all() {
+  rm "$work/box"/lab-*.tar.gz
+  find "$work/box-bytes" -type f | head -1 | xargs rm
+  pull --now && box_stale && [ "$(held)" = "2 2" ] || { held; exit 1; }
+}
+here_says_stale() {
+  touch -d '25 hours ago' "$work/offbox/last-good"
+  local out
+  if out=$(lab_dir=/nowhere pull 2>&1); then echo "$out"; exit 1; fi
+  echo "$out"; echo "$out" | grep -q "lab backup is stale"
+}
+restore_pulled() { ./restore.sh "$(find "$work/offbox/dumps" -name 'lab-*.tar.gz' | sort | tail -1)"; }
+
 # A browser's scenario (e2e/chat.mjs) by name, a run of its own, as the
 # first account; what follows the label is set in its environment.
 e2e() {
@@ -137,6 +174,15 @@ run "restore"        restore
 run "carol is back"  docker compose run --rm demo carol carol-lab
 run "the first account steers the same subjects"  same_steered
 run "and finds them through the door"  docker compose run --rm demo "$first_user" "$first_password"
+run "off the box: a fresh dump and the store's bytes pulled, each checked by its sha256"  first_pull
+run "the box says when nobody has pulled for a day"  box_says_stale
+run "add dave"       add_dave
+run "pulled again: what the box no longer has is still here"  keeps_all
+run "the copy here says when it is a day old, the pull failing"  here_says_stale
+run "wipe"           wipe
+run "restore from the pulled copy"  restore_pulled
+run "dave is back"   docker compose run --rm demo dave dave-lab
+run "the first account steers the same subjects"  same_steered
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

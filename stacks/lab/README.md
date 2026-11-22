@@ -165,7 +165,11 @@ refuses someone not logged in; after the first login the person steers
 `alice` and `alice-assistant`, and the same two on the next call; a person gets mail, a second account is added, a backup is taken,
 everything is deleted with its volumes, the backup is restored, and the
 second account logs in again, and the first steers the same subjects as
-before.
+before; then the backups leave the box (below, "Off the box", run here
+without SSH): a fresh dump and the store's bytes pulled and checked by
+sha256, pulled again after the box lost its first archive and a byte and
+both still kept, a copy a day old called stale on the box and here, and a
+third account, `dave`, back after a wipe from the pulled copy alone.
 
 ### Scenarios
 
@@ -302,13 +306,75 @@ and start again.
 
 The archive holds gate's `/data` (accounts, passkeys, second factors) and
 `/secrets` (its keys) together: gate does not start on one without the
-other; and `pg/`, dumps of subjects' and reins' databases. Gate, subjects
-and reins stop for the seconds the copy takes, so each is copied whole and
-the two databases agree. An archive from before they joined restores gate
+other; and `pg/`, dumps of subjects', reins' and threads' databases. Gate
+and those three stop for the seconds the copy takes, so each is copied whole
+and the databases agree. An archive from before they joined restores gate
 and leaves their databases as they are. Sessions are not kept; a restore
 logs everyone out. A database restored into is first waited for until its
 real server takes connections (on an empty volume the image's init runs
 a temporary one, then restarts it), `RESTORE_WAIT` seconds at most (180).
+A database joins the archive as a name in `backup.sh`'s `dbs` and in
+`restore.sh`'s list.
+
+### Off the box
+
+An archive on the box dies with the box. The copy that does not is pulled
+by another machine (a laptop) over SSH: `offbox/pull.sh` there asks the
+box's side, `offbox/box.sh` in this directory, for a fresh dump, then copies
+every archive and every one of the store's bytes not yet there, each
+checked against its sha256 (archives are listed with theirs, bytes are
+named by it). Nothing is deleted on either side, so the copy is a superset
+of every dump the box ever held; the box's own `backups/` is not pruned
+either (watch its disk).
+
+```
+<dest>/dumps/lab-<time>.tar.gz   every archive, as the box named it
+<dest>/bytes/<sha256>            the store's bytes
+<dest>/last-good                 touched when a pull ended well
+```
+
+The store's bytes: lab runs no artifact_store yet (a picture the draw tool
+makes is journaled in threads' database, so it rides the dump), and
+`box.sh bytes` lists none. `LAB_BYTES_DIR`, a directory of files named by
+sha256, is the seam the check uses; when the store joins, `bytes` and
+`byte` read its bucket.
+
+A failing copy is said, never silent, on both sides:
+
+- **here** (the laptop): a pull older than a day (`LAB_PULL_STALE`, hours)
+  makes `pull.sh` print `lab backup is stale: …`, exit 1 (the unit shows
+  failed in `systemctl --user`), and raise a desktop notification
+  (`notify-send`, when there is one);
+- **on the box**: a good pull touches `backups/.pulled`;
+  `./offbox/box.sh stale` prints `lab backup: nobody has pulled a copy off
+  this box since …` and exits 1 when that is over a day old, or never
+  happened. Run it from whatever watches the box (cron mailing its output,
+  a health check); lab runs no notifier yet.
+
+The pull runs on a systemd user timer on the laptop, hourly; it pulls only
+when the last good pull is over `LAB_PULL_EVERY` hours old (20), so a
+failing one is retried within the hour and a working one dumps once a day.
+Installing it, on the laptop, in a units checkout:
+
+```bash
+cp stacks/lab/offbox/pull.env.example _ignored/lab-pull.env
+$EDITOR _ignored/lab-pull.env          # LAB_PULL_SSH, LAB_PULL_LAB, LAB_PULL_DEST
+ssh <ssh-alias-of-the-box> true        # a key, no prompt: the timer is unattended
+stacks/lab/offbox/pull.sh --now        # one pull by hand, to see it work
+
+mkdir -p ~/.config/systemd/user
+sed "s|<units-checkout>|$PWD|" stacks/lab/offbox/lab-pull.service > ~/.config/systemd/user/lab-pull.service
+cp stacks/lab/offbox/lab-pull.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now lab-pull.timer
+systemctl --user list-timers lab-pull.timer   # when it fires next
+journalctl --user -u lab-pull.service         # what each pull said
+```
+
+`_ignored/` is gitignored, and `scripts/check_secrets.sh` looks for the
+values of `_ignored/*.env*` in what is tracked. A restore from the copy is
+`./restore.sh <dest>/dumps/<archive>` on any lab, with the archive copied
+there first.
 
 ## Not here yet
 
