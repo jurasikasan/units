@@ -25,6 +25,7 @@ own `go.mod`, and its own check script.
 | [`senses/hearing`](senses/hearing/) | takes a sound stream in as RTP, finds the utterances, has them transcribed, reports them as MRCP recognizer events |
 | [`abilities/speaking`](abilities/speaking/) | a mouth: text in through MCP, audio out as RTP through a TTS engine, MRCP synthesizer events saying what was spoken |
 | [`tools/images`](tools/images/) | a tool that draws, the first of the tools avatars' hands use: one MCP tool, `draw`, a prompt in, a picture and a line of words out, from any OpenAI Images endpoint; the picture is the tool's |
+| [`tools/web`](tools/web/) | a tool that looks at the web: two MCP tools, `search` (Brave's Search API; with no key, said not configured) and `fetch` (a public page's words, HTML as markdown), fetching from a process on an egress-only network that refuses every address that is not public |
 | [`devices/communications/sip_phone`](devices/communications/sip_phone/) | a telephone line over SIP: places and takes calls, carries the call's audio both ways as RTP, reports what happened |
 | [`devices/communications/web_audio_call`](devices/communications/web_audio_call/) | a line to a browser over WebRTC: the same buttons and audio rules as sip_phone, another medium |
 
