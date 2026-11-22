@@ -14,7 +14,11 @@ answer in those threads through [`minds/assistant`](../../minds/assistant/)
 names: by default [`tools/images`](../../tools/images/), a tool that draws
 (`images__draw`), through LiteLLM's `LAB_IMAGES_MODEL` (`fake-images`, a red
 circle, no cloud; `images` at Cloudflare), its picture shown on the call's
-card in the page as the tool's. MCP's own reference server, `everything`,
+card in the page as the tool's; and [`tools/web`](../../tools/web/), a tool
+that looks at the web (`web__search`, Brave's, with `BRAVE_API_KEY`;
+`web__fetch`, a public page's words), whose fetching runs in
+`tool-web-fetcher` on `web-egress`, a network that goes out and holds
+nothing of the stack but `tool-web`. MCP's own reference server, `everything`,
 runs under its compose profile for the checks or to try a tool. The lab is no unit but a consumer of units:
 its own check is its showcase.
 
@@ -59,6 +63,7 @@ browser → nginx + gate ─ /      → face (static files)
                                         │           ├→ realtime (a call: hearing → a chat model → speaking)
                                         │           └→ real providers
                                         └→ MCP: LAB_MCP_SERVERS: tool-images (draw → LiteLLM's images API),
+                                                tool-web (search → Brave; fetch → tool-web-fetcher, on web-egress → the internet),
                                                 (profile everything: a sum, an image, …)
 ```
 
@@ -272,7 +277,8 @@ call.
 | `LAB_CASCADE_STT_MODEL`, `LAB_CASCADE_LLM_MODEL`, `LAB_CASCADE_VOICE`, `LAB_CASCADE_PROMPT`, `LAB_CASCADE_VAD` | `cascade`'s parts when the page names none: hearing's ear (a model here), the chat model, speaking's `<model>_<voice>`; the instructions; `energy` or `silero` |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_KEY`, `ZAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` | the providers' keys |
 | `LAB_SYSTEM_PROMPT` | first in every prompt the mind sends |
-| `LAB_MCP_SERVERS` | the MCP servers whose tools the model may call, `name=url,…`, every avatar's brain all of them; none when empty. `images=http://tool-images:8080/mcp` by default, the draw tool; `,everything=http://everything:3001/mcp` added, with `everything` in `COMPOSE_PROFILES`, gives the model MCP's reference server too, as `check.sh` does |
+| `LAB_MCP_SERVERS` | the MCP servers whose tools the model may call, `name=url,…`, every avatar's brain all of them; none when empty. `images=http://tool-images:8080/mcp,web=http://tool-web:8080/mcp` by default, the draw tool and the web's search and fetch; `,everything=http://everything:3001/mcp` added, with `everything` in `COMPOSE_PROFILES`, gives the model MCP's reference server too, as `check.sh` does |
+| `BRAVE_API_KEY` | the web tool's search engine, Brave Search API's token; empty, `web__search` answers that it is not configured and `web__fetch` works all the same |
 | `LAB_IMAGES_MODEL`, `LAB_IMAGES_FAST_MODEL` | the models the draw tool asks LiteLLM for, the second for a call that wants it fast (empty: the first): `fake-images`; `images`, `images-fast` at Cloudflare (`engines` profile) |
 
 ## Accounts
