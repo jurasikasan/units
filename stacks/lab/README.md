@@ -83,12 +83,14 @@ fails when asked.
 |---|---|
 | `fake` | [`fake_llm`](fake_llm/): answers from files, the same each time, no key; what the checks run on |
 | `fake-text` | the same, declared to take words only: a picture to it goes as a placeholder in words (the mind), which fake_llm answers `I am told of a picture, not shown it.` |
-| `chat` | Cloudflare's glm-4.7-flash, then z.ai's; a reasoning model, so 10–15 s of thinking before the first word; words only |
+| `chat` | Cloudflare's glm-4.7-flash, then `chat-zai` (z.ai's) when Cloudflare fails; a reasoning model, so 10–15 s of thinking before the first word; words only |
+| `chat-zai` | z.ai's glm-4.7-flash, one request at a time; `chat`'s fallback, and can be picked itself |
 | `lite` | Gemini 3.1 flash-lite |
 | `fake-stt`, `fake-tts` | [`fake_llm`](fake_llm/) behind OpenAI's audio API: any sound is heard as `What the fake ear heard.`, any words are a quarter-second beep |
 | `fake-stt-b`, `fake-tts-b` | second fakes, to see a pick: `What the second fake ear heard.`, a tenth of a second of a lower tone in voice `denis` or `irina` (listed), another voice refused |
-| `stt` | Groq's whisper-large-v3-turbo: what the browser records, any language; then `whisper-gpu` when Groq fails |
-| `whisper-gpu` | [whisper](../../engines/stt/whisper/) large-v3 on a GPU box, at `LAB_STT_GPU_URL` |
+| `stt` | for a voice message (minutes, a person waiting): Groq's whisper-large-v3-turbo, what the browser records, any language; then `whisper-gpu` when Groq fails |
+| `whisper-gpu` | [whisper](../../engines/stt/whisper/) large-v3 on a GPU box, at `LAB_STT_GPU_URL`, up to 2 min |
+| `stt-call`, `stt-call-groq` | for an utterance in a call (`LAB_CASCADE_STT_MODEL`, hearing waits 15 s): whisper on the GPU box, then Groq's, 6 s each |
 | `piper`, `silero` | [our engines](../../engines/tts/) on this machine, under the `engines` profile: WAV, their own voices (listed), Russian and English |
 | `voxcpm` | [VoxCPM2](../../engines/tts/voxcpm/) on a GPU box, at `LAB_VOXCPM_URL`: WAV at 48 kHz, cloned voices (listed) |
 | `images`, `images-fast` | [pictures](../../engines/images/cloudflare/) drawn at Cloudflare (FLUX.2 klein 4B, FLUX.1 schnell) through OpenAI's Images API, under the `engines` profile, on the Cloudflare account in `.env` |
@@ -125,6 +127,12 @@ the model (`chat`); the mind refuses what it does not take.
 
 A real model needs its provider's key in `.env`; one without a key fails
 when asked, and nothing else does.
+
+Every group in `models.yaml` says how long it may take beside how long its
+caller waits: nothing is retried, a failure or a timeout goes to the
+group's fallback (another provider), and a 429 falls through at once
+instead of waiting out its Retry-After. What the free tiers behind the
+keys allow, and what each is good for: [`litellm/FREE_TIERS.md`](litellm/FREE_TIERS.md).
 
 ## Run it
 
