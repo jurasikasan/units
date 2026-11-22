@@ -74,12 +74,24 @@ func (p *fakePub) Publish(_ context.Context, e events.Event) error {
 	return nil
 }
 
+// list is the events but the speech markers, which markers() has.
 func (p *fakePub) list() []events.Event {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	out := make([]events.Event, len(p.events))
-	copy(out, p.events)
+	var out []events.Event
+	for _, e := range p.events {
+		if e.Type != events.SpeechMarker {
+			out = append(out, e)
+		}
+	}
 	return out
+}
+
+// all is every event, the markers in their place.
+func (p *fakePub) all() []events.Event {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]events.Event(nil), p.events...)
 }
 
 func (p *fakePub) hasClosed(reason string) bool {
@@ -313,6 +325,17 @@ func TestOpenSayClose_RTPAndEvents(t *testing.T) {
 	assert.Equal(t, uid, l[0].Data["request_id"])
 	assert.Equal(t, "Привет!", l[0].Data["spoken"], "the whole text was sent")
 	assert.Equal(t, "normal", l[0].Data["completion_cause"])
+
+	// One sentence, one marker, before its speak-complete, at the timestamp
+	// of the first packet that carried it.
+	all := pub.all()
+	require.GreaterOrEqual(t, len(all), 2)
+	assert.Equal(t, events.SpeechMarker, all[0].Type)
+	assert.Equal(t, id, all[0].Data["session_id"])
+	assert.Equal(t, uid, all[0].Data["request_id"])
+	assert.Equal(t, "Привет!", all[0].Data["text"])
+	assert.Equal(t, pkts[0].header.Timestamp, all[0].Data["rtp_timestamp"])
+	assert.Equal(t, events.SpeakComplete, all[1].Type)
 
 	require.NoError(t, sp.Close(id))
 	waitFor(t, 5*time.Second, "the session.closed event", func() bool {

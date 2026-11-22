@@ -30,6 +30,20 @@ type Sink interface {
 	WriteFrame(pcm []int16) error
 }
 
+// Stamped is a Sink that says where in its stream the last frame went: its
+// RTP timestamp. A mouth over one reports a Marker as each sentence starts.
+type Stamped interface {
+	LastTimestamp() uint32
+}
+
+// Marker is a sentence starting to go out: its request, its text and its
+// first frame's place in the stream (MRCP's SPEECH-MARKER, by the RTP clock).
+type Marker struct {
+	RequestID string
+	Text      string
+	Timestamp uint32
+}
+
 // Completion causes of SPEAK-COMPLETE (RFC 6787 §8.4.4) this mouth reports.
 const (
 	CauseNormal    = "normal"    // 000: the whole text went out
@@ -85,6 +99,7 @@ type Mouth struct {
 	tts      TTS
 	sink     Sink
 	onPlayed func(Played)
+	onMarker func(Marker)
 
 	mu     sync.Mutex
 	queue  []*utterance
@@ -99,6 +114,10 @@ func New(tts TTS, sink Sink, onPlayed func(Played)) *Mouth {
 	go m.loop()
 	return m
 }
+
+// OnMarker has each sentence's start reported, when the sink is Stamped.
+// Set before the first Speak.
+func (m *Mouth) OnMarker(f func(Marker)) { m.onMarker = f }
 
 // Speak queues a text with no synthesis timeout and returns its request_id.
 func (m *Mouth) Speak(text, voice string) (string, error) {
@@ -367,6 +386,11 @@ func (m *Mouth) play(s *utterance) (string, bool) {
 				log.Printf("[mouth %s] write: %v", s.id, err)
 				credit.partial(sn, f, total)
 				return credit.spoken(), false
+			}
+			if f == 0 && m.onMarker != nil {
+				if st, ok := m.sink.(Stamped); ok {
+					m.onMarker(Marker{RequestID: s.id, Text: sn.text, Timestamp: st.LastTimestamp()})
+				}
 			}
 		}
 		credit.upTo = sn.end

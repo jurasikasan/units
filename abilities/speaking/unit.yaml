@@ -17,6 +17,7 @@ provides:
     envelope: cloudevents-1.0     # contracts/events.md
     source: /abilities/speaking   # the organ; types are the MRCP resource's
     types:
+      - speechsynth.speech-marker
       - speechsynth.speak-complete
       - speechsynth.session-closed
   health: GET :8080/health

@@ -58,6 +58,13 @@ func (r *rtpSink) Close() {
 	r.mu.Unlock()
 }
 
+// LastTimestamp is the RTP timestamp of the last frame written (mouth.Stamped).
+func (r *rtpSink) LastTimestamp() uint32 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ts
+}
+
 // WriteFrame sends one 960-sample frame as one RTP packet. The RTP
 // timestamp is the audio clock at 48 kHz: it advances by the wall time that
 // passed since the last frame (at least one frame's worth), so silence

@@ -464,3 +464,66 @@ func TestStop_CutsAKeptPhrase(t *testing.T) {
 	assert.Equal(t, []string{id}, <-done)
 	assert.Equal(t, Played{RequestID: id, Spoken: "Добрый день. Ваш заказ", Cause: CauseCancelled}, log.next(t))
 }
+
+// stampedSink stamps each frame like an RTP clock: 960 a frame from 1000.
+type stampedSink struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (s *stampedSink) WriteFrame([]int16) error {
+	s.mu.Lock()
+	s.n++
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *stampedSink) LastTimestamp() uint32 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return 1000 + uint32(s.n-1)*FrameSamples
+}
+
+// Each sentence's start is marked with its first frame's timestamp, before
+// the request's Played: "Добрый день." takes frames 0–11, the second starts
+// at frame 12.
+func TestMarksEachSentenceWhereItStarts(t *testing.T) {
+	fast(t)
+	log := newLog()
+	var mu sync.Mutex
+	var marks []Marker
+	m := New(&fakeTTS{}, &stampedSink{}, log.add)
+	m.OnMarker(func(mk Marker) {
+		mu.Lock()
+		marks = append(marks, mk)
+		mu.Unlock()
+	})
+	defer m.Close()
+
+	id, err := m.Speak(text, "v")
+	require.NoError(t, err)
+	log.next(t)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []Marker{
+		{RequestID: id, Text: "Добрый день.", Timestamp: 1000},
+		{RequestID: id, Text: "Ваш заказ готов к выдаче.", Timestamp: 1000 + 12*FrameSamples},
+	}, marks)
+}
+
+// A sink that cannot say where its frames went gets no markers, and speaks
+// all the same.
+func TestNoMarkersFromAnUnstampedSink(t *testing.T) {
+	fast(t)
+	log := newLog()
+	called := false
+	m := New(&fakeTTS{}, newSink(-1), log.add)
+	m.OnMarker(func(Marker) { called = true })
+	defer m.Close()
+
+	_, err := m.Speak(text, "v")
+	require.NoError(t, err)
+	assert.Equal(t, CauseNormal, log.next(t).Cause)
+	assert.False(t, called)
+}

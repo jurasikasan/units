@@ -18,6 +18,7 @@ const (
 	Source = "/abilities/speaking"
 
 	SpeakComplete = "speechsynth.speak-complete"
+	SpeechMarker  = "speechsynth.speech-marker"
 	SessionClosed = "speechsynth.session-closed"
 )
 

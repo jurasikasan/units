@@ -290,6 +290,7 @@ func newSession(sp *Speech, cfg Config, target *net.UDPAddr, voice string, tts S
 	}
 	s.sink = newRTPSink(s.ssrc, target)
 	s.mouth = mouth.New(tts, s.sink, s.onPlayed)
+	s.mouth.OnMarker(s.onMarker)
 	go s.watchdog()
 	return s
 }
@@ -335,6 +336,17 @@ func (s *session) end(reason string) {
 		s.sp.remove(s.id)
 		slog.Info("session ended", "session_id", s.id, "reason", reason)
 	})
+}
+
+// onMarker publishes a sentence's start in the stream (C4 §3): its first
+// frame's RTP timestamp, so a listener knows where in the sound it began.
+func (s *session) onMarker(m mouth.Marker) {
+	s.publish(events.Event{Type: events.SpeechMarker, Subject: s.id, Data: map[string]any{
+		"session_id":    s.id,
+		"request_id":    m.RequestID,
+		"text":          m.Text,
+		"rtp_timestamp": m.Timestamp,
+	}})
 }
 
 // onPlayed publishes one speak-complete (C4 §3). The session goes on whether

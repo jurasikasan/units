@@ -1,6 +1,7 @@
 # abilities/speaking — contract (C4)
 
-Revision 6. Revision 6 lets the one who speaks decide, per phrase, whether a barge-in
+Revision 7. Revision 7 marks where each sentence starts in the stream:
+`speechsynth.speech-marker` (§3), MRCPv2's SPEECH-MARKER by the RTP clock. Revision 6 lets the one who speaks decide, per phrase, whether a barge-in
 cuts it: `kill_on_barge_in` (§2.2, §2.4), MRCPv2's Kill-On-Barge-In. Revision 5 gives `speak` a deadline: `synthesis_timeout_ms` (§2.2), how long
 the line may wait for a piece of a phrase's audio before the phrase fails. Revision 3 took MRCPv2's vocabulary (§7): `say` → `speak`, `hush` → `stop`,
 `barge_in_occurred` added, `utterance.spoken` → `speechsynth.speak-complete` with a
@@ -150,6 +151,7 @@ Stream `speech_events`. `data` is JSON; every event carries `session_id`.
 
 | `ce_type` | When | `data` beyond `session_id` |
 |---|---|---|
+| `speechsynth.speech-marker` | a sentence of a request starts to go out | `request_id`, `text`, `rtp_timestamp` |
 | `speechsynth.speak-complete` | a request finished, was cut, or was dropped | `request_id`, `completion_cause`, `spoken`; `kept_on_barge_in` |
 | `speechsynth.session-closed` | the session is over | `reason`: `closed` / `idle` / `failed` |
 
@@ -160,6 +162,18 @@ Guarantees:
 - every `open` that returned a `session_id` ends with exactly one `closed`, its last
   event;
 - `speak-complete` events of one session come in `speak` order.
+- a request's `speech-marker`s come before its `speak-complete`, one per sentence that
+  started to go out.
+
+### `speech-marker`
+
+Where in the sound a sentence begins: speech cuts a request's text into sentences (after
+`.` `!` `?` `…` and a space) and, as the first frame of each goes out, says so with that
+frame's RTP timestamp (§4). A listener on the stream (a cascade relaying it, a device)
+finds the sentence at that timestamp, by its own clock, not by when the event arrived:
+the event and the sound travel apart. Between two markers lies one sentence; "heard up
+to here" becomes "heard up to this sentence", exactly, and the place within it a guess
+of the listener's. No marker for a sentence that never started.
 
 ### `speak-complete`
 

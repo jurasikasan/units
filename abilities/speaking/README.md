@@ -36,6 +36,10 @@ and keeping advancing through silence. Each payload is 960 int16 samples of
 On the Redis stream `speech_events`, CloudEvents envelope (C0 §5),
 `ce_source=/abilities/speaking`, `ce_subject` = the session id:
 
+- `speechsynth.speech-marker` — `{"session_id", "request_id", "text", "rtp_timestamp"}`:
+  a sentence of a request starts to go out, `rtp_timestamp` its first frame's
+  (MRCP's SPEECH-MARKER by the stream's own clock), so a listener finds where in
+  the sound each sentence began; before the request's `speak-complete`.
 - `speechsynth.speak-complete` — `{"session_id", "request_id", "completion_cause", "spoken"}`,
   plus `"kept_on_barge_in": true` for a request whose `speak` set
   `kill_on_barge_in` false and that a `barge_in_occurred` left playing.
