@@ -637,12 +637,25 @@ async function twoRound() {
     failed = true
   }
 
-  await item(page, `renamed ${tag}`).hover()
-  await item(page, `renamed ${tag}`).getByRole('button', { name: 'More options' }).click()
+  // The menu opened, its Delete shown, before the click is given to it:
+  // under load the event once came before the menu, and no DELETE was
+  // ever sent (UNIT-104). A menu that did not open is opened again.
+  const deleteItem = page.getByRole('menuitem', { name: 'Delete' })
+  for (let i = 0; ; i++) {
+    await item(page, `renamed ${tag}`).hover()
+    await item(page, `renamed ${tag}`).getByRole('button', { name: 'More options' }).click()
+    try {
+      await deleteItem.waitFor({ state: 'visible', timeout: 10000 })
+      break
+    } catch (e) {
+      if (i === 2) throw e
+      await page.keyboard.press('Escape')
+    }
+  }
   const deleted = page.waitForResponse((r) => r.request().method() === 'DELETE' && r.url().endsWith(`/api/reins/threads/${thread}`))
   // Its click as the page gets it: Playwright's pointer click on this item
   // waits for it forever, while a person's goes through.
-  await page.getByRole('menuitem', { name: 'Delete' }).dispatchEvent('click')
+  await deleteItem.dispatchEvent('click')
   const del = await deleted
   await item(page, `renamed ${tag}`).waitFor({ state: 'detached' })
   const gone = (await second.request.get(`${url}/api/reins/threads/${thread}/entries`)).status()
