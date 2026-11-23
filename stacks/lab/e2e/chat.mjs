@@ -80,10 +80,11 @@
 // with the same nick is refused in plain words.
 //
 // Each round is a scenario, run alone by name with E2E_ONLY=<name> (the
-// list is at the foot, `scenarios`): greet, conversation (the conversation,
+// list is at the foot, `scenarios`): smoke, greet, conversation (the conversation,
 // tools, reasoning, attachments, failures), stop, model, threads, voice,
-// sound, call, me, two, refused, failed, factory. check.sh runs them one by one,
-// each its own run and its own line; e2e/repeat.sh runs one many times.
+// sound, call, me, two, refused, failed, factory. check.sh runs smoke
+// alone; nightly/e2e.sh runs the rest one by one, each its own run and its
+// own line; e2e/repeat.sh runs one many times.
 // On a failure, what reins holds now is printed beside what the page shows.
 import { chromium } from 'playwright'
 import { writeFileSync } from 'node:fs'
@@ -531,6 +532,23 @@ async function greetRound() {
   step('the assistant greets first', JSON.stringify((await first.innerText()).slice(0, 40)))
   if (mine !== 0) {
     step('FAIL', 'the person said something before the greeting')
+    failed = true
+  }
+}
+
+// smokeRound: the thin smoke stacks/lab/check.sh runs (UNIT-75). After the
+// login (the ghost, then the avatar taken), on a first login
+// (E2E_FIRST_LOGIN) the assistant has greeted first; then one message goes
+// there and back: on the fake model #first_message has the answer carry it,
+// which only happens when it went page → reins → threads → driver → mind →
+// model and back.
+async function smokeRound() {
+  if (process.env.E2E_FIRST_LOGIN) await greetRound()
+  await fresh()
+  const a = await say(`${first} #first_message`)
+  step('one message, there and back', JSON.stringify(a.slice(0, 60)))
+  if (!a.toLowerCase().includes(first.toLowerCase())) {
+    step('FAIL', `the answer does not carry ${JSON.stringify(first)}`)
     failed = true
   }
 }
@@ -1053,6 +1071,7 @@ async function fullRound() {
 // E2E_ONLY, the whole round in one browser: `greet` (with E2E_FIRST_LOGIN)
 // and then the scenarios in `whole`, in order.
 const scenarios = {
+  smoke: { round: smokeRound },
   greet: { round: greetRound },
   conversation: { round: fullRound },
   draw: { round: drawRound, needs: 'the fake model', has: fake },

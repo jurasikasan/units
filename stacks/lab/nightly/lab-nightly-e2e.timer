@@ -1,0 +1,13 @@
+# Starts lab-nightly@e2e.service every night, and soon after the machine
+# wakes or boots when a night was missed.
+[Unit]
+Description=lab nightly: the browser's full scenarios on a lab of their own
+
+[Timer]
+OnCalendar=*-*-* 02:30
+Persistent=true
+RandomizedDelaySec=15m
+Unit=lab-nightly@e2e.service
+
+[Install]
+WantedBy=timers.target

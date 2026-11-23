@@ -561,6 +561,7 @@ services:
       LAB_URL: ${LAB_URL}
     volumes:
       - ./demo.sh:/demo.sh:ro
+      - ./api.sh:/api.sh:ro
     entrypoint: ["sh", "/demo.sh"]
 
 volumes:

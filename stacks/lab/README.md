@@ -145,47 +145,39 @@ https://lab.localhost:8443/, `alice` / `alice-lab`. The certificate is
 self-signed, so the browser asks first. Mail lands in Mailpit,
 http://localhost:8025.
 
-`./check.sh` runs the whole round from `.env.example` on free ports: up; in a
-real browser, scenario by scenario (below),
-real browser (Playwright, `e2e/chat.mjs`) a person logs in, says something,
-asks what they said first and gets it back, which only happens when the
+`./check.sh` runs the whole round from `.env.example` on free ports, thin
+in the browser: up; one browser (`e2e/chat.mjs`, scenario `smoke`) logs in,
+lands as the ghost, steps into its avatar, sees the assistant's greeting
+and says one thing that comes back, which only happens when the
 conversation goes page → reins → threads → driver → mind → LiteLLM → model,
-the reply streamed back on reins' stream as it is written; a tool adds two
-numbers; asked to draw, the assistant calls the draw tool and its message
-holds the call's card with the picture, the tool's, kept on reload
-(`E2E_ONLY=draw`); the reply said is the answer without its reasoning, and the
-thought signatures a model left go back to it with the tool call within the
-run (a run later they are gone: not what was said, so not journaled); a
-file over the page's limit is refused there and nothing is written, then a
-picture and a text file go with a question and the answer carries what only
-the file holds; a model answering 429 or 500 is said on the page while
-written and gone after a reload (never journaled); the composer offers no
-chat model and the driver's answers, an avatar's name set in the settings
-is still there after a reload, and every avatar offers the same fields
-(`E2E_ONLY=model`); a new chat in the sidebar starts empty and is a thread
-of its own, the first is all there when switched back to, and a reload
-keeps the conversation (`E2E_ONLY=threads`); two browsers, one as `alice`
-and one as `alice-assistant` (that one speaking through reins' route: the
-page acts only as the login's avatar), each see the other's words without a
-reload (`E2E_ONLY=two`); the second fake ear
-set on the person and the second fake mouth and one of its voices on the
-assistant, in the settings, are what answer (`E2E_ONLY=sound`); the mic (the browser's fake
-one) puts what the fake ear heard into the composer and an answer is read
-aloud to the end; on the driver recreated to hold the assistant with
-`fake-text`, a picture goes to the model as words and its answer says so
-(`E2E_ONLY=refused`); the chat
-refuses someone not logged in; after the first login the person steers
-`alice` and `alice-assistant`, and the same two on the next call; a person gets mail, a second account is added, a backup is taken,
-everything is deleted with its volumes, the backup is restored, and the
-second account logs in again, and the first steers the same subjects as
-before; then the backups leave the box (below, "Off the box", run here
-without SSH): a fresh dump and the store's bytes pulled and checked by
-sha256, pulled again after the box lost its first archive and a byte and
-both still kept, a copy a day old called stale on the box and here, and a
-third account, `dave`, back after a wipe from the pulled copy alone.
+the reply streamed back on reins' stream as it is written. The logic is
+checked at the API, with curl through the door (`api.sh`, in the `demo`
+container): an avatar taken on one device is held there and an act from
+another is 409; a thread opened, said in and answered by the assistant,
+renamed and listed by its new name; the assistant taken on the second
+device, an act as it from the first refused, and handed back to the fake
+profile from the first all the same (stewards are equal); the thread
+deleted, its entries 404 and gone from the list; the avatar given back.
+Then the chat refuses someone not logged in; what the browser held lapses
+past the grace; the program steers its own subjects with its password; a
+person gets mail, gate, mind and face move to new addresses and are still
+reached, a second account is added, a backup is taken, everything is
+deleted with its volumes, the backup is restored, and the second account
+logs in again, and the first steers the same subjects as before; then the
+backups leave the box (below, "Off the box", run here without SSH): a fresh
+dump and the store's bytes pulled and checked by sha256, pulled again after
+the box lost its first archive and a byte and both still kept, a copy a day
+old called stale on the box and here, and a third account, `dave`, back
+after a wipe from the pulled copy alone; last, a new avatar made at the
+API, listed with the two, its nick refused again.
+
+The browser's full scenarios (below) are not in `check.sh`: under a loaded
+machine a browser flakes where the code does not, and a check that flakes
+is not read. They run every night on a lab of their own ("Nightly").
 
 The images built from units are tagged `${UNITS_TAG:-local}`: a plain run
-builds and runs `units-*:local`. `check.sh` sets `UNITS_TAG` to its own
+builds and runs `units-*:local`. `check.sh` and the nightly's e2e
+(`throwaway.sh`, which both stand on) set `UNITS_TAG` to their own
 compose project's name, so two checks run at once from two checkouts (agents
 in worktrees) each build and run their own code, never the other's, and the
 images it tagged are removed when it ends (their layers stay in the build
@@ -194,12 +186,14 @@ cache). gate's check does the same with its showcase.
 ### Scenarios
 
 The browser's part is cut into scenarios, each a run of its own (a fresh
-browser and login) and a line of its own in `check.sh`'s report,
+browser and login) and a line of its own in the report of `check.sh`
+(`smoke`) or of the nightly (`nightly/e2e.sh`, the rest),
 `✓ e2e <name>: …` or `✗ e2e <name>: …`. One runs alone by name,
 `E2E_ONLY=<name>`, against a running lab:
 
 | Scenario | |
 |---|---|
+| `smoke` | `check.sh`'s one browser: logged in, the avatar taken, the assistant's greeting seen (with `E2E_FIRST_LOGIN`), one message there and back |
 | `greet` | a login lands as the ghost, who sees every thread and does nothing, then steps into its avatar; on a first login the assistant has greeted first |
 | `conversation` | page → reins → threads → driver → mind → model and back, streamed; a tool, reasoning, attachments, a file over the limit, a model answering 429 and 500 |
 | `draw` | the fake model calls `images__draw`; the assistant's message holds a tool card (the tool, the prompt, the picture captioned as the tool's), its words beside it; a reload keeps it (fake model). With `E2E_SHOT` the page and the card are pictured |
@@ -213,7 +207,7 @@ browser and login) and a line of its own in `check.sh`'s report,
 | `two` | two browsers of one person talk, hand the assistant over and back, rename and delete a chat, leave |
 | `refused` | handed to a text-only profile, a picture reaches the model as a placeholder in words, the run goes on |
 | `failed` | a model answering 429 and 500, alone (fake model) |
-| `factory` | the settings' "+" makes a new avatar: the nick follows the name, its own form opens, the picker lists it without a reload; renamed there, the picker shows it; the same nick again is refused under the nick in plain words. With `E2E_SHOT` the form is pictured, at the browser's width and a phone's. Last in `check.sh`: it adds to the two subjects the rounds before count |
+| `factory` | the settings' "+" makes a new avatar: the nick follows the name, its own form opens, the picker lists it without a reload; renamed there, the picker shows it; the same nick again is refused under the nick in plain words. With `E2E_SHOT` the form is pictured, at the browser's width and a phone's. Last in the nightly: it adds to the two subjects the rounds before count |
 
 Without `E2E_ONLY`, the browser runs `conversation` to `me` in one go
 (`greet` first with `E2E_FIRST_LOGIN=1`).
@@ -267,6 +261,65 @@ With real parts: set them in the settings before the call (a mouth whose
 voices are listed: `piper`, `silero`, `voxcpm`); what is set holds for the
 call.
 
+
+## Nightly
+
+A job runs every night on a machine with Docker, on the code of `main`
+checked out afresh in a throwaway worktree (`git worktree`, gone when the
+job ends, whatever it changed), never a checkout someone works in and never
+a running lab. A job with something to say sends one message to a person;
+a quiet night sends nothing.
+
+- **e2e** (`nightly/e2e.sh`): the browser's full scenarios, each its own
+  run and its own line, on a lab of its own from `.env.example`
+  (`throwaway.sh`: its own compose project and images, all gone when it
+  ends; never the lab `.env` runs, never a real lab's model swapped for
+  the fake). Red: an error message with the first failed line and its
+  first `FAIL`, and where the log lies.
+
+`nightly/run.sh <job>` is one run, as its timer starts it: fetches
+`origin`, checks out `NIGHTLY_REF` in a throwaway worktree, runs the job
+there, keeps its output and report in `NIGHTLY_REPORTS` (`_ignored/nightly`
+by default, `NIGHTLY_KEEP_DAYS` of them), and tells a person through the
+watch. Exit 1 when the job is red or could not be told: the unit shows
+failed in `systemctl --user` too.
+
+The watch (`nightly/compose.yaml`, project `lab-nightly-watch`) is a bus
+and `notifier` on it, up for good: `nightly/tell.sh` puts one ops event on
+its bus and the notifier says it (`<NIGHTLY_NAME> 🔴 lab-nightly / e2e`,
+then the reason). Its own bus, not a lab's: a lab is what the jobs test.
+From `.env.example` the messages go to a fake Telegram that prints them
+(`docker compose logs fake_telegram`); a deployment's `.env` names the bot
+and the chat.
+
+Not job_runner: a job_runner run is a gVisor sandbox with no Docker and no
+way to a private address (its CONTRACT.md), and the e2e needs Docker on the
+machine: it brings up a lab. The runner here is the machine's own timer, as for the backups'
+pull.
+
+Installing it, on the machine, in a units checkout (it stays on its branch;
+the jobs check out their own):
+
+```bash
+cd stacks/lab/nightly
+cp .env.example .env
+$EDITOR .env                      # TELEGRAM_TOKEN, TELEGRAM_CHAT_ID; TELEGRAM_API_BASE= and COMPOSE_PROFILES= empty
+docker compose up -d --wait       # the watch
+./tell.sh warn try "the watch says hello"   # a message reaches the chat
+./run.sh e2e                      # one run by hand, to see it work
+
+mkdir -p ~/.config/systemd/user
+sed "s|<units-checkout>|$(git rev-parse --show-toplevel)|" lab-nightly@.service > ~/.config/systemd/user/lab-nightly@.service
+cp lab-nightly-e2e.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now lab-nightly-e2e.timer
+loginctl enable-linger "$USER"    # the timers fire with nobody logged in
+systemctl --user list-timers 'lab-nightly*'
+journalctl --user -u 'lab-nightly@*'
+```
+
+By hand, a job on another ref: `NIGHTLY_REF=<branch> NIGHTLY_FETCH=no
+./run.sh e2e`; the e2e alone, in any checkout, is `nightly/e2e.sh`.
 
 ## .env
 
@@ -372,7 +425,8 @@ A failing copy is said, never silent, on both sides:
   `./offbox/box.sh stale` prints `lab backup: nobody has pulled a copy off
   this box since …` and exits 1 when that is over a day old, or never
   happened. Run it from whatever watches the box (cron mailing its output,
-  a health check); lab runs no notifier yet.
+  a health check); lab runs no notifier of its own (the nightly's watch
+  is one: `nightly/tell.sh`).
 
 The pull runs on a systemd user timer on the laptop, hourly; it pulls only
 when the last good pull is over `LAB_PULL_EVERY` hours old (20), so a
