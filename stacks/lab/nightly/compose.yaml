@@ -31,7 +31,7 @@ services:
     environment:
       REDIS_ADDR: bus:6379
       NOTIFIER_NAME: ${NIGHTLY_NAME:-lab-nightly}
-      # A red run is an error; news, nothing red, a warning.
+      # A red run is an error; news from the edges, nothing red, a warning.
       NOTIFIER_MIN_SEVERITY: warn
       TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:?the bot's token, in .env}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:?the chat, in .env}

@@ -264,11 +264,11 @@ call.
 
 ## Nightly
 
-A job runs every night on a machine with Docker, on the code of `main`
-checked out afresh in a throwaway worktree (`git worktree`, gone when the
-job ends, whatever it changed), never a checkout someone works in and never
-a running lab. A job with something to say sends one message to a person;
-a quiet night sends nothing.
+Two jobs run every night on a machine with Docker, each on the code of
+`main` checked out afresh in a throwaway worktree (`git worktree`, gone
+when the job ends, whatever it changed), never a checkout someone works in
+and never a running lab. A job with something to say sends one message to
+a person; a quiet night sends nothing.
 
 - **e2e** (`nightly/e2e.sh`): the browser's full scenarios, each its own
   run and its own line, on a lab of its own from `.env.example`
@@ -276,6 +276,18 @@ a quiet night sends nothing.
   ends; never the lab `.env` runs, never a real lab's model swapped for
   the fake). Red: an error message with the first failed line and its
   first `FAIL`, and where the log lies.
+- **edges** (`nightly/edges.sh`): are our edge libraries still current?
+  `faces/web_chat`'s `@assistant-ui/*` and `@ag-ui/*` and the shadcn CLI
+  `upstream.sh` pins go to their latest, then `./upstream.sh`; the AG-UI Go
+  SDK (untagged: its `main`) and openai-go go to their latest wherever a
+  `go.mod` requires them; each touched unit's `check.sh` runs. The report
+  (`edges-<stamp>.md`) says per library old → new with the changelog or
+  the commits between, the diffstat, the patches that no longer apply, the
+  checks gone red with their first error lines: a hint to hand to Claude
+  for adoption. Something new or red: one message, a warning (an error
+  when red) with the gist and where the report lies; the same news is told
+  once (`state/edges.last`), and nothing new, nothing sent. The libraries
+  are `EDGES_NPM` and `EDGES_GO` in its environment.
 
 `nightly/run.sh <job>` is one run, as its timer starts it: fetches
 `origin`, checks out `NIGHTLY_REF` in a throwaway worktree, runs the job
@@ -293,8 +305,9 @@ From `.env.example` the messages go to a fake Telegram that prints them
 and the chat.
 
 Not job_runner: a job_runner run is a gVisor sandbox with no Docker and no
-way to a private address (its CONTRACT.md), and the e2e needs Docker on the
-machine: it brings up a lab. The runner here is the machine's own timer, as for the backups'
+way to a private address (its CONTRACT.md), and both jobs need Docker on
+the machine: the e2e brings up a lab, and the touched units' checks build
+images. The runner here is the machine's own timer, as for the backups'
 pull.
 
 Installing it, on the machine, in a units checkout (it stays on its branch;
@@ -306,20 +319,20 @@ cp .env.example .env
 $EDITOR .env                      # TELEGRAM_TOKEN, TELEGRAM_CHAT_ID; TELEGRAM_API_BASE= and COMPOSE_PROFILES= empty
 docker compose up -d --wait       # the watch
 ./tell.sh warn try "the watch says hello"   # a message reaches the chat
-./run.sh e2e                      # one run by hand, to see it work
+./run.sh edges                    # one run by hand, to see it work
 
 mkdir -p ~/.config/systemd/user
 sed "s|<units-checkout>|$(git rev-parse --show-toplevel)|" lab-nightly@.service > ~/.config/systemd/user/lab-nightly@.service
-cp lab-nightly-e2e.timer ~/.config/systemd/user/
+cp lab-nightly-e2e.timer lab-nightly-edges.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now lab-nightly-e2e.timer
+systemctl --user enable --now lab-nightly-e2e.timer lab-nightly-edges.timer
 loginctl enable-linger "$USER"    # the timers fire with nobody logged in
 systemctl --user list-timers 'lab-nightly*'
 journalctl --user -u 'lab-nightly@*'
 ```
 
 By hand, a job on another ref: `NIGHTLY_REF=<branch> NIGHTLY_FETCH=no
-./run.sh e2e`; the e2e alone, in any checkout, is `nightly/e2e.sh`.
+./run.sh edges`; the e2e alone, in any checkout, is `nightly/e2e.sh`.
 
 ## .env
 

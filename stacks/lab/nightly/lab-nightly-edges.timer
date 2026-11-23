@@ -1,0 +1,13 @@
+# Starts lab-nightly@edges.service every night, after the e2e has had its
+# time, and soon after the machine wakes or boots when a night was missed.
+[Unit]
+Description=lab nightly: the edge libraries brought to latest
+
+[Timer]
+OnCalendar=*-*-* 05:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=lab-nightly@edges.service
+
+[Install]
+WantedBy=timers.target

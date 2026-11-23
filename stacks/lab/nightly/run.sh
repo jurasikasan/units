@@ -1,7 +1,8 @@
 #!/bin/bash
 # run.sh <job> — one run of a nightly job, as its timer starts it
-# (lab-nightly@<job>.service): e2e, the browser's full scenarios on a lab
-# of their own (e2e.sh).
+# (lab-nightly@<job>.service): e2e (the browser's full scenarios on a lab
+# of their own, e2e.sh) or edges (the edge libraries brought to latest,
+# edges.sh).
 #
 # The job runs on NIGHTLY_REF (origin/main, fetched first), checked out in
 # a throwaway worktree, never this checkout's working tree; the worktree
@@ -18,7 +19,7 @@ set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(git -C "$here" rev-parse --show-toplevel)
 job=${1:-}
-case "$job" in e2e) ;; *) echo "usage: $0 e2e" >&2; exit 2 ;; esac
+case "$job" in e2e|edges) ;; *) echo "usage: $0 e2e|edges" >&2; exit 2 ;; esac
 
 envf=$here/.env
 [ -f "$envf" ] || envf=$here/.env.example
@@ -62,8 +63,9 @@ else
 fi
 echo "# exit $code" >> "$log"
 
-# Exit 1 is red as the job sees it, told by its summary; any other failure
-# is the job breaking, and is told.
+# Exit 1 is red as the job sees it, told by its summary now or on an
+# earlier night (edges tells the same news once); any other failure is the
+# job breaking, and is told.
 said=$(head -1 "$summary")
 [ "$code" -gt 1 ] && [ -z "$said" ] && said="ended $code with nothing said"
 [ -z "$said" ] && exit "$code"
