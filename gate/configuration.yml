@@ -3,14 +3,15 @@ server:
   address: tcp://:9091/auth
   endpoints:
     authz:
-      # nginx's auth_request asks here. HTTP Basic is how a program passes
-      # for now (temporary, see README); pages ask without the Authorization
+      # nginx's auth_request asks here. A program passes with a Bearer
+      # access token (see README, Programs); with GATE_API_BASIC=true also
+      # with its password as HTTP Basic. Pages ask without the Authorization
       # header, so only a session opens them.
       auth-request:
         implementation: AuthRequest
         authn_strategies:
           - name: HeaderAuthorization
-            schemes: [Basic]
+            schemes: [{{ if eq (env "GATE_API_BASIC") "true" }}Basic, {{ end }}Bearer]
           - name: CookieSession
 
 log:
@@ -51,3 +52,33 @@ notifier:
     sender: '{{ mustEnv "GATE_SMTP_SENDER" }}'
     username: '{{ env "GATE_SMTP_USERNAME" }}'
     password: '{{ env "GATE_SMTP_PASSWORD" }}'
+
+# Programs get their tokens here: one public client for all of them, since
+# who a token speaks for is the account that consented, not the client.
+# Authelia lets a token pass the door (scope authelia.bearer.authz) only from
+# a client that is PKCE + PAR + form_post with explicit consent.
+identity_providers:
+  oidc:
+    jwks:
+      - key: {{ secret "/secrets/oidc-jwk.pem" | mindent 10 "|" | msquote }}
+    lifespans:
+      access_token: '{{ env "GATE_TOKEN_LIFESPAN" | default "10m" }}'
+      refresh_token: '{{ env "GATE_REFRESH_LIFESPAN" | default "30d" }}'
+      # long enough for a person to copy a code from one window to another
+      authorize_code: 10m
+    clients:
+      - client_id: programs
+        client_name: a program
+        public: true
+        token_endpoint_auth_method: none
+        authorization_policy: one_factor
+        consent_mode: explicit
+        require_pkce: true
+        pkce_challenge_method: S256
+        require_pushed_authorization_requests: true
+        redirect_uris: ['{{ mustEnv "GATE_URL" }}/gate/code']
+        audience: ['{{ mustEnv "GATE_URL" }}/']
+        scopes: [offline_access, authelia.bearer.authz]
+        grant_types: [authorization_code, refresh_token]
+        response_types: [code]
+        response_modes: [form_post]

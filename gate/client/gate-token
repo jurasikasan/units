@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""gate-token: a program's tokens for a gate, kept in a file it is told.
+
+  gate-token login --gate https://site.example --file ~/.config/me/gate.json
+      prints an address; a person opens it, logs in as the program's account,
+      allows it, and pastes the code the page shows back here (stdin). The
+      refresh token is kept in the file.
+  gate-token token --file ~/.config/me/gate.json
+      prints an access token, refreshed when the one kept is near its end,
+      with no person:  curl -H "Authorization: Bearer $(gate-token token …)"
+
+OAuth 2.0 authorization code with PKCE and a pushed authorization request,
+against gate's Authelia, for its public client `programs`. Python's standard
+library only; a script may also import this file and call access_token().
+"""
+import argparse
+import base64
+import fcntl
+import hashlib
+import http.client
+import json
+import os
+import secrets
+import socket
+import ssl
+import sys
+import tempfile
+import time
+import urllib.parse
+
+CLIENT_ID = "programs"
+SCOPE = "offline_access authelia.bearer.authz"
+PAR_PATH = "/auth/api/oidc/pushed-authorization-request"
+AUTHORIZE_PATH = "/auth/api/oidc/authorization"
+TOKEN_PATH = "/auth/api/oidc/token"
+CODE_PATH = "/gate/code"
+EARLY = 60  # at most this many seconds before its end an access token is refreshed
+
+
+class GateError(Exception):
+    pass
+
+
+class _Connection(http.client.HTTPSConnection):
+    """HTTPS to the gate's host, through another address when told
+    (curl's --connect-to): the certificate is still checked for the host."""
+
+    def __init__(self, host, port, context, connect_to):
+        super().__init__(host, port, context=context, timeout=30)
+        self._context = context
+        self._connect_to = connect_to
+
+    def connect(self):
+        if not self._connect_to:
+            return super().connect()
+        host, _, port = self._connect_to.rpartition(":")
+        sock = socket.create_connection((host, int(port)), self.timeout)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+class Gate:
+    def __init__(self, url, cacert=None, connect_to=None):
+        self.url = url.rstrip("/")
+        parts = urllib.parse.urlsplit(self.url)
+        if parts.scheme != "https" or not parts.hostname:
+            raise GateError(f"the gate's address is https://host[:port], not {url}")
+        self.host, self.port = parts.hostname, parts.port or 443
+        self.context = ssl.create_default_context(cafile=cacert)
+        self.connect_to = connect_to
+
+    @property
+    def redirect_uri(self):
+        return self.url + CODE_PATH
+
+    def post(self, path, form):
+        conn = _Connection(self.host, self.port, self.context, self.connect_to)
+        try:
+            conn.request("POST", path, urllib.parse.urlencode(form),
+                         {"Content-Type": "application/x-www-form-urlencoded",
+                          "Accept": "application/json"})
+            resp = conn.getresponse()
+            body = resp.read().decode("utf-8", "replace")
+        except OSError as e:
+            raise GateError(f"{self.url}{path}: {e}") from None
+        finally:
+            conn.close()
+        try:
+            data = json.loads(body)
+        except ValueError:
+            data = {}
+        if resp.status not in (200, 201) or not isinstance(data, dict):
+            why = data.get("error_description") or data.get("error") if isinstance(data, dict) else ""
+            raise GateError(f"{path}: {resp.status} {why or body[:200]}")
+        return data
+
+
+def _b64(raw):
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def start(gate):
+    """Pushes the authorization request; returns (address for the person, verifier)."""
+    verifier = _b64(secrets.token_bytes(48))
+    challenge = _b64(hashlib.sha256(verifier.encode()).digest())
+    par = gate.post(PAR_PATH, {
+        "client_id": CLIENT_ID,
+        "response_type": "code",
+        "response_mode": "form_post",
+        "redirect_uri": gate.redirect_uri,
+        "scope": SCOPE,
+        "state": _b64(secrets.token_bytes(16)),
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "resource": gate.url + "/",
+    })
+    query = urllib.parse.urlencode({"client_id": CLIENT_ID, "request_uri": par["request_uri"]})
+    return f"{gate.url}{AUTHORIZE_PATH}?{query}", verifier, par.get("expires_in")
+
+
+def exchange(gate, code, verifier):
+    return gate.post(TOKEN_PATH, {
+        "grant_type": "authorization_code",
+        "client_id": CLIENT_ID,
+        "code": code,
+        "redirect_uri": gate.redirect_uri,
+        "code_verifier": verifier,
+    })
+
+
+def _write(path, state):
+    """Atomically, readable by its owner only."""
+    folder = os.path.dirname(os.path.abspath(path))
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".gate-token-")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(state, f, indent=1)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+
+
+def _keep(path, gate, tokens, now, refresh_token=None):
+    lifespan = int(tokens.get("expires_in", 0))
+    state = {
+        "gate": gate.url,
+        "refresh_token": tokens.get("refresh_token") or refresh_token,
+        "access_token": tokens["access_token"],
+        "expires_at": int(now + lifespan),
+        # refreshed this early: a tenth of its life, a minute at most
+        "early": min(EARLY, lifespan // 10),
+    }
+    _write(path, state)
+    return state
+
+
+def access_token(path, cacert=None, connect_to=None, force=False):
+    """An access token from the file at `path`, refreshed when near its end.
+
+    A refresh token is good once: the gate answers with a new one, kept in
+    the file, and refuses the old one, revoking the tokens made from it. So
+    refreshing holds a lock beside the file, and two processes sharing a file
+    do not both use the same refresh token.
+    """
+    with open(path + ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            with open(path) as f:
+                state = json.load(f)
+        except FileNotFoundError:
+            raise GateError(f"{path}: no tokens yet; run gate-token login first") from None
+        now = time.time()
+        if not force and state.get("access_token") and state.get("expires_at", 0) - state.get("early", EARLY) > now:
+            return state["access_token"]
+        gate = Gate(state["gate"], cacert, connect_to)
+        tokens = gate.post(TOKEN_PATH, {
+            "grant_type": "refresh_token",
+            "client_id": CLIENT_ID,
+            "refresh_token": state["refresh_token"],
+        })
+        return _keep(path, gate, tokens, now, state["refresh_token"])["access_token"]
+
+
+def _login(args):
+    gate = Gate(args.gate, args.cacert, args.connect_to)
+    url, verifier, expires_in = start(gate)
+    minutes = f" within {int(expires_in) // 60} minutes" if expires_in else ""
+    print(f"Open this{minutes}, log in as the program's account and allow it:\n\n  {url}\n",
+          file=sys.stderr)
+    print("Then paste the code the page shows: ", end="", file=sys.stderr, flush=True)
+    code = sys.stdin.readline().strip()
+    if not code:
+        raise GateError("no code")
+    now = time.time()
+    tokens = exchange(gate, code, verifier)
+    if "refresh_token" not in tokens:
+        raise GateError("the gate gave no refresh token")
+    with open(args.file + ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        _keep(args.file, gate, tokens, now)
+    print(f"gate-token: kept in {args.file}", file=sys.stderr)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="gate-token", description=__doc__.split("\n\n")[0])
+    ap.add_argument("--cacert", default=os.environ.get("GATE_CACERT"),
+                    help="a CA file to check the gate's certificate with (GATE_CACERT)")
+    ap.add_argument("--connect-to", default=os.environ.get("GATE_CONNECT_TO"), metavar="HOST:PORT",
+                    help="reach the gate's host at this address instead (GATE_CONNECT_TO)")
+    sub = ap.add_subparsers(dest="command", required=True)
+    login = sub.add_parser("login", help="a person lets the program in, once")
+    login.add_argument("--gate", default=os.environ.get("GATE_URL"), required="GATE_URL" not in os.environ,
+                       help="the gate's https base, e.g. https://site.example (GATE_URL)")
+    token = sub.add_parser("token", help="print an access token")
+    token.add_argument("--refresh", action="store_true", help="refresh even when the kept one is good")
+    for p in (login, token):
+        p.add_argument("--file", default=os.environ.get("GATE_TOKEN_FILE"),
+                       required="GATE_TOKEN_FILE" not in os.environ,
+                       help="where the tokens are kept (GATE_TOKEN_FILE)")
+    args = ap.parse_args(argv)
+    try:
+        if args.command == "login":
+            _login(args)
+        else:
+            print(access_token(args.file, args.cacert, args.connect_to, force=args.refresh))
+    except GateError as e:
+        print(f"gate-token: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

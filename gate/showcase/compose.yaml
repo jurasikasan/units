@@ -11,6 +11,8 @@ x-gate: &gate
     GATE_SMTP_SENDER: gate <gate@example.com>
     # Mailpit's certificate is self-signed; a real relay's is checked.
     AUTHELIA_NOTIFIER_SMTP_TLS_SKIP_VERIFY: "true"
+    # So short that the demo sees one end and the client refresh it.
+    GATE_TOKEN_LIFESPAN: 10s
   volumes:
     - data:/data
     - secrets:/secrets
@@ -31,7 +33,8 @@ services:
       retries: 60
 
   # The accounts, made once: alice / alice-showcase and bob / bob-showcase,
-  # and robot / robot-showcase, a program's; showcase passwords.
+  # and robot / robot-showcase, a program's (a person logs in as it once, to
+  # let the program in); showcase passwords.
   seed:
     <<: *gate
     entrypoint:
@@ -99,9 +102,11 @@ services:
       retries: 30
 
   demo:
-    image: curlimages/curl:8.11.1
+    build:
+      context: .
+      dockerfile: demo.Dockerfile
+    image: units-gate-demo:${UNITS_TAG:-local}
     profiles: [demo]
-    user: "0"   # the cookie jar is a volume, owned by root
     depends_on:
       nginx:
         condition: service_healthy
@@ -109,7 +114,9 @@ services:
       GATE_PORT: ${GATE_PORT:-8443}
     volumes:
       - ./demo.sh:/demo.sh:ro
+      - ../client/gate-token:/usr/local/bin/gate-token:ro
       - jar:/jar
+      - certs:/certs:ro
     entrypoint: ["sh", "/demo.sh"]
 
 volumes:

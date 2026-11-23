@@ -2,14 +2,15 @@
 
 The door in front of applications. A person logs in on a page at `/auth`;
 nginx asks before serving anything protected whether the request carries a
-session; the application behind gets one header, `X-Principal-Id`, and never
-sees a password, a cookie or a token.
+session, or a program's token; the application behind gets one header,
+`X-Principal-Id`, and never sees a password, a cookie or a token.
 
-None of it is our code. Accounts, sessions, the login page and passkeys are
-[Authelia](https://www.authelia.com) (Apache-2.0); the asking is nginx
-`auth_request`. The unit is the configuration that makes the two one
-contract: an image with Authelia's configuration rendered from the
-environment, and nginx snippets a site includes.
+Almost none of it is our code. Accounts, sessions, the login page, passkeys
+and programs' tokens are [Authelia](https://www.authelia.com) (Apache-2.0);
+the asking is nginx `auth_request`. The unit is the configuration that makes
+the two one contract: an image with Authelia's configuration rendered from
+the environment, and nginx snippets a site includes. Ours is a small client
+for programs, `client/gate-token`.
 
 ## Showcase
 
@@ -22,8 +23,8 @@ docker compose run --rm demo
 Authelia with Redis for sessions, Mailpit catching its mail, nginx with a
 self-signed certificate, and a page behind it that says hello to whoever
 passed. A one-shot `seed` makes the accounts: alice and bob, people, and
-robot, a program's. The demo walks
-through with curl:
+robot, a program's. The demo walks through with curl, and with
+`client/gate-token` as the program; the person who lets it in is curl too:
 
 ```
 no session
@@ -32,13 +33,28 @@ no session
   a forged X-Principal-Id changes nothing    401
   who is logged in: nobody                   401
   a 2 MB upload answers 401, not 500         401
-a program, robot, with its password as HTTP Basic
+a program, robot: a person lets it in once
+  the program prints an address at the gate  ok
+    … opened, it asks to log in first      ok
+    … the person logs in as robot          200
+    … is asked to let it in                "scopes":["offline_access","authelia.bearer.authz"]
+    … allows it, and the browser posts to  https://gate.localhost:8443/gate/code
+    … that page, without a session: login  302
+    … with it, shows the code              authelia_ac_
+  the program keeps a refresh token, 0600    1 600
+the program on the API with an access token
   X-Principal-Id (client sent mallory)       robot
   Authorization                              []
-  wrong password on an API                   401
+  a wrong token on an API                    401
   a page does not open, to the login page    302
   who is logged in: nobody                   401
-  a person's password does not open a page   302
+  its password as HTTP Basic: not taken      401
+  … the access token ends (10 s in the showcase)
+  the old one on the API                     401
+  gate-token refreshes it, no person         new
+    … and the API answers robot            robot
+    … and keeps the new refresh token      new
+  a password as Basic opens no page          302
 log in
   wrong password                             401
   alice                                      200
@@ -64,7 +80,8 @@ another person
 ```
 
 It ends logged in again; `docker compose restart gate` and then
-`docker compose run --rm demo session` show the session outlives the restart.
+`docker compose run --rm demo session` show the session and the program's
+refresh token outlive the restart.
 
 In a browser: https://gate.localhost:8443/, `alice` / `alice-showcase` or
 `bob` / `bob-showcase`; a program's is `robot` / `robot-showcase` (showcase passwords, in `showcase/compose.yaml`). The certificate is
@@ -84,7 +101,7 @@ demo and the restart on free ports.
   `GATE_URL/`. An API answers a plain 401.
 - A program is a principal like a person: an account of its own, and behind
   the gate `X-Principal-Id` is that account's name. It passes on API paths
-  only (`api.conf`), with its password as HTTP Basic (temporary, see
+  only (`api.conf`), with a short-lived Bearer access token (see
   [Programs](#programs)). Only a session opens a page or userinfo; an
   `Authorization` header there is not looked at.
 - Who is logged in is told to the person's own page, not to the
@@ -105,6 +122,7 @@ server {
     include /etc/nginx/gate/authz.conf;          # once per server
 
     location /auth { include /etc/nginx/gate/portal.conf; }
+    location = /gate/code { include /etc/nginx/gate/code.conf; }
     location = /api/v1/userinfo { include /etc/nginx/gate/userinfo.conf; }
     location /api/ { include /etc/nginx/gate/api.conf;  set $app app; proxy_pass http://$app; }
     location /     { include /etc/nginx/gate/page.conf; set $app app; proxy_pass http://$app; }
@@ -140,31 +158,68 @@ into 500.
 ## Programs
 
 A program (a script, an agent, this repo's Claude) gets an account, as a
-person does, named for it, and sends that account's password as HTTP Basic
-on every API request:
+person does, named for it:
 
 ```bash
 docker compose run --rm gate gate-user add claude-units claude-units@example.com < password.txt
-curl -u "claude-units:$PASSWORD" https://site.example/api/…
 ```
 
 It can do what that account steers and nothing else; applications cannot
-tell it from a person and need not. Adding a program is adding an account;
-removing one is deleting its entry from `/data/users.yml`.
+tell it from a person and need not. It does not send the password, though:
+a person lets it in once, and from then on it holds tokens.
 
-This is temporary. What was settled is a short-lived token (OAuth 2.0) from
-gate's own Authelia, held by the program and refreshed on its own, but
-Authelia 4.39 cannot give one that names an account at the door: a
-`client_credentials` token passes the check with no `Remote-User`, and a
-token that the check accepts (scope `authelia.bearer.authz`) may only come
-from `authorization_code`, `refresh_token` or `client_credentials`, not from
-the device flow. Until then, what Basic costs:
+```bash
+gate-token login --gate https://site.example --file ~/.config/claude-units/gate.json
+curl -H "Authorization: Bearer $(gate-token token --file ~/.config/claude-units/gate.json)" https://site.example/api/…
+```
 
-- the password travels on every request (inside TLS) and is checked every
-  time, an argon2 hash, some 45 ms;
-- a wrong password counts as a failed login: after Authelia's default three
-  in two minutes the account is refused for five, even with the right one;
-- there is no expiry; a password is changed by replacing the account.
+1. `login` prints an address at the gate and waits for a code.
+2. A person opens it in any browser, logs in **as the program's account**
+   (its password stays with the person), and allows the program in.
+3. The browser lands on the site's `/gate/code` (`code.conf`), a page that
+   shows the code; the person pastes it to the program and logs out.
+4. The program exchanges the code for an access token and a refresh token
+   and keeps them in the file it was told (`0600`).
+5. `token` prints the access token, and when it is near its end gets a new
+   one with the refresh token, with no person. Each refresh also gives a new
+   refresh token, kept in the file; the old one is refused from then on, and
+   using it again revokes what was made from it. So a file is one program's,
+   and `gate-token` locks it while refreshing.
+
+`client/gate-token` is Python's standard library only: copy it where the
+program runs, or import it and call `access_token(path)`. `GATE_URL`,
+`GATE_TOKEN_FILE`, `GATE_CACERT` and `GATE_CONNECT_TO` stand in for its
+flags.
+
+Underneath is OAuth 2.0's authorization code grant with PKCE, a pushed
+authorization request and `form_post`, from gate's own Authelia, for one
+public client, `programs`: who a token speaks for is the account that
+allowed it, not the client. It is the one route Authelia 4.39 leaves: a
+token passes the door (scope `authelia.bearer.authz`) only from a client
+that is PKCE + PAR + `form_post` with explicit consent; the device flow may
+not hold that scope, and a `client_credentials` token passes with no
+`Remote-User`. The code is shown on a page, not sent to the program,
+because the program has no listener and maybe no browser. A code without
+the program's PKCE verifier is worth nothing, is good for ten minutes and
+once, and the page shows it only with a session.
+
+Any account can let a program in this way, a person's own too: the tokens
+then speak for that person. Taking a program out is deleting its account:
+its tokens, refreshed or not, no longer pass the door.
+
+How long tokens live is the deployment's: `GATE_TOKEN_LIFESPAN` (access,
+10 minutes) and `GATE_REFRESH_LIFESPAN` (refresh, 30 days). A program that
+refreshes within that time keeps going; one that sleeps longer is let in
+again by a person.
+
+### HTTP Basic, by a deployment's choice
+
+`GATE_API_BASIC=true` lets a program also pass APIs with its account's
+password as HTTP Basic (`curl -u name:password`), as gate did before tokens.
+It is off unless said, and what it costs is why: the password travels on
+every request and is checked every time (argon2, some 45 ms); three wrong
+ones in two minutes refuse the account for five, even with the right one;
+nothing expires. Pages never take it.
 
 ## Configuration
 
@@ -176,6 +231,9 @@ the device flow. Until then, what Basic costs:
 | `GATE_SMTP_ADDRESS` | where mail goes, e.g. `submission://smtp.example.com:587` |
 | `GATE_SMTP_SENDER` | the From of every mail, e.g. `gate <gate@example.com>` |
 | `GATE_SMTP_USERNAME`, `GATE_SMTP_PASSWORD` | the relay's login, when it asks for one |
+| `GATE_TOKEN_LIFESPAN` | a program's access token, `10m` unless said |
+| `GATE_REFRESH_LIFESPAN` | a program's refresh token, `30d` unless said |
+| `GATE_API_BASIC` | `true`: programs may also pass APIs with a password as HTTP Basic; off unless said |
 
 Authelia refuses a login URL that is not https, so even a local run has a
 certificate; it also refuses a mail server without STARTTLS. The showcase
@@ -199,8 +257,8 @@ Authelia notices the file change on its own.
 | Path | What |
 |---|---|
 | `/data/users.yml` | accounts: username, display name, email, argon2 hash |
-| `/data/db.sqlite3` | passkeys, second factors, failed-login records; the sensitive columns encrypted with the storage key |
-| `/secrets/` | the session, storage and reset keys, made on the first start |
+| `/data/db.sqlite3` | passkeys, second factors, failed-login records, programs' tokens; the sensitive columns encrypted with the storage key |
+| `/secrets/` | the session, storage and reset keys, the token signing key and HMAC secret, made on the first start |
 
 `/data` and `/secrets` are backed up and restored together: Authelia refuses
 to start on a database made with another storage key. Sessions are in Redis

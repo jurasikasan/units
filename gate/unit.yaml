@@ -3,7 +3,7 @@
 
 unit: gate
 kind: gateway
-summary: The door in front of applications. Authelia keeps accounts and sessions, nginx asks it before serving; the application behind gets X-Principal-Id and nothing else. A program is an account like a person's.
+summary: The door in front of applications. Authelia keeps accounts and sessions, nginx asks it before serving; the application behind gets X-Principal-Id and nothing else. A program is an account like a person's and passes with short-lived OAuth tokens a person let it have once.
 contract: README.md
 maturity: probe
 
@@ -12,20 +12,26 @@ provides:
     port: 9091
     path: /auth            # the login page and Authelia's API, behind the site's nginx
     headers: [X-Principal-Id]
+  oauth:                   # Authelia's OpenID Connect provider, for programs only
+    client_id: programs    # public; authorization code + PKCE + PAR, form_post, refresh tokens
+    redirect_uri: GATE_URL/gate/code
+    scopes: [offline_access, authelia.bearer.authz]
   nginx:                   # snippets a site includes; they reach the unit as gate:9091
     - nginx/authz.conf
     - nginx/portal.conf
     - nginx/page.conf      # a session only; Authorization is not looked at
-    - nginx/api.conf       # a session, or a program's account as HTTP Basic (temporary)
+    - nginx/api.conf       # a session, or a program's Bearer access token (Basic too, by GATE_API_BASIC)
+    - nginx/code.conf      # /gate/code: shows the person the code to paste to the program; a session only
     - nginx/userinfo.conf  # who is logged in, as OIDC UserInfo, plus end_session_endpoint; for the person's page
   health: GET :9091/auth/api/health
+  client: client/gate-token  # a program's side: prints the address, takes the code, keeps and refreshes tokens
 
 consumes:
   infra: [redis, smtp]     # sessions; mail with one-time codes and reset links
 
 state:                     # back up and restore both together
   /data: users.yml (accounts), db.sqlite3 (passkeys, second factors)
-  /secrets: session, storage and reset keys, made on the first start
+  /secrets: session, storage and reset keys, the OIDC signing key and HMAC secret, made on the first start
 
 config:
   required:
@@ -36,5 +42,9 @@ config:
     GATE_SMTP_SENDER: "the From of every mail, e.g. gate <gate@example.com>"
   optional:
     GATE_SMTP_USERNAME: the relay's login, when it asks for one
+    GATE_TOKEN_LIFESPAN: a program's access token, 10m unless said
+    GATE_REFRESH_LIFESPAN: a program's refresh token, 30d unless said; each refresh makes a new one
+    GATE_API_BASIC: "true: a program may also pass APIs with its password as HTTP Basic; off unless said"
+
   secrets:
     GATE_SMTP_PASSWORD: the relay's password

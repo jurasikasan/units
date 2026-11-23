@@ -9,7 +9,7 @@ own `go.mod`, and its own check script.
 |---|---|
 | [`shared`](shared/) | small Go helpers the units have in common: HTTP, Redis, ops alerts, a fallback loop |
 | [`notifier`](notifier/) | operational failures from a Redis stream to a Telegram chat, repeats folded |
-| [`gate`](gate/) | the door in front of applications: Authelia's login page and nginx `auth_request`, no code of ours; the application behind sees only `X-Principal-Id` |
+| [`gate`](gate/) | the door in front of applications: Authelia's login page and nginx `auth_request`; programs hold short-lived tokens through `gate-token`; the application behind sees only `X-Principal-Id` |
 | [`auth_service`](auth_service/) | login and sessions behind nginx `auth_request`; applications see only a principal id |
 | [`subjects`](subjects/) | who exists: identities with a permanent nick, a type and free-form preferences, on their own Postgres |
 | [`threads`](threads/) | what happened where: threads as append-only journals of entries — ActivityStreams kinds, typed content blocks, no roles — on their own Postgres; each append announced on its Redis stream |

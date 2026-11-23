@@ -1,7 +1,8 @@
 #!/bin/bash
 # gate holds no code of ours: the checks are that Authelia accepts the
 # configuration, that the manifest holds, that the showcase's demo passes, and
-# that a session outlives gate restarted and gate recreated on a new address.
+# that a session and a program's refresh token outlive gate restarted and gate
+# recreated on a new address.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -29,16 +30,22 @@ export GATE_PORT MAILPIT_PORT
 # its own.
 export COMPOSE_PROJECT_NAME="gate-check-$$" UNITS_TAG="gate-check-$$"
 compose() { docker compose -f showcase/compose.yaml "$@"; }
-trap 'compose --profile demo down -v --remove-orphans >/dev/null 2>&1 || true; docker image rm "units-gate:$UNITS_TAG" >/dev/null 2>&1 || true' EXIT
+trap 'compose --profile demo down -v --remove-orphans >/dev/null 2>&1 || true; docker image rm "units-gate:$UNITS_TAG" "units-gate-demo:$UNITS_TAG" >/dev/null 2>&1 || true' EXIT
 
-run "build"  compose build -q
+run "build"  compose --profile demo build -q
 run "config" compose run --rm --no-deps gate authelia validate-config
+basic_opt_in() {
+  compose run --rm --no-deps -e GATE_API_BASIC=true gate authelia validate-config &&
+  compose run --rm --no-deps -e GATE_API_BASIC=true gate authelia config template | grep -q 'schemes: \[Basic, Bearer\]'
+}
+run "config, Basic opted in" basic_opt_in
+run "gate-token compiles" python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' client/gate-token
 run "unit"   python3 ../scripts/check_unit.py .
 run "up"     compose up -d --wait
 run "demo"   compose run --rm demo
 run "restart" compose restart gate
 run "up again" compose up -d --wait
-run "session survives" compose run --rm demo session
+run "session and a program's refresh token survive" compose run --rm demo session
 run "gate on a new address" env COMPOSE_FILE=showcase/compose.yaml ../scripts/move_address.sh gate
 run "nginx finds it there" compose run --rm demo session
 
