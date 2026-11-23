@@ -21,6 +21,23 @@ out=$(curl -sN "$URL/run" -H 'X-Principal-Id: alice' -H 'Content-Type: applicati
 echo "$out" | grep -o '"type":"[A-Z_]*"' | sort | uniq -c
 echo "$out" | grep -q '"type":"RUN_FINISHED"' || { echo "the run did not finish"; exit 1; }
 
+echo "== a tool the client offers (UNIT-39)"
+# The client offers `say`; the model (caller) calls it. The mind does not
+# make the call: it streams it and finishes the run, leaving it to the client.
+SAY='{"name":"say","description":"Say something in the thread.","parameters":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}}'
+out=$(curl -sN "$URL/run" -H 'X-Principal-Id: alice' -H 'Content-Type: application/json' \
+  -d '{"threadId":"demo","runId":"r3","forwardedProps":{"modelName":"caller"},"tools":['"$SAY"'],"messages":[{"id":"m3","role":"user","content":"Say hello in the thread."}]}')
+echo "$out"
+echo "$out" | grep -q '"type":"TOOL_CALL_START".*"toolCallName":"say"' || { echo "the model did not call say"; exit 1; }
+echo "$out" | grep -q '"type":"TOOL_CALL_RESULT"' && { echo "the mind answered a call that was the client's"; exit 1; }
+echo "$out" | grep -q '"type":"RUN_FINISHED"' || { echo "the run did not finish"; exit 1; }
+# The client makes the call and runs again, its result last; the model goes on.
+out=$(curl -sN "$URL/run" -H 'X-Principal-Id: alice' -H 'Content-Type: application/json' \
+  -d '{"threadId":"demo","runId":"r4","tools":['"$SAY"'],"messages":[{"id":"m3","role":"user","content":"Say hello in the thread."},{"id":"m4","role":"assistant","toolCalls":[{"id":"call_say_1","type":"function","function":{"name":"say","arguments":"{\"text\": \"hello from the model\"}"}}]},{"id":"m5","role":"tool","toolCallId":"call_say_1","content":"said"}]}')
+echo "$out"
+echo "$out" | grep -q '"type":"TEXT_MESSAGE_CONTENT"' || { echo "no answer after the result"; exit 1; }
+echo "$out" | grep -q '"type":"RUN_FINISHED"' || { echo "the run did not finish"; exit 1; }
+
 echo "== nobody named"
 code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/run" -d '{}')
 echo "$code"

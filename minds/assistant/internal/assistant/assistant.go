@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -87,7 +88,7 @@ func New(base, model, key, system string) *Assistant {
 }
 
 // ErrBadInput is a run this mind cannot answer as asked.
-var ErrBadInput = errors.New("the last message must be the user's and say or carry something")
+var ErrBadInput = errors.New("the last message must be the user's and say or carry something, or a tool's result answering a call before it")
 
 // text is what a message says in words: its content when that is a string,
 // or its text parts joined. A person's other parts are userMessage's.
@@ -113,10 +114,19 @@ func text(m types.Message) string {
 // else to read it from yet.
 func (a *Assistant) Prompt(in types.RunAgentInput) (Conversation, error) {
 	n := len(in.Messages)
-	if n == 0 || in.Messages[n-1].Role != types.RoleUser {
+	if n == 0 {
 		return nil, ErrBadInput
 	}
-	if _, ok := userPieces(in.Messages[n-1]); !ok {
+	last := in.Messages[n-1]
+	switch last.Role {
+	case types.RoleUser:
+		if _, ok := userPieces(last); !ok {
+			return nil, ErrBadInput
+		}
+	case types.RoleTool:
+		// The client answering a call of its own tool (offered.go); whether
+		// the call is in the history is seen below.
+	default:
 		return nil, ErrBadInput
 	}
 	var p Conversation
@@ -178,6 +188,9 @@ func (a *Assistant) Prompt(in types.RunAgentInput) (Conversation, error) {
 			p = append(p, entry{msg: openai.SystemMessage(t)})
 		}
 		// activity: not read yet
+	}
+	if last.Role == types.RoleTool && !called[last.ToolCallID] {
+		return nil, ErrBadInput
 	}
 	return p, nil
 }
@@ -276,9 +289,12 @@ func answered(text string, calls []call, thought *opaque) openai.ChatCompletionM
 // pick (forwardedProps.modelName, models.go), else the configured one; when
 // it calls tools, they are called (all of one turn at once), what they say
 // goes back to it, and it is asked again, until it answers in words or the
-// steps run out. Each time it is asked as the model that answered last: the
-// opaque part of reasoning another model made is left out, so a fallback to
-// another model carries on without it. A part the model cannot take, or
+// steps run out. Tools the client offers (RunAgentInput.tools, offered.go)
+// are shown beside the mind's own; a call to one is left to the client: the
+// turn's other calls are made and the run finishes, and the client's next
+// run, ending with the result, carries on. Each time it is asked as the
+// model that answered last: the opaque part of reasoning another model made
+// is left out, so a fallback to another model carries on without it. A part the model cannot take, or
 // that nothing carries, goes as a placeholder in words, with a warning in
 // the log (check.go). An error from emit (the listener is
 // gone) or a cancelled ctx ends the run and whatever model or tool call is
@@ -300,11 +316,13 @@ func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversat
 		k = openKit(ctx, a.mcp, a.servers)
 		defer k.close()
 	}
+	theirs := offered(in.Tools, k)
+	tools := slices.Concat(k.offer(), theirs.tools)
 	p = a.fit(ctx, group, p)
 	model := p.lastModel()
 	var used tally
 	for step := 0; step < a.maxSteps; step++ {
-		s, err := a.turn(ctx, in, group, p.For(model), k, &used, emit)
+		s, err := a.turn(ctx, in, group, p.For(model), tools, &used, emit)
 		if err != nil || ctx.Err() != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -319,12 +337,18 @@ func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversat
 		}
 		model = s.thought.Model
 		p = append(p, entry{said: s})
-		results := k.callAll(ctx, s.calls)
-		for i, c := range s.calls {
+		ours, left := theirs.split(s.calls)
+		results := k.callAll(ctx, ours)
+		for i, c := range ours {
 			if err := emit(toolResult(c.id, results[i])); err != nil {
 				return err
 			}
 			p = append(p, entry{msg: openai.ToolMessage(results[i].words, c.id)})
+		}
+		if left {
+			// A call is the client's to make: the run ends here and the
+			// client's next one brings its result.
+			return emit(events.NewRunFinishedEventWithOptions(in.ThreadID, in.RunID, events.WithUsage(used)))
 		}
 	}
 	return emit(events.NewRunErrorEvent(fmt.Sprintf("the model was still calling tools after %d steps", a.maxSteps), events.WithRunID(in.RunID), events.WithErrorUsage(used)))
@@ -338,14 +362,14 @@ func (a *Assistant) Run(ctx context.Context, in types.RunAgentInput, p Conversat
 // keeps it with this turn. It returns what the model said, its thought
 // always naming who answered; nil when the model failed and RUN_ERROR has
 // been sent.
-func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, group string, msgs []openai.ChatCompletionMessageParamUnion, k *kit, used *tally, emit func(events.Event) error) (*said, error) {
+func (a *Assistant) turn(ctx context.Context, in types.RunAgentInput, group string, msgs []openai.ChatCompletionMessageParamUnion, tools []openai.ChatCompletionToolUnionParam, used *tally, emit func(events.Event) error) (*said, error) {
 	params := openai.ChatCompletionNewParams{
 		Model:         group,
 		Messages:      msgs,
 		StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: openai.Bool(true)},
 	}
-	if k != nil && len(k.tools) > 0 {
-		params.Tools = k.tools
+	if len(tools) > 0 {
+		params.Tools = tools
 	}
 	// The call has its own context: cut when the run's is, or when the
 	// model has said nothing for a.idle.

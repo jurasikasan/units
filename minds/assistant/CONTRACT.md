@@ -20,11 +20,13 @@ front (`gate`). No header: 401, before anything else is read.
 ## A run
 
 `POST /run`, the body is AG-UI's `RunAgentInput`. Of it are read `threadId`,
-`runId`, `messages` and `forwardedProps.modelName` (see Which model); `tools`,
-`state`, `context` and the rest of `forwardedProps` are accepted and not read.
+`runId`, `messages`, `tools` (see The client's tools) and
+`forwardedProps.modelName` (see Which model); `state`, `context` and the
+rest of `forwardedProps` are accepted and not read.
 
 - The **last message** must be the user's and say or carry something (words,
-  a picture, a document), else 400. A run is at most 16 MB, attachments
+  a picture, a document), or a `tool` result answering a call in the history
+  before it (the client's own tool, see The client's tools), else 400. A run is at most 16 MB, attachments
   included, else 413.
 - The **prompt** is `SYSTEM_PROMPT` (when set), then every message as the
   client sent it: `user`, `assistant` and `system` as they are, `developer`
@@ -173,6 +175,25 @@ When the model calls tools, in the same stream:
 A call's id goes back to the model byte for byte: through LiteLLM, Gemini
 keeps its thought signature inside it.
 
+## The client's tools
+
+A run's `tools` (AG-UI's frontend tools: `name`, `description`,
+`parameters`, a JSON Schema) are offered to the model beside the mind's own,
+under their own names, their parameters as they came (none: an object with
+no properties). The mind never makes such a call; the client does, as AG-UI
+has it:
+
+- The call streams like any other (`TOOL_CALL_START`, `TOOL_CALL_ARGS`,
+  `TOOL_CALL_END`). The turn's calls to the mind's own tools are made and
+  answered (`TOOL_CALL_RESULT`); a call to the client's gets no result, and
+  the run ends there with `RUN_FINISHED`.
+- The client makes the call and starts the next run with the call in the
+  history and its result last (`role: tool`, `toolCallId`); the model is
+  asked again from there. The `tools` go with every run that offers them.
+- A tool whose name a model cannot take (`^[a-zA-Z0-9_-]{1,64}$`), or a
+  name taken already (by a tool of the mind's, or an earlier one of the
+  client's), is left out with a warning in the log; the run goes on.
+
 ## Stopped, failed, silent
 
 A client stops a run the way AG-UI has it: it drops the request (AG-UI has
@@ -316,7 +337,6 @@ model generated. Neither is built yet; nothing here is shaped against them.
   the same model in a tool loop.
 - `thinking_blocks` streamed in pieces are joined into whole blocks
   (Anthropic's shape through LiteLLM): not seen live, no such key here.
-- The face's own tools (`RunAgentInput.tools`) are not offered to the model.
 - An MCP server that asks back mid-call (`input_required`) is not answered.
 - Two runs at once in one thread are not prevented.
 - The list of models (and voices) is asked of the endpoint on each request

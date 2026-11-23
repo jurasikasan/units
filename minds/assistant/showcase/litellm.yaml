@@ -7,3 +7,10 @@ model_list:
     litellm_params:
       model: openai/mock
       mock_response: "Hello! I am a mock model behind LiteLLM; this answer is the same every time."
+  # A model that calls the client's tool `say` when it is offered one
+  # (UNIT-39): WireMock answers in its place (fake_llm/).
+  - model_name: caller
+    litellm_params:
+      model: openai/caller
+      api_base: http://fake_llm:8089/v1
+      api_key: fake

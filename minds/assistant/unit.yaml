@@ -11,7 +11,7 @@ provides:
   rest:
     port: 8088
     routes:
-      - "POST /run"     # AG-UI: RunAgentInput in (at most 16 MB, attachments inline; forwardedProps.modelName picks the model), an event stream (SSE) out
+      - "POST /run"     # AG-UI: RunAgentInput in (at most 16 MB, attachments inline; forwardedProps.modelName picks the model; tools, the client's own, offered to the model and left to the client to call), an event stream (SSE) out
       - "GET /v1/models"  # OpenAI's, each with mode (chat, audio_transcription, audio_speech) and a speech model's voices: what may be picked, the mind's own of each mode first
       - "POST /v1/audio/transcriptions"   # OpenAI's: a sound in (multipart, at most 25 MB; model one offered, before the sound), its text out; served when STT_MODEL is set
       - "POST /v1/audio/speech"           # OpenAI's: words in (JSON; model one offered), a sound out, streamed; served when TTS_MODEL is set

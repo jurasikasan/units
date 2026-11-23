@@ -7,7 +7,10 @@ completions: LiteLLM in front of a provider, or one engine. When the model
 calls tools, the mind calls them on MCP servers (MCP 2026-07-28) and gives
 it what they said, until it answers in words; a tool's picture reaches the
 model as words, and the client whole, as the tool's result
-(`TOOL_CALL_RESULT`'s `rawEvent`). What the model thinks is
+(`TOOL_CALL_RESULT`'s `rawEvent`). Tools the client offers in the run
+(`RunAgentInput.tools`, AG-UI's frontend tools) are offered too, but a
+call to one is the client's: the run ends there and the client's next run
+brings the result. What the model thinks is
 shown as AG-UI reasoning; what only the model can read again (a signature)
 rides with it to the client and goes back to that same model, never to
 another. A picture, a PDF or a sound goes with a
@@ -46,8 +49,11 @@ docker compose run --rm demo
 The mind and LiteLLM with a mock model that needs no key; the demo sends one
 run the way an AG-UI client does and prints the events as they arrive, then
 one carrying a picture of 1.8 MB (2.4 MB as base64, a file name beginning
-with a space), which reaches the model, then
-shows that a request with nobody named is refused. A real model: change
+with a space), which reaches the model; then a tool the client offers
+(`say`): a second model, `caller` (WireMock in `showcase/fake_llm/`,
+answering only when `say` is offered), calls it, the run finishes with the
+call unanswered, and a second run bringing its result gets the model's
+words; then shows that a request with nobody named is refused. A real model: change
 `showcase/litellm.yaml` (an example is in it) and `docker compose restart litellm`.
 
 ## Configuration
