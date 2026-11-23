@@ -8,8 +8,8 @@
 # there and an act from another is refused; a thread opened, said in,
 # answered by the assistant, renamed, the assistant taken and handed back
 # to the fake profile by a steward, the thread deleted for whoever reads,
-# the avatar given back; the program steers its own subjects with its
-# password; what the browser held lapses past the grace; a person gets
+# the avatar given back; the program, let in once by a person, steers its
+# own subjects with gate's tokens; what the browser held lapses past the grace; a person gets
 # mail; gate, mind and face recreated on new addresses are still reached
 # through nginx; a second account added, a backup taken, everything
 # deleted, the backup restored, the second account logs in, and the first
