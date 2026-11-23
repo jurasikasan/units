@@ -342,7 +342,9 @@ By hand, a job on another ref: `NIGHTLY_REF=<branch> NIGHTLY_FETCH=no
 | `LAB_BIND`, `LAB_PORT` | where the https port is published: `127.0.0.1` locally, `0.0.0.0` to be reached |
 | `LAB_CERTS` | a directory with `fullchain.pem` and `privkey.pem`, or `certs`, a volume where a self-signed certificate is made on the first start |
 | `LAB_FIRST_USER`, `LAB_FIRST_EMAIL`, `LAB_FIRST_PASSWORD` | the first account, made only when there is none; clear the password afterwards |
-| `LAB_PROGRAM`, `LAB_PROGRAM_PASSWORD` | a program's account, made when it is missing (its mail `<name>@LAB_DOMAIN`); the program sends the password as HTTP Basic on `/api/`; keep it, the program needs it; empty: none |
+| `LAB_PROGRAM`, `LAB_PROGRAM_PASSWORD` | a program's account, made when it is missing (its mail `<name>@LAB_DOMAIN`); a person logs in with the password once to let the program in; empty: none |
+| `LAB_TOKEN_LIFESPAN`, `LAB_REFRESH_LIFESPAN` | how long programs' access and refresh tokens live; empty: `10m`, `30d` |
+| `LAB_API_BASIC` | `true`: a program may also pass `/api/` with its password as HTTP Basic; empty: no |
 | `COMPOSE_PROFILES` | `mailpit` runs Mailpit locally; a deployment leaves it empty |
 | `LAB_SMTP_*` | where mail goes; with a relay, `LAB_SMTP_SKIP_VERIFY=false` |
 | `LAB_LLM_KEY` | LiteLLM's master key; the mind sends it |
@@ -374,12 +376,15 @@ docker compose run --rm --no-deps -T gate gate-user add bob bob@example.com "Bob
 
 A program (a script, an agent) is an account like a person's, and behind
 the gate it is `X-Principal-Id = <its name>`; what it may do is what that
-account steers. It passes on `/api/` only, with its password as HTTP Basic
-(gate's README: temporary until the gate issues tokens); pages stay closed to
-it:
+account steers. It passes on `/api/` only, with a short-lived Bearer token
+from the gate; pages stay closed to it. A person lets it in once, with
+gate's client (gate's README, Programs): open the address it prints, log in
+as the program's account, allow it, paste the code the page shows.
 
 ```bash
-curl -u "$LAB_PROGRAM:$LAB_PROGRAM_PASSWORD" "$LAB_URL/api/reins/me/subjects"
+gate-token login --gate "$LAB_URL" --file ~/.config/claude-units/lab-gate.json
+curl -H "Authorization: Bearer $(gate-token token --file ~/.config/claude-units/lab-gate.json)" \
+  "$LAB_URL/api/reins/me/subjects"
 ```
 
 `LAB_PROGRAM` makes one; more are added as accounts, above. A changed
@@ -470,6 +475,5 @@ there first.
 
 - the chat keeps nothing: one conversation per page, gone on reload;
 
-- tokens for programs: a machine calling the lab's API;
 - mail to the outside world (UNIT-23);
 - plain http on port 80 sending to https.

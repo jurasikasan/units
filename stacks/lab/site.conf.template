@@ -12,6 +12,10 @@ server {
     location /auth {
         include /etc/nginx/gate/portal.conf;
     }
+    # Where a program's code is shown to the person who let it in.
+    location = /gate/code {
+        include /etc/nginx/gate/code.conf;
+    }
     # Who is logged in and where to log out, for the face: gate's answer.
     location = /api/v1/userinfo {
         include /etc/nginx/gate/userinfo.conf;

@@ -12,6 +12,10 @@ x-gate: &gate
     GATE_SMTP_USERNAME: ${LAB_SMTP_USERNAME:-}
     GATE_SMTP_PASSWORD: ${LAB_SMTP_PASSWORD:-}
     AUTHELIA_NOTIFIER_SMTP_TLS_SKIP_VERIFY: ${LAB_SMTP_SKIP_VERIFY:-false}
+    # Programs' tokens; empty: gate's defaults (10m, 30d, no Basic).
+    GATE_TOKEN_LIFESPAN: ${LAB_TOKEN_LIFESPAN:-}
+    GATE_REFRESH_LIFESPAN: ${LAB_REFRESH_LIFESPAN:-}
+    GATE_API_BASIC: ${LAB_API_BASIC:-}
   volumes:
     - data:/data
     - secrets:/secrets

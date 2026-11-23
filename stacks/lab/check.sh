@@ -29,19 +29,48 @@ cd "$(dirname "$0")"
 
 program=$(sed -n 's/^LAB_PROGRAM=//p' .env.example)
 program_password=$(sed -n 's/^LAB_PROGRAM_PASSWORD=//p' .env.example)
-# The program, with its password as HTTP Basic: its own subjects on the API,
-# no page.
-as_program() {
-  docker compose run --rm --no-deps --entrypoint sh demo -c '
-    hp=${LAB_URL#https://} who=$0:$1
-    c() { curl -sk --connect-to "$hp:nginx:443" -u "$who" "$@"; }
-    nicks=$(c "$LAB_URL/api/reins/me/subjects" | grep -o "\"nick\":\"[^\"]*\"" | sort | tr "\n" " ")
-    echo "steers: $nicks"
-    [ "$nicks" = "\"nick\":\"$0\" \"nick\":\"$0-assistant\" " ] || exit 1
-    page=$(c -o /dev/null -w "%{http_code}" "$LAB_URL/"); echo "page: $page"; [ "$page" = 302 ] || exit 1
-    bad=$(curl -sk --connect-to "$hp:nginx:443" -u "$0:wrong" -o /dev/null -w "%{http_code}" "$LAB_URL/api/reins/me/subjects"); echo "wrong password: $bad"; [ "$bad" = 401 ]
-  ' "$program" "$program_password"
-}
+# The program, by gate's token flow, from here: gate-token prints an address,
+# a person (curl) logs in as the program, allows it and takes the code from
+# /gate/code; the program steers its own subjects on the API with a Bearer
+# token, refreshed with no person; the token opens no page, Basic is off.
+# Each step says `|| exit 1`: run's `if` turns set -e off inside.
+as_program() (
+  url="https://lab.localhost:$port" t="$work/program"
+  export GATE_CONNECT_TO="127.0.0.1:$port" GATE_CACERT="$t.crt"
+  docker compose exec -T nginx cat /certs/fullchain.pem > "$t.crt" || exit 1
+  c() { curl -sk --connect-to "lab.localhost:$port:127.0.0.1:$port" "$@"; }
+  pc() { c -b "$t.jar" -c "$t.jar" "$@"; }
+  rm -f "$t.fifo"; mkfifo "$t.fifo" || exit 1
+  ../../gate/client/gate-token login --gate "$url" --file "$t.json" < "$t.fifo" 2> "$t.said" &
+  login=$!
+  exec 3> "$t.fifo"
+  for _ in $(seq 100); do grep -q "$url/auth/api/oidc/authorization" "$t.said" && break; sleep 0.1; done
+  address=$(grep -o "$url/auth/api/oidc/authorization[^ ]*" "$t.said") || { cat "$t.said"; exit 1; }
+  logged=$(pc -o /dev/null -w '%{http_code}' -X POST "$url/auth/api/firstfactor" -H 'Content-Type: application/json' \
+    -d "{\"username\":\"$program\",\"password\":\"$program_password\"}")
+  echo "the person logs in as $program: $logged"; [ "$logged" = 200 ] || exit 1
+  flow=$(pc -o /dev/null -w '%{redirect_url}' "$address" | sed -n 's/.*[?&]flow_id=\([^&]*\).*/\1/p')
+  back=$(pc -X POST "$url/auth/api/oidc/consent" -H 'Content-Type: application/json' \
+    -d "{\"flow_id\":\"$flow\",\"client_id\":\"programs\",\"consent\":true,\"pre_configure\":false}" \
+    | sed -n 's/.*"redirect_uri":"\([^"]*\)".*/\1/p' | sed 's/\\u0026/\&/g')
+  # shellcheck disable=SC2046  # the form's fields, none with a space
+  code=$(pc -X POST $(pc "$back" | sed -n 's/.*<input type="hidden" name="\(code\|iss\|state\)" value="\([^"]*\)".*/--data-urlencode \1=\2/p') \
+    "$url/gate/code" | sed -n 's/.*<code id="code">\([^<]*\)<.*/\1/p')
+  echo "code shown: ${code:0:12}…"; [ -n "$code" ] || exit 1
+  echo "$code" >&3; exec 3>&-
+  wait "$login" || { cat "$t.said"; exit 1; }
+  token=$(../../gate/client/gate-token token --file "$t.json") || exit 1
+  nicks=$(c -H "Authorization: Bearer $token" "$url/api/reins/me/subjects" | grep -o '"nick":"[^"]*"' | sort | tr '\n' ' ')
+  echo "steers: $nicks"
+  [ "$nicks" = "\"nick\":\"$program\" \"nick\":\"$program-assistant\" " ] || exit 1
+  fresh=$(../../gate/client/gate-token token --refresh --file "$t.json") || exit 1
+  [ "$fresh" != "$token" ] || exit 1
+  again=$(c -H "Authorization: Bearer $fresh" "$url/api/reins/me/subjects" | grep -c "\"nick\":\"$program\"")
+  echo "refreshed, no person: $again"; [ "$again" = 1 ] || exit 1
+  page=$(c -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $fresh" "$url/"); echo "page: $page"; [ "$page" = 302 ] || exit 1
+  bad=$(c -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${fresh}x" "$url/api/reins/me/subjects"); echo "wrong token: $bad"; [ "$bad" = 401 ] || exit 1
+  basic=$(c -o /dev/null -w '%{http_code}' -u "$program:$program_password" "$url/api/reins/me/subjects"); echo "Basic: $basic"; [ "$basic" = 401 ]
+)
 add_carol() { echo carol-lab | docker compose run --rm --no-deps -T gate gate-user add carol carol@example.com Carol; }
 backup() { ./backup.sh "$work/backups" > "$work/archive"; }
 # The browsers are closed: past the grace (45 s here), no principal holds
@@ -102,7 +131,7 @@ run "the driver said the answer as $first_user-assistant"  bash -c 'docker compo
 run "the stream carried the reply as it was written"  bash -c '[ "$(docker compose exec -T bus redis-cli XLEN driver_events)" -gt 2 ]'
 run "at the API: holds, a thread said in and answered, renamed, the kill switch, deleted, given back"  docker compose run --rm --entrypoint sh demo /api.sh "$first_user" "$first_password"
 run "the pages gone, what they held lapses: nobody holds $first_user"  lapsed
-run "the program $program steers its own subjects through /api/ with its password, no page"  as_program
+run "the program $program, let in once by a person, steers its own subjects through /api/ with a token, no page"  as_program
 run "first account: its subjects after login, chat, mail"  docker compose run --rm demo "$first_user" "$first_password" mail
 run "reins keeps two subjects for it"  keep_steered
 run "gate, mind, face on new addresses"  ../../scripts/move_address.sh gate mind face
