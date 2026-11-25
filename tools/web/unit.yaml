@@ -2,7 +2,7 @@
 # Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
 
 unit: tools/web
-kind: tool              # a thing in the world an avatar's hands use
+kind: tool              # a thing an agent calls
 summary: A tool that looks at the web. Two MCP tools, search (a SearXNG beside it, or Brave's Search API with a key; else not configured) and fetch (a public page's words, HTML as markdown), fetching only public addresses, from a process that can sit on an egress-only network. Keeps nothing.
 contract: CONTRACT.md
 maturity: probe

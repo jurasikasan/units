@@ -1,8 +1,7 @@
 # tools/web
 
-A tool that looks at the web, one of the `tools/` family: things in the
-world an avatar's hands use (the repo's CLAUDE.md, "Words for what an
-avatar has"). Two MCP tools: `search` asks a search engine (a SearXNG run
+A tool that looks at the web, one of the `tools/` family: tools an agent
+calls. Two MCP tools: `search` asks a search engine (a SearXNG run
 beside it, or Brave's Search API) and returns what it found; `fetch` reads one public page and returns
 its words, HTML as markdown. It keeps nothing.
 
@@ -29,7 +28,7 @@ web fetcher   # POST /fetch only: on the egress-only network
 ```
 
 In a stack, `web` joins the stack's network and the `egress` one,
-`web fetcher` only `egress` (stacks/lab does so).
+`web fetcher` only `egress`.
 
 ## Config
 

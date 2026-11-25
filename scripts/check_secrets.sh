@@ -5,7 +5,7 @@
 #   1. gitleaks with .gitleaks.toml — its defaults plus passwords in URLs and
 #      secret-looking assignments, which the defaults miss.
 #   2. live values — every value in the gitignored env files on this machine
-#      (stacks/*/.env, _ignored/*.env*, or the files given as arguments) is
+#      (_ignored/*.env*, or the files given as arguments) is
 #      looked for literally. Patterns guess; this knows.
 #
 # A hit names the file, line and rule (or the variable's name), never the
@@ -69,7 +69,7 @@ if [ $# -gt 0 ]; then
     env_files=("$@")
 else
     shopt -s nullglob
-    env_files=(stacks/*/.env _ignored/*.env*)
+    env_files=(_ignored/*.env*)
     shopt -u nullglob
 fi
 

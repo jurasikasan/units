@@ -138,7 +138,7 @@ long after gate moves, requests still go to its old address, so keep it
 short (a second costs one lookup a second). The
 application is best named the same way, for the same reason. A `proxy_pass`
 with a variable passes the request's path as it is, so a prefix to strip
-takes a `rewrite … break` (stacks/lab's `/api/` does).
+takes a `rewrite … break`.
 
 `userinfo.conf` answers from nginx alone: the claims come from Authelia's
 answer to the session check, and a value that would break the JSON (a

@@ -1,4 +1,4 @@
-// Command web is a tool avatars call to look at the web: two MCP tools,
+// Command web is a tool agents call to look at the web: two MCP tools,
 // search and fetch, over Streamable HTTP (MCP 2026-07-28, stateless).
 //
 //	web           the MCP server; fetches itself, or asks WEB_FETCHER_URL

@@ -13,18 +13,13 @@ own `go.mod`, and its own check script.
 | [`auth_service`](auth_service/) | login and sessions behind nginx `auth_request`; applications see only a principal id |
 | [`subjects`](subjects/) | who exists: identities with a permanent nick, a type and free-form preferences, on their own Postgres |
 | [`threads`](threads/) | what happened where: threads as append-only journals of entries — ActivityStreams kinds, typed content blocks, no roles — on their own Postgres; each append announced on its Redis stream |
-| [`reins`](reins/) | where a principal holds the reins of its subjects: which subjects an account at the door may look into and take up, out of the world, and who holds each one's reins now (a principal on a device, a brain, or nobody: taken, handed, given back, lapsing with the device, announced on `reins_events`); a principal first seen is given `<login>` and `<login>-assistant` in `subjects`, the assistant handed to the default brain, and a steward changes their name, bio and preferences; the face's door into the world, writing into `threads` only as an avatar the principal steers and holds, and streaming its threads over SSE; on its own Postgres |
 | [`artifact_store`](artifact_store/) | named files in spaces: put, get, list, delete, read by sha256; identical bytes kept once, expiry per space; names in its own Postgres, bytes in MinIO or any S3 |
 | [`task_board`](task_board/) | tasks and their flow: per-project handles, statuses with the moves allowed between them, assignees by nick, dependencies and subtasks, on their own Postgres; every move published as an event. An agent connects from [AGENTS.md](task_board/AGENTS.md) |
 | [`job_runner`](job_runner/) | an isolated machine for agents: files in, a script runs under gVisor with no network unless asked, files out; answered when it ends, looked at with `peek` while it runs. An agent sets it up from [AGENTS.md](job_runner/AGENTS.md) |
-| [`minds/assistant`](minds/assistant/) | a chat assistant: an AG-UI run in, a model's answer streamed out as AG-UI events, through any OpenAI-shaped endpoint such as LiteLLM; keeps nothing |
-| [`minds/realtime`](minds/realtime/) | a call in OpenAI's Realtime schema made of organs: hearing hears, a chat model answers through any OpenAI-shaped endpoint, speaking says it; barge-in and truncate included |
-| [`drivers/model`](drivers/model/) | a chat model holding subjects' reins as one of its profiles, whichever reins says: woken by what others say in a thread its subject is in, it builds the prompt from the thread's tail, has `minds/assistant` answer, streams the reply's pieces on the bus and says it in the thread as the subject; it greets first where its subject opened a thread, and a stop cuts a reply, what was written said |
-| [`faces/web_chat`](faces/web_chat/) | a chat page built from assistant-ui, organised around who the person is on the device: the ghost (every thread of their avatars, nothing to do) or an avatar picked, seeing its threads and writing as it while its reins are held there; who holds each avatar shown, taken, given back or handed to a brain from the picker, a brain's reply stopped; threads followed on one stream through `reins`, the open one in the address; settings for the person's avatars (profile and preferences); static files, no server |
 | [`engines`](engines/) | speech engines behind OpenAI's audio API: piper, silero, voxcpm (TTS), whisper (STT); [`vad/silero`](engines/vad/silero/), speech detection per 32 ms window; and pictures behind OpenAI's Images API: [`images/diffusers`](engines/images/diffusers/) on our own GPU, offline, and [`images/cloudflare`](engines/images/cloudflare/) drawn at Cloudflare |
 | [`senses/hearing`](senses/hearing/) | takes a sound stream in as RTP, finds the utterances, has them transcribed, reports them as MRCP recognizer events |
 | [`abilities/speaking`](abilities/speaking/) | a mouth: text in through MCP, audio out as RTP through a TTS engine, MRCP synthesizer events saying what was spoken |
-| [`tools/images`](tools/images/) | a tool that draws, the first of the tools avatars' hands use: one MCP tool, `draw`, a prompt in, a picture and a line of words out, from any OpenAI Images endpoint; the picture is the tool's |
+| [`tools/images`](tools/images/) | a tool that draws, the first of the tools agents call: one MCP tool, `draw`, a prompt in, a picture and a line of words out, from any OpenAI Images endpoint; the picture is the tool's |
 | [`tools/web`](tools/web/) | a tool that looks at the web: two MCP tools, `search` (Brave's Search API; with no key, said not configured) and `fetch` (a public page's words, HTML as markdown), fetching from a process on an egress-only network that refuses every address that is not public |
 | [`devices/communications/sip_phone`](devices/communications/sip_phone/) | a telephone line over SIP: places and takes calls, carries the call's audio both ways as RTP, reports what happened |
 | [`devices/communications/web_audio_call`](devices/communications/web_audio_call/) | a line to a browser over WebRTC: the same buttons and audio rules as sip_phone, another medium |
@@ -32,19 +27,10 @@ own `go.mod`, and its own check script.
 More units arrive one at a time, each checked and given a showcase before it
 lands here.
 
-## Stacks
-
-[`stacks/`](stacks/) assembles units into something that runs as a whole, the
-same files locally and deployed: [`stacks/lab`](stacks/lab/) is a site behind
-`gate`.
-
 ## Contracts and manifests
 
 - [`contracts/events.md`](contracts/events.md): how a unit publishes events, as
   CloudEvents on a Redis stream.
-- [`contracts/edges.md`](contracts/edges.md): where units meet people, models,
-  tools and voice — every kind of input and output, what each edge's standard
-  and library carries, what units have, and the gaps named.
 - A unit that is a service carries a `unit.yaml`: what it provides (tools,
   events, HTTP calls), what it consumes, its config. `scripts/check_unit.py` holds
   each manifest to its unit's code and to the manifests of the units it

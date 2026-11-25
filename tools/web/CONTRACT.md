@@ -4,10 +4,9 @@ Status: v0.2.0 — two tools, `search` and `fetch`; search by SearXNG or Brave.
 
 ## 1. What it is
 
-A tool that looks at the web, in the repo's words (CLAUDE.md, "Words for
-what an avatar has"): a thing in the world an avatar's hands use. **What
-the tool returns is the tool's**: the results are the search engine's, the
-text is the page's; the avatar's act is the call.
+A tool that looks at the web: a thing an agent calls. **What the tool
+returns is the tool's**: the results are the search engine's, the text is
+the page's; the agent's act is the call.
 
 It keeps nothing: each call asks a search engine, or reads one page, and
 hands back what came.
@@ -109,8 +108,7 @@ used. Only `http` and `https`.
 ## 5. Boundaries
 
 - No authorisation: whoever reaches `/mcp` may search and fetch. Which
-  avatar may use the tool is decided where the tools are given out (a
-  mind's `MCP_SERVERS` today; per avatar, UNIT-91).
+  agent may use the tool is decided where the tools are given out.
 - No cache, no cookies, no JavaScript run: a page is what its first answer
   holds.
 - `GET /health`: `{"status":"ok","version"}`, on both; it asks nobody.

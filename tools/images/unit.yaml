@@ -2,7 +2,7 @@
 # Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
 
 unit: tools/images
-kind: tool              # a thing in the world an avatar's hands use
+kind: tool              # a thing an agent calls
 summary: A tool that draws. One MCP tool, draw, a prompt in, a picture (MCP ImageContent) and a line of words out, asked of any OpenAI Images endpoint. Keeps nothing.
 contract: CONTRACT.md
 maturity: probe

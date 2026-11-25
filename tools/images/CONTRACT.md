@@ -4,11 +4,10 @@ Status: v0.1.0 — one tool, `draw`.
 
 ## 1. What it is
 
-A tool that draws, in the repo's words (CLAUDE.md, "Words for what an
-avatar has"): a thing in the world an avatar's hands use. Drawing is not
-an ability of the avatar's; it is the hands calling this tool, and the
-skill of asking it well. **What the tool returns is the tool's**: the
-picture is what the tool made, the avatar's act is the call.
+A tool that draws: a thing an agent calls. Drawing is not the agent's
+own; it is the agent calling this tool, and the skill of asking it well.
+**What the tool returns is the tool's**: the picture is what the tool
+made, the agent's act is the call.
 
 It keeps nothing: each call asks an OpenAI Images endpoint for one
 picture and hands it back.
@@ -44,13 +43,12 @@ with the reason in words, the endpoint's own message when it gave one.
 `POST {IMAGES_URL}/images/generations` with `{model, prompt, n: 1, size?}`
 and `Authorization: Bearer {IMAGES_API_KEY}` when set; the picture is read
 from `data[0].b64_json`, or fetched from `data[0].url`. Any OpenAI Images
-door serves: LiteLLM (the lab's `images` and `images-fast`), or an engine
+door serves: LiteLLM, or an engine
 of [`engines/images`](../../engines/images/) directly.
 
 ## 4. Boundaries
 
-- No authorisation: whoever reaches `/mcp` may draw. Which avatar may use
-  the tool is decided where the tools are given out (a mind's
-  `MCP_SERVERS` today; per avatar, UNIT-91).
+- No authorisation: whoever reaches `/mcp` may draw. Which agent may use
+  the tool is decided where the tools are given out.
 - It never stores a picture. Keeping the bytes is whoever journals them.
 - `GET /health`: `{"status":"ok","version"}`; it does not ask the endpoint.

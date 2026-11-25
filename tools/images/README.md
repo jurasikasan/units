@@ -1,10 +1,9 @@
 # tools/images
 
-A tool that draws, the first of the `tools/` family: things in the world
-an avatar's hands use (the repo's CLAUDE.md, "Words for what an avatar
-has"). One MCP tool, `draw`: a prompt in, a picture out, with a line of
-words beside it. It asks any endpoint that speaks OpenAI's Images API — the
-lab's LiteLLM (`images`, `images-fast`), or an engine of
+A tool that draws, the first of the `tools/` family: tools an agent
+calls. One MCP tool, `draw`: a prompt in, a picture out, with a line of
+words beside it. It asks any endpoint that speaks OpenAI's Images API — a
+LiteLLM in front of image models, or an engine of
 [`engines/images`](../../engines/images/) directly — and keeps nothing.
 
 What it returns is the tool's: a mind that calls it hands the picture on

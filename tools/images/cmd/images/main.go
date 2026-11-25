@@ -1,4 +1,4 @@
-// Command images is a tool avatars call to draw: one MCP tool, draw, over
+// Command images is a tool agents call to draw: one MCP tool, draw, over
 // Streamable HTTP (MCP 2026-07-28, stateless), asking an OpenAI Images
 // endpoint for the picture.
 package main
