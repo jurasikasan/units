@@ -28,13 +28,13 @@ speaking, [`senses/hearing`](../../../senses/hearing/CONTRACT.md) and sip_phone.
 ### What it does not do
 
 - does not speak, listen, detect voice, transcribe, greet, fill pauses or record —
-  those are organs and drivers;
+  those are senses, abilities and drivers;
 - does not decide whether to take a call: the browser is already in when the line
   reports it. A driver that does not want the call hangs up;
 - does not know chats, subjects or situations: it reports the caller's principal and
   nothing more;
-- does not transcode for organs beyond Opus ↔ L16: Opus (and its cgo library) stays
-  inside the line, so organs never need it.
+- does not transcode for senses and abilities beyond Opus ↔ L16: Opus (and its cgo
+  library) stays inside the line, so they never need it.
 
 ## 2. Signalling
 

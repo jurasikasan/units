@@ -14,7 +14,7 @@ import (
 	"gopkg.in/hraban/opus.v2"
 )
 
-// wire rules for the line's own organ-facing RTP (listen output and audio_in):
+// wire rules for the line's own RTP toward senses and abilities (listen output and audio_in):
 // L16 48 kHz mono, payload type 96, 20 ms packets (960 samples = 1920 bytes).
 const (
 	l16PT           = 96

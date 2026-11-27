@@ -2,7 +2,7 @@
 
 A line to a browser (contract C6). A browser gets a real-time Opus uplink to
 this service by offering WebRTC; the service then can (a) pass the browser's
-audio to an organ that speaks raw L16 RTP on UDP, and (b) accept the organ's
+audio to a sense that takes raw L16 RTP on UDP, and (b) accept an ability's
 audio and send it back to the browser.
 
 Everything runs on one service port (default `8080`):
@@ -34,10 +34,10 @@ complete before responding, so all candidates are already in the SDP.
 Media rides WebRTC on UDP ports from `WEBRTC_PORT_MIN`..`WEBRTC_PORT_MAX`
 (default 45000–45099), one Opus 48 kHz mono track each way.
 
-## Audio in (organ → browser)
+## Audio in (ability → browser)
 
 Each call gets one UDP port from `WEBRTC_AUDIO_IN_PORT_MIN`..`MAX`
-(default 45100–45199). The address organs use is
+(default 45100–45199). The address abilities send to is
 `<WEBRTC_AUDIO_IN_HOST>:<port>` (default host `webrtc_line`), announced in
 the `connected` event. The wire is L16 (little-endian) 48 kHz mono inside
 RTP: payload type **96**, 20 ms packets = 960 samples = 1920 bytes. The first

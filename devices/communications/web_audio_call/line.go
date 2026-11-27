@@ -117,7 +117,7 @@ func NewLine(cfg Config, rdb *redis.Client, log *slog.Logger) *Line {
 		Description: "Hang up the call. Hanging up an already-ended call returns ok " +
 			"without a second ended event.",
 	}, l.hangupTool)
-	l.mcpH = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
+	l.mcpH = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	return l
 }
 
