@@ -3,10 +3,8 @@ package body
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/go-redis/redis/v8"
 
@@ -43,55 +41,6 @@ func ensureGroups(ctx context.Context, rdb *redis.Client, streams []string, grou
 	return nil
 }
 
-// read takes what is new on the senses' and speaking's streams until ctx
-// ends, sorts each entry to the body's own sessions or past them, and
-// acknowledges it.
-func (b *Body) read(ctx context.Context, streams []string) {
-	if len(streams) == 0 {
-		return
-	}
-	args := make([]string, 0, 2*len(streams))
-	args = append(args, streams...)
-	for range streams {
-		args = append(args, ">")
-	}
-	for ctx.Err() == nil {
-		res, err := b.Redis.XReadGroup(ctx, &redis.XReadGroupArgs{
-			Group: b.Cfg.Group, Consumer: "body", Streams: args, Count: 64, Block: time.Second,
-		}).Result()
-		if errors.Is(err, redis.Nil) {
-			continue
-		}
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			b.Counts.Errors.Add(1)
-			b.Log.Warn("streams: read failed, trying again", "err", err.Error())
-			if strings.HasPrefix(err.Error(), "NOGROUP") {
-				_ = ensureGroups(ctx, b.Redis, streams, b.Cfg.Group)
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Second):
-			}
-			continue
-		}
-		for _, st := range res {
-			for _, msg := range st.Messages {
-				b.take(ctx, st.Stream, msg.Values)
-				actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
-				if err := b.Redis.XAck(actx, st.Stream, b.Cfg.Group, msg.ID).Err(); err != nil {
-					b.Counts.Errors.Add(1)
-					b.Log.Warn("streams: ack failed", "stream", st.Stream, "entry", msg.ID, "err", err.Error())
-				}
-				cancel()
-			}
-		}
-	}
-}
-
 func (b *Body) take(ctx context.Context, stream string, f map[string]any) {
 	str := func(k string) string { s, _ := f[k].(string); return s }
 	typ, subject := str("ce_type"), str("ce_subject")
@@ -100,8 +49,7 @@ func (b *Body) take(ctx context.Context, stream string, f map[string]any) {
 		return
 	}
 	s := b.senseOf(subject)
-	if s == nil {
-		b.Counts.Foreign.Add(1)
+	if s == nil { // the host hands a body only its own; one closed meanwhile
 		return
 	}
 	if !relayed[typ] {

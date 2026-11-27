@@ -1,5 +1,8 @@
 # body — contract
 
+Revision 3 (UNIT-122): one process carries many bodies, made, changed and let go through an
+API (§2.6); each lives under `/bodies/<name>/`. A body named in the env is made at start as
+before.
 Revision 2 (UNIT-127): its stream over HTTP for a head outside the inside network (§2.5).
 Revision 1 (UNIT-119): the body, a socket between the world and a head. It sees, hears,
 and does what it is given — today two things: speak aloud, and skip the turn.
@@ -17,8 +20,10 @@ through a page — and the body knows none of them: the same MCP tools and the s
 for all. Tools are the body's extensions (a phone, a chat, a sword are, for simplicity,
 the body too); *how* an act is done is the body's own, automatic, not the head's thinking.
 
-One running body is one subject: `BODY_ID`. §2 names exactly what crosses its walls;
-nothing else does.
+Each body is one subject: its `id`. A process — the host (§2.6) — carries as many as are
+declared; each has the walls below, and §2 names exactly what crosses them; nothing else
+does. What the env names (`BODY_*`) is the one body made from the env; a spec says the same
+for a body made through the API.
 
 ## 1. What it is
 
@@ -50,13 +55,14 @@ MCP over streamable HTTP (the official Go SDK) at `HEARING_MCP_URL`, `SIGHT_MCP_
 | sight `open` | `language` = `BODY_LANGUAGE`, when set | `session_id`, `video_in`, `sight_in` |
 | either `close` | `session_id` | nothing (on shutdown) |
 
-Their streams, `hearing_events` and `sight_events`, read by the consumer group
-`BODY_GROUP` from the body's start (a new group starts at the stream's end). Read from an
+Their streams, `hearing_events` and `sight_events`, read once for every body of the host
+by its consumer group `BODY_GROUP` from the host's start (a new group starts at the
+stream's end), each entry handed to the body whose session it is about. Read from an
 entry: `ce_subject`, `ce_type`; and to republish, `ce_id`, `ce_time`, `ce_traceparent`,
 `data` as they are. Every entry is acknowledged once looked at.
 
-- An entry whose `ce_subject` is not one of the body's sessions: passed over, counted
-  (`foreign`).
+- An entry whose `ce_subject` is no body's session here: passed over, counted (the host's
+  `foreign`).
 - One of its sessions', of a type in the table below: republished (§2.2).
 - One of its sessions', of any other type: counted (`dropped`), not republished.
 - `*.session-closed` of its session: republished, then the session is forgotten and its
@@ -101,8 +107,9 @@ is passed on to speaking and onto the act's event.
 **`speak_aloud(text)`** → `{spoken, completion_cause?, listeners}` — only on a body with a
 mouth (`SPEAKING_MCP_URL`). The body says it to whoever is within earshot:
 
-1. For each base URL in `BODY_EARSHOT`, `GET {url}/body` (§2.4) for its `ears[0].audio_in`
-   now. A body that does not answer, or has no ear open, does not hear this phrase.
+1. For each entry in its earshot, the listener's self (§2.4) for its `ears[0].audio_in` now:
+   an entry `…/bodies/<name>` (a body on a host) is read as it is, `GET {entry}`; a bare base
+   URL (a body run alone, by env) at `GET {entry}/body`. A body that does not answer, or has no ear open, does not hear this phrase.
 2. One speaking session per listener, aimed at its ear: `open {to: audio_in, voice_name:
    BODY_VOICE}` once, kept while the ear stays where it was; when the ear has moved, the
    old session is closed and a new one opened. A session speaking closed on its own
@@ -125,13 +132,16 @@ next batch of perception. Answers at once.
 
 **Resource `body://self`** — `application/json`, the same as `GET /body`.
 
-### 2.4 `GET /body`
+### 2.4 `GET /bodies/<name>` (and `GET /body`)
 
 ```json
 {"id": "0f6b…", "name": "a", "description": "a tall woman in a grey coat",
  "ears": [{"audio_in": "hearing:44017"}],
  "eyes": [{"video_in": "sight:45000", "sight_in": "http://sight:8080/in/sg-7d02c1aa"}]}
 ```
+
+The body as an observer perceives it and where its senses take input. The env's body
+answers at `GET /body` too, as a body run alone always did.
 
 `ears` and `eyes` are where its senses take input now: empty while a sense is not open (or
 not configured). RTP sent to an ear is heard in the formats hearing takes (speaking's L16
@@ -141,8 +151,7 @@ among them).
 
 The body's stream (§2.2) as [server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html),
 for a head that is not on the inside network: with this and `/mcp` a head needs only the
-body's base URL. `<name>` is `BODY_NAME`; any other name is `404` (the place for a host
-of many bodies, UNIT-122).
+body's URL. `<name>` is a body on this host; any other name is `404`.
 
 - **Where it starts.** After the entry `Last-Event-ID` names (a reconnect), else after
   `?from=<id>` (`from=0`: the whole stream), else from now — after the entry that was
@@ -160,8 +169,54 @@ data: {"specversion":"1.0","id":"7f1c…","source":"/bodies/b/hearing","type":"s
   the head goes or Redis fails (counted in `errors`; the head reconnects with its last id).
 - Each watcher holds one blocking read on Redis; there is no fan-out of its own.
 
-`GET /health`: `{"status": "ok", "version", "self", "counts"}` — `counts`: `relayed`,
-`foreign`, `dropped`, `opened`, `open_errors`, `acts`, `act_errors`, `errors`.
+`GET /health`: `{"status": "ok", "version", "bodies": {"<name>": counts}, "foreign",
+"errors"}` — a body's counts: `relayed`, `dropped`, `opened`, `open_errors`, `acts`,
+`act_errors`, `errors`; `foreign` and `errors` at the top are the host's reader's. For the
+env's body also `self` and its `counts` (with the host's `foreign` and `errors` in them), as
+a body run alone always answered.
+
+### 2.6 The host: `/bodies`
+
+One process carries many bodies. Declarative: the application says what a body is and the
+host makes it so; the host keeps nothing — after a restart it carries only what is declared
+again (a body's stream stays in Redis). The units a body is made of are the host's
+(`HEARING_MCP_URL`, `SIGHT_MCP_URL`, `SPEAKING_MCP_URL`); a spec names which it has.
+
+**`PUT /bodies/{name}`** — a spec, JSON, unknown fields refused. `{name}`: lower-case
+letters, digits, `_`, `-`; it names the stream `body_<name>_events` and the source.
+
+```json
+{"id": "0f6b…", "description": "a tall woman in a grey coat", "senses": ["hearing", "sight"],
+ "voice": "piper_lessac", "language": "en", "earshot": ["http://bodies:8080/bodies/b"]}
+```
+
+| Field | Meaning | Absent |
+|---|---|---|
+| `id` | the subject's uuid | derived: uuid v5 (URL namespace) of `urn:units:body:<name>` |
+| `description` | what an observer perceives of it | empty |
+| `senses` | `hearing`, `sight`: each a session opened on the host's sense; one the host has not is refused | none |
+| `voice` | speaking's `voice_name`: a body with a voice has a mouth and `speak_aloud`; refused when the host has no speaking | no mouth |
+| `language` | the senses' session language, ISO 639-1 | they guess |
+| `earshot` | the bodies that hear it: `…/bodies/<name>` URLs, or a body run alone by its base URL (§2.3) | nobody |
+
+`201` with the body when it is new. The same spec again: `200`, nothing changes. Another
+spec: the body is let go and made anew, `200` — its sessions closed and opened again, its
+stream the same. A spec refused: `400`, `bad_spec: …`.
+
+The answer, and each item of `GET /bodies` (by name):
+
+```json
+{"name": "a", "id": "0f6b…", "spec": {…},
+ "body": "/bodies/a", "mcp": "/bodies/a/mcp", "events": "/bodies/a/events"}
+```
+
+Its addresses are relative to the host. Under them: its self (§2.4), its MCP (§2.3, the
+same tools and resource), its stream (§2.5).
+
+**`DELETE /bodies/{name}`** — lets it go: its senses' sessions and its mouths closed; `204`,
+or `404`.
+
+The env's body (`BODY_NAME`) is made by the same `PUT` at start, its MCP also at `/mcp`.
 
 ## 3. The log
 
@@ -181,27 +236,31 @@ is_error, act_ms), and every failure with its `err`.
 | Variable | Meaning | Default |
 |---|---|---|
 | `REDIS_ADDR` | the streams | — (required) |
-| `BODY_NAME` | its name: lower-case letters, digits, `_`, `-`; names the stream, source and group | — (required) |
+| `BODY_NAME` | a body made from the env at start, by this name: lower-case letters, digits, `_`, `-`; names its stream and source | — (no body from the env: only what is PUT) |
 | `BODY_ID` | the subject's uuid | derived: uuid v5 (URL namespace) of `urn:units:body:<name>` |
 | `BODY_DESCRIPTION` / `BODY_DESCRIPTION_FILE` | what an observer perceives of it; text, or a file — not both | empty |
 | `BODY_STREAM` | where it publishes | `body_<name>_events` |
-| `BODY_GROUP` | its consumer group on the senses' and speaking's streams | `body_<name>` |
-| `HEARING_MCP_URL` | hearing's MCP | — (no ears) |
-| `SIGHT_MCP_URL` | sight's MCP | — (no eyes) |
-| `SPEAKING_MCP_URL` | speaking's MCP | — (no mouth, no `speak_aloud`) |
+| `BODY_GROUP` | the host's consumer group on the senses' and speaking's streams; one per running host | `body_<name>` with `BODY_NAME`, else `bodies` |
+| `HEARING_MCP_URL` | hearing's MCP, for every body here | — (no ears) |
+| `SIGHT_MCP_URL` | sight's MCP, for every body here | — (no eyes) |
+| `SPEAKING_MCP_URL` | speaking's MCP, for every body here | — (no mouth, no `speak_aloud`) |
 | `BODY_VOICE` | speaking's `voice_name` | — (required with a mouth) |
 | `BODY_LANGUAGE` | the senses' session language, ISO 639-1 | — (they guess) |
-| `BODY_EARSHOT` | other bodies' base URLs, comma-separated | — (nobody) |
-| `BODY_SPEAK_TIMEOUT` | how long `speak_aloud` waits for its phrase | `60s` |
+| `BODY_EARSHOT` | the bodies that hear it, comma-separated: `…/bodies/<name>` URLs, or bare base URLs of bodies run alone | — (nobody) |
+| `BODY_SPEAK_TIMEOUT` | how long `speak_aloud` waits for its phrase, for every body here | `60s` |
 | `BODY_RETRY` | the pause before a sense is asked to open again | `2s` |
-| `PORT` | MCP, `GET /body`, the events, `GET /health` | `8080` |
+| `PORT` | `/bodies`, each body's MCP, self and events, `/mcp` and `GET /body` for the env's, `GET /health` | `8080` |
 
-A malformed value stops the start.
+`BODY_ID`, `BODY_DESCRIPTION(_FILE)`, `BODY_STREAM`, `BODY_VOICE`, `BODY_LANGUAGE` and
+`BODY_EARSHOT` make the env's body only; the rest are the host's. A malformed value stops
+the start.
 
 ## 6. Open
 
 - **The world** hands bodies to each other's senses: who is in earshot or in sight,
-  and what an observer perceives of them (`description`), instead of `BODY_EARSHOT`.
+  and what an observer perceives of them (`description`), instead of earshot lists.
+- **A changed spec in place** — today another spec makes the body anew (its sessions
+  reopened), acceptable while bodies are few.
 - **More acts**: the tools that are the body's extensions (a phone, a chat).
 - **Devices** described in `GET /body` once there are any.
 - **A sense lost without a word** (it restarted) is not noticed until it sends one;

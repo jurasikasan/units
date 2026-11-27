@@ -36,7 +36,6 @@ type Self struct {
 // Counts are what GET /health reports.
 type Counts struct {
 	Relayed  atomic.Int64 // percepts of its own sessions republished
-	Foreign  atomic.Int64 // other sessions' events, passed over
 	Dropped  atomic.Int64 // its own sessions' events of a type it does not relay
 	Opened   atomic.Int64 // sense sessions opened (reopened included)
 	OpenErrs atomic.Int64
@@ -48,7 +47,7 @@ type Counts struct {
 // Snapshot is the counts as JSON.
 func (c *Counts) Snapshot() map[string]int64 {
 	return map[string]int64{
-		"relayed": c.Relayed.Load(), "foreign": c.Foreign.Load(), "dropped": c.Dropped.Load(),
+		"relayed": c.Relayed.Load(), "dropped": c.Dropped.Load(),
 		"opened": c.Opened.Load(), "open_errors": c.OpenErrs.Load(),
 		"acts": c.Acts.Load(), "act_errors": c.ActErrs.Load(), "errors": c.Errors.Load(),
 	}
@@ -125,21 +124,15 @@ func (b *Body) Self() Self {
 	return s
 }
 
-// Ready is closed once the body reads its streams: what its senses report
-// from then on is its.
+// Ready is closed once the body is alive in its host, whose reader is
+// already reading: what its senses report from then on is its.
 func (b *Body) Ready() <-chan struct{} { return b.ready }
 
-// Run makes the consumer groups, starts reading, keeps the senses open until
-// ctx ends, then closes its sessions and returns.
-func (b *Body) Run(ctx context.Context) error {
-	streams := b.streams()
-	if err := ensureGroups(ctx, b.Redis, streams, b.Cfg.Group); err != nil {
-		return err
-	}
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() { defer wg.Done(); b.read(ctx, streams) }()
+// live keeps the senses open until ctx ends, then closes its sessions and
+// its mouths. The host reads the streams and hands the body what is its.
+func (b *Body) live(ctx context.Context) {
 	close(b.ready)
+	var wg sync.WaitGroup
 	for _, s := range []*sense{b.hearing, b.sight} {
 		if s == nil {
 			continue
@@ -150,18 +143,23 @@ func (b *Body) Run(ctx context.Context) error {
 	<-ctx.Done()
 	b.closeMouths()
 	wg.Wait()
-	return nil
 }
 
-func (b *Body) streams() []string {
-	var out []string
-	for _, s := range []*sense{b.hearing, b.sight} {
-		if s != nil {
-			out = append(out, s.stream)
+// owns reports whether an entry of stream about subject (a session) is this
+// body's: one of its sense sessions, or one of its speaking sessions.
+func (b *Body) owns(stream, subject string) bool {
+	if stream == SpeechStream {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if _, ok := b.spoken[subject]; ok {
+			return true
 		}
+		for _, m := range b.mouths {
+			if m.session == subject {
+				return true
+			}
+		}
+		return false
 	}
-	if b.speaking != nil {
-		out = append(out, SpeechStream)
-	}
-	return out
+	return b.senseOf(subject) != nil
 }

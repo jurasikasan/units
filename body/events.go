@@ -26,10 +26,6 @@ var entryID = regexp.MustCompile(`^\d+(-\d+)?$`)
 // JSON format. From after Last-Event-ID (a reconnect) or ?from=<id>
 // (0: from the stream's start), else from now.
 func (b *Body) serveEvents(w http.ResponseWriter, r *http.Request) {
-	if r.PathValue("name") != b.Cfg.Name {
-		http.Error(w, "no such body here", http.StatusNotFound)
-		return
-	}
 	from := r.Header.Get("Last-Event-ID")
 	if from == "" {
 		from = r.URL.Query().Get("from")

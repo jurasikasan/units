@@ -6,20 +6,26 @@ own hearing and sight sessions and serves where they take input as its ears and 
 onto its stream; it offers its acts as MCP tools to whoever drives it: `speak_aloud`,
 said through `abilities/speaking` to the ears of the bodies in its earshot, and
 `skip_turn`; each act is recorded on the same stream, which a head outside reads over
-HTTP (`GET /bodies/<name>/events`, server-sent events). It knows nothing of a head.
+HTTP (`GET /bodies/<name>/events`, server-sent events). It knows nothing of a head. One
+process — the host — carries many bodies, made, changed and let go through
+`PUT /bodies/{name}`, each under `/bodies/{name}/`; one named in the env is made at start.
 
 What it promises, and exactly what crosses its walls, is `CONTRACT.md`; this file is for
 working inside it.
 
-- `config.go` — the config, the defaults, the stream/source/group names by `BODY_NAME`;
-  `cmd/body` reads the environment, fails on a malformed value, serves `GET /health`.
-- `body.go` — `Body`, `Self` (what `GET /body` answers), the counts, `Run`.
+- `config.go` — the config, the defaults, the stream/source/group names by a body's name;
+  `cmd/body` reads the environment, makes the env's body through the host, fails on a
+  malformed value.
+- `host.go` — the host: a spec read into a body's config, `Put` (the same spec changes
+  nothing, another makes the body anew), `Delete`, one reader for every body's sessions,
+  the `/bodies` API, `/mcp` and `GET /body` for the env's body, `GET /health`.
+- `body.go` — `Body`, `Self` (what `GET /bodies/{name}` answers), the counts, `live`.
 - `senses.go` — one session per sense, kept open: opened, reopened when it closes by
   itself, closed on the way out.
-- `relay.go` — the consumer group on the senses' and speaking's streams: its own sessions'
-  events republished, the rest passed over; speaking's `speak-complete` to the act waiting.
-- `acts.go` — `speak_aloud` (the listeners' ears by their `GET /body`, a speaking session
-  per ear) and the act's record on the stream.
+- `relay.go` — what the host's reader hands a body: its own sessions' events
+  republished; speaking's `speak-complete` to the act waiting.
+- `acts.go` — `speak_aloud` (the listeners' ears by their self, a speaking session per
+  ear) and the act's record on the stream.
 - `server.go` — the MCP tools and `body://self` (official Go SDK, streamable HTTP,
   stateless), `GET /body`.
 - `events.go` — `GET /bodies/<name>/events`: the body's stream as server-sent events, each
@@ -29,7 +35,9 @@ working inside it.
 Tests: hearing, sight and speaking are fakes built with the MCP SDK (`httptest`),
 answering only the tools the contract names; speaking's fake reports `speak-complete` on
 `speech_events` as speaking does. The streams are a real Redis (`BODY_TEST_REDIS_ADDR`),
-which `check.sh` starts in docker.
+which `check.sh` starts in docker. The host is tested through its HTTP API
+(`host_test.go`): bodies made, kept, made anew and let go, specs refused, two bodies on one
+host hearing each other.
 
 ```bash
 bash check.sh
@@ -61,4 +69,17 @@ brains' threads and came back on recall as a call and its tool message:
 ```bash
 docker compose -f showcase/compose.yaml -f showcase/conversation.yaml up --build --abort-on-container-exit --exit-code-from demo
 docker compose -f showcase/compose.yaml -f showcase/conversation.yaml down -v
+```
+
+The third step, `showcase/hosts.yaml` on top of both: the same conversation, its bodies and
+brains made through the hosts' APIs — one body host, one brain host, the env's containers
+left out. `hosts.sh` is the application: it `PUT`s both bodies (each in the other's earshot
+by its `/bodies/<name>` URL) and both brains (by the body's URL, the scripted model as
+policy), speaks once as A, hands B to another model after B's first line
+(`PUT /brains/b/policy`) and checks that B's next line came from B's memory under the new
+policy, then lets everything go and checks the hosts carry nothing:
+
+```bash
+docker compose -f showcase/compose.yaml -f showcase/conversation.yaml -f showcase/hosts.yaml up --build --abort-on-container-exit --exit-code-from demo
+docker compose -f showcase/compose.yaml -f showcase/conversation.yaml -f showcase/hosts.yaml down -v
 ```

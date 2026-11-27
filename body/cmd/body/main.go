@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"log/slog"
 	"net/http"
@@ -24,62 +23,79 @@ import (
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	name := envStr("BODY_NAME", "")
-	if name == "" {
-		log.Fatal("body: BODY_NAME is required: it names the body's stream and source")
-	}
-	must(body.CheckName(name), "BODY_NAME")
-	id := body.DerivedID(name)
-	if v := envStr("BODY_ID", ""); v != "" {
-		var err error
-		id, err = uuid.Parse(v)
-		must(err, "BODY_ID")
-	}
-	description := envStr("BODY_DESCRIPTION", "")
-	if f := envStr("BODY_DESCRIPTION_FILE", ""); f != "" {
-		if description != "" {
-			log.Fatal("body: BODY_DESCRIPTION and BODY_DESCRIPTION_FILE are both set; one says what the body is")
-		}
-		raw, err := os.ReadFile(f)
-		must(err, "BODY_DESCRIPTION_FILE")
-		description = strings.TrimSpace(string(raw))
-	}
-	earshot, err := body.ParseEarshot(envStr("BODY_EARSHOT", ""))
-	must(err, "BODY_EARSHOT")
-	cfg := body.Config{
-		ID: id, Name: name, Description: description,
-		Stream:       envStr("BODY_STREAM", body.StreamFor(name)),
-		Group:        envStr("BODY_GROUP", body.GroupFor(name)),
+	hc := body.HostConfig{
 		HearingURL:   envStr("HEARING_MCP_URL", ""),
 		SightURL:     envStr("SIGHT_MCP_URL", ""),
 		SpeakingURL:  envStr("SPEAKING_MCP_URL", ""),
-		Language:     envStr("BODY_LANGUAGE", ""),
-		Voice:        envStr("BODY_VOICE", ""),
-		Earshot:      earshot,
+		Group:        envStr("BODY_GROUP", body.DefaultHostGroup),
 		SpeakTimeout: envDur("BODY_SPEAK_TIMEOUT", body.DefaultSpeakTimeout),
 		Retry:        envDur("BODY_RETRY", body.DefaultRetry),
 	}
-	if cfg.SpeakingURL != "" && cfg.Voice == "" {
-		log.Fatal("body: SPEAKING_MCP_URL is set and BODY_VOICE is not: speaking has no default voice")
+
+	// A body named in the env is made at start, as a body run alone always
+	// was: its group body_<name>, its MCP on /mcp too, GET /body. Without
+	// one, the host carries only what is PUT.
+	name := envStr("BODY_NAME", "")
+	var spec body.Spec
+	if name != "" {
+		must(body.CheckName(name), "BODY_NAME")
+		hc.Group = envStr("BODY_GROUP", body.GroupFor(name))
+		spec = body.Spec{ID: envStr("BODY_ID", ""), Language: envStr("BODY_LANGUAGE", ""), Voice: envStr("BODY_VOICE", "")}
+		if spec.ID != "" {
+			_, err := uuid.Parse(spec.ID)
+			must(err, "BODY_ID")
+		}
+		spec.Description = envStr("BODY_DESCRIPTION", "")
+		if f := envStr("BODY_DESCRIPTION_FILE", ""); f != "" {
+			if spec.Description != "" {
+				log.Fatal("body: BODY_DESCRIPTION and BODY_DESCRIPTION_FILE are both set; one says what the body is")
+			}
+			raw, err := os.ReadFile(f)
+			must(err, "BODY_DESCRIPTION_FILE")
+			spec.Description = strings.TrimSpace(string(raw))
+		}
+		earshot, err := body.ParseEarshot(envStr("BODY_EARSHOT", ""))
+		must(err, "BODY_EARSHOT")
+		spec.Earshot = earshot
+		if hc.HearingURL != "" {
+			spec.Senses = append(spec.Senses, "hearing")
+		}
+		if hc.SightURL != "" {
+			spec.Senses = append(spec.Senses, "sight")
+		}
+		if hc.SpeakingURL != "" && spec.Voice == "" {
+			log.Fatal("body: SPEAKING_MCP_URL is set and BODY_VOICE is not: speaking has no default voice")
+		}
+		if hc.SpeakingURL == "" {
+			spec.Voice = ""
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	rdb := sharedredis.GetRedisClient(ctx)
-	b := body.New(cfg, rdb, &http.Client{Timeout: 10 * time.Second}, logger)
-	logger.Info("body: up", "version", body.Version, "id", id.String(), "name", name, "stream", cfg.Stream,
-		"group", cfg.Group, "hearing", cfg.HearingURL != "", "sight", cfg.SightURL != "", "mouth", cfg.SpeakingURL != "",
-		"earshot", earshot)
+	h := body.NewHost(hc, rdb, &http.Client{Timeout: 10 * time.Second}, logger)
+	h.Default = name
+	if stream := envStr("BODY_STREAM", ""); stream != "" {
+		h.Overrides = func(c *body.Config) { c.Stream = stream }
+	}
+	logger.Info("body: up", "version", body.Version, "group", hc.Group, "hearing", hc.HearingURL != "",
+		"sight", hc.SightURL != "", "speaking", hc.SpeakingURL != "", "default", name)
 
 	done := make(chan error, 1)
-	go func() { done <- b.Run(ctx) }()
+	go func() { done <- h.Run(ctx) }()
+	select {
+	case <-h.Ready():
+	case err := <-done:
+		log.Fatalf("body: %v", err)
+	}
+	if name != "" {
+		l, _, err := h.Put(name, spec)
+		must(err, "the body of the env")
+		logger.Info("body: the env's body made", "name", name, "id", l.ID, "earshot", spec.Earshot)
+	}
 
-	mux := b.Handler()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "version": body.Version, "self": b.Self(), "counts": b.Counts.Snapshot()})
-	})
-	srv := &http.Server{Addr: ":" + strconv.Itoa(envInt("PORT", body.DefaultPort)), Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: ":" + strconv.Itoa(envInt("PORT", body.DefaultPort)), Handler: h.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("body: %v", err)

@@ -15,6 +15,9 @@ LINES = {
     "b": ["It is me, B. Who are you?", "Nice to meet you, A."],
     "a": ["I am A. Hello, B."],
 }
+# The hosts' step changes B's policy mid-conversation to another model with
+# the same lines: it goes on from what B's memory says was already said.
+LINES["b2"] = LINES["b"]
 REQUESTS = []
 
 

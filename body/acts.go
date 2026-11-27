@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jurasikasan/units/shared/events"
@@ -65,7 +66,7 @@ func (b *Body) fetchSelf(ctx context.Context, base string) (Self, error) {
 	var s Self
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/body", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, SelfURL(base), nil)
 	if err != nil {
 		return s, err
 	}
@@ -82,6 +83,16 @@ func (b *Body) fetchSelf(ctx context.Context, base string) (Self, error) {
 		return s, fmt.Errorf("status %d", resp.StatusCode)
 	}
 	return s, json.Unmarshal(raw, &s)
+}
+
+// SelfURL is where a body in earshot tells itself: an entry that is a body
+// in a host (…/bodies/<name>) is read as it is; a bare base URL (a body run
+// alone by env) at its GET /body.
+func SelfURL(entry string) string {
+	if i := strings.LastIndex(entry, "/bodies/"); i >= 0 && CheckName(entry[i+len("/bodies/"):]) == nil {
+		return entry
+	}
+	return entry + "/body"
 }
 
 // mouthFor gives the speaking session aimed at l's ear: the one there is, or

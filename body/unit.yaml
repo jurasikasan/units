@@ -3,21 +3,21 @@
 
 unit: body
 kind: body              # a socket between the world and a head: senses in, acts out, no mind
-summary: A body, one subject. Opens its own hearing and sight sessions and serves where they take input as its ears and eyes (GET /body, with its description); republishes its own perception, and only its own, onto its stream, and serves that stream over HTTP as server-sent events; offers its acts — speak_aloud through speaking to the ears of the bodies in its earshot, skip_turn — as MCP tools to whoever drives it, and records each act beside its percepts.
+summary: A body, one subject; one process carries many, made, changed and let go through PUT /bodies/{name}, each under /bodies/{name}/. Opens its own hearing and sight sessions and serves where they take input as its ears and eyes (GET /body, with its description); republishes its own perception, and only its own, onto its stream, and serves that stream over HTTP as server-sent events; offers its acts — speak_aloud through speaking to the ears of the bodies in its earshot, skip_turn — as MCP tools to whoever drives it, and records each act beside its percepts.
 contract: CONTRACT.md
 maturity: probe
 
 provides:
   mcp:
-    hub_name: body      # one per running body; a head lists the tools, never assumes them
-    port: 8080          # streamable HTTP, stateless, on /mcp
+    hub_name: body      # one per body; a head lists the tools, never assumes them
+    port: 8080          # streamable HTTP, stateless, on /bodies/{name}/mcp (the env's body also on /mcp)
     tools: [speak_aloud, skip_turn]   # speak_aloud only with a mouth (SPEAKING_MCP_URL)
     resources: ["body://self"]
   events:
-    stream: body_{name}_events    # {name} is BODY_NAME; BODY_STREAM names another
+    stream: body_{name}_events    # {name} is the body's; BODY_STREAM names another for the env's body
     envelope: cloudevents-1.0     # contracts/events.md
     # /bodies/{name} for its acts, /bodies/{name}/hearing and /bodies/{name}/sight for
-    # what its senses reported, republished as they came; ce_subject is BODY_ID.
+    # what its senses reported, republished as they came; ce_subject is the body's id.
     types:
       - speechrecog.start-of-input
       - speechrecog.recognition-complete
@@ -29,7 +29,11 @@ provides:
   http:
     port: 8080
     calls:
-      - GET /body                 # who it is, its description, its ears and eyes now
+      - PUT /bodies/{name}        # a spec: id, description, senses, voice, language, earshot; declarative, kept nowhere
+      - GET /bodies
+      - DELETE /bodies/{name}
+      - GET /bodies/{name}        # who it is, its description, its ears and eyes now
+      - GET /body                 # the same, for the env's body
       - GET /bodies/{name}/events # its stream as server-sent events, CloudEvents JSON; from now, ?from=<id>, Last-Event-ID
   health: GET :8080/health
 
@@ -61,8 +65,8 @@ consumes:
       types: [speechsynth.speak-complete, speechsynth.session-closed]
     - unit: body              # the bodies in earshot: where their ears are now
       via: http
-      env: BODY_EARSHOT
-      calls: [GET /body]
+      env: BODY_EARSHOT       # or a spec's earshot
+      calls: ["GET /bodies/{name}", GET /body]
   infra: [redis]              # REDIS_ADDR, through units/shared/redis
 
 # No port of its own for sound or light: its ears and eyes are its senses'
@@ -71,15 +75,19 @@ wire: []
 
 config:
   required:
-    REDIS_ADDR: where the senses' streams are, and the body's own
-    BODY_NAME: the body's name, lower-case letters, digits, '_' and '-'; it names the stream, the source and the group
+    REDIS_ADDR: where the senses' streams are, and the bodies' own
   optional:
     PORT: "8080"
+    # A body made from the env at start when BODY_NAME is set; BODY_ID,
+    # BODY_DESCRIPTION(_FILE), BODY_STREAM, BODY_VOICE, BODY_LANGUAGE and
+    # BODY_EARSHOT are its. The units' URLs, BODY_GROUP and the timings are
+    # the host's, for every body.
+    BODY_NAME: ""                 # the env's body's name, lower-case letters, digits, '_' and '-'; empty: only bodies PUT
     BODY_ID: ""                   # the subject's uuid; empty: derived from BODY_NAME, the same on every start
     BODY_DESCRIPTION: ""          # what an observer perceives of this body, in words
     BODY_DESCRIPTION_FILE: ""     # or the same from a file; not both
     BODY_STREAM: ""               # empty: body_{name}_events
-    BODY_GROUP: ""                # the consumer group on the senses' and speaking's streams; empty: body_{name}
+    BODY_GROUP: ""                # the host's consumer group on the senses' and speaking's streams, one per running host; empty: body_{name} with BODY_NAME, else bodies
     HEARING_MCP_URL: ""           # hearing's MCP, e.g. http://hearing:8080/mcp; empty: no ears
     SIGHT_MCP_URL: ""             # sight's MCP, e.g. http://sight:8080/mcp; empty: no eyes
     SPEAKING_MCP_URL: ""          # speaking's MCP, e.g. http://speaking:8080/; empty: no mouth, no speak_aloud

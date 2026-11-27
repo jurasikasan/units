@@ -160,24 +160,29 @@ func serve(srv *mcp.Server) *httptest.Server {
 
 type running struct {
 	body *Body
+	host *Host
 	srv  *httptest.Server
 	stop func()
 	done chan struct{}
 }
 
-func startBody(t *testing.T, rdb *redis.Client, cfg Config) *running {
+// startHost runs a host of its own (its own group, as a process of its own
+// would have) with the units' URLs of cfg; no body yet.
+func startHost(t *testing.T, rdb *redis.Client, group string, hc HostConfig) *running {
 	t.Helper()
-	cfg.ID = DerivedID(cfg.Name)
-	cfg.Stream, cfg.Group = StreamFor(cfg.Name), GroupFor(cfg.Name)
-	cfg.Retry, cfg.SpeakTimeout = 50*time.Millisecond, 5*time.Second
-	b := New(cfg, rdb, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hc.Group = group
+	hc.Retry, hc.SpeakTimeout = 50*time.Millisecond, 5*time.Second
+	h := NewHost(hc, rdb, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
-	r := &running{body: b, srv: httptest.NewServer(b.Handler()), done: make(chan struct{})}
-	go func() { _ = b.Run(ctx); close(r.done) }()
+	r := &running{host: h, done: make(chan struct{})}
+	go func() { _ = h.Run(ctx); close(r.done) }()
+	<-h.Ready()
 	r.stop = func() {
 		cancel()
 		<-r.done
-		r.srv.Close()
+		if r.srv != nil {
+			r.srv.Close()
+		}
 	}
 	t.Cleanup(func() {
 		select {
@@ -186,7 +191,27 @@ func startBody(t *testing.T, rdb *redis.Client, cfg Config) *running {
 			r.stop()
 		}
 	})
-	<-b.Ready()
+	return r
+}
+
+// startBody runs a host with one body made of cfg, as the env makes one:
+// served at /mcp and GET /body too.
+func startBody(t *testing.T, rdb *redis.Client, cfg Config) *running {
+	t.Helper()
+	r := startHost(t, rdb, GroupFor(cfg.Name), HostConfig{HearingURL: cfg.HearingURL, SightURL: cfg.SightURL, SpeakingURL: cfg.SpeakingURL})
+	r.host.Default = cfg.Name
+	spec := Spec{Description: cfg.Description, Voice: cfg.Voice, Language: cfg.Language, Earshot: cfg.Earshot}
+	if cfg.HearingURL != "" {
+		spec.Senses = append(spec.Senses, "hearing")
+	}
+	if cfg.SightURL != "" {
+		spec.Senses = append(spec.Senses, "sight")
+	}
+	if _, _, err := r.host.Put(cfg.Name, spec); err != nil {
+		t.Fatal(err)
+	}
+	r.body = r.host.Body(cfg.Name)
+	r.srv = httptest.NewServer(r.host.Handler())
 	return r
 }
 
@@ -316,7 +341,7 @@ func TestSelfAndItsOwnPerceptionOnly(t *testing.T) {
 		t.Fatalf("sight: %v", got[1])
 	}
 	c := a.body.Counts.Snapshot()
-	if c["relayed"] != 2 || c["foreign"] != 1 || c["dropped"] != 1 {
+	if c["relayed"] != 2 || a.host.Foreign.Load() != 1 || c["dropped"] != 1 {
 		t.Fatalf("counts: %v", c)
 	}
 
@@ -349,7 +374,7 @@ func TestASenseIsOpenedAgain(t *testing.T) {
 	}
 	// The old session is no longer the body's.
 	publish(t, rdb, HearingStream, "/senses/hearing", "speechrecog.recognition-complete", "hs-1", map[string]any{"session_id": "hs-1"})
-	eventually(t, "counted foreign", func() bool { return a.body.Counts.Foreign.Load() == 1 })
+	eventually(t, "counted foreign", func() bool { return a.host.Foreign.Load() == 1 })
 	if a.body.Counts.Opened.Load() != 2 || hearing.openCount() != 2 {
 		t.Fatalf("opened: %d", a.body.Counts.Opened.Load())
 	}

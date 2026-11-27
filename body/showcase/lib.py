@@ -82,6 +82,18 @@ class Redis:
         return out
 
 
+def send(method, url, body=None):
+    """One HTTP call with a JSON body; (status, the answer parsed or None)."""
+    raw = None if body is None else json.dumps(body).encode()
+    req = u.Request(url, data=raw, method=method, headers={"Content-Type": "application/json"})
+    try:
+        with u.urlopen(req, timeout=30) as res:
+            text = res.read()
+            return res.status, (json.loads(text) if text else None)
+    except u.HTTPError as e:
+        return e.code, e.read().decode()
+
+
 def sse(url, want, seconds=30):
     """Read server-sent events at url until want(events) is truthy; the events."""
     got, cur = [], {}

@@ -59,19 +59,11 @@ func (b *Body) MCPServer() *mcp.Server {
 	return srv
 }
 
-// Handler serves MCP on /mcp (streamable HTTP, stateless), GET /body, and
-// the body's stream on GET /bodies/{name}/events.
-func (b *Body) Handler() *http.ServeMux {
+// mcpHandler serves the body's MCP: streamable HTTP, stateless, JSON responses.
+func (b *Body) mcpHandler() http.Handler {
 	srv := b.MCPServer()
-	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
-		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}))
-	mux.HandleFunc("GET /body", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(b.Self())
-	})
-	mux.HandleFunc("GET /bodies/{name}/events", b.serveEvents)
-	return mux
+	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
+		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 }
 
 // traceparent reads the W3C traceparent of an MCP call from its _meta.

@@ -38,6 +38,9 @@ const (
 	DefaultPort         = 8080
 	DefaultSpeakTimeout = 60 * time.Second
 	DefaultRetry        = 2 * time.Second
+	// DefaultHostGroup is a host's consumer group when it carries bodies
+	// made only through its API; one made from the env keeps body_{name}.
+	DefaultHostGroup = "bodies"
 )
 
 // Config is a body's: who it is, what it is to an observer, its senses, its

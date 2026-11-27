@@ -1,0 +1,54 @@
+# "Nowhere", step three (UNIT-122), on top of compose.yaml and
+# conversation.yaml: the same conversation, its bodies and brains made
+# through the hosts' APIs instead of one container each by env. One body
+# host and one brain host; the env's bodies and brains are left out.
+#
+# hosts.sh is the application: it PUTs two bodies and two brains, speaks
+# once as A, changes B's policy to another model mid-conversation, checks the
+# conversation went on from B's memory, then lets them all go.
+#   docker compose -f body/showcase/compose.yaml -f body/showcase/conversation.yaml -f body/showcase/hosts.yaml up --build --abort-on-container-exit --exit-code-from demo
+#   docker compose -f body/showcase/compose.yaml -f body/showcase/conversation.yaml -f body/showcase/hosts.yaml down -v
+services:
+  body_a: {profiles: [env]}
+  body_b: {profiles: [env]}
+  brain_a: {profiles: [env]}
+  brain_b: {profiles: [env]}
+
+  bodies:
+    build: ..
+    image: units-body:${UNITS_TAG:-local}
+    environment:
+      REDIS_ADDR: redis:6379
+      HEARING_MCP_URL: http://hearing:8080/mcp
+      SPEAKING_MCP_URL: http://speaking:8080/
+    depends_on:
+      redis: {condition: service_healthy}
+      hearing: {condition: service_started}
+      speaking: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 1s
+      retries: 30
+
+  brains:
+    build: ../../brain
+    image: units-brain:${UNITS_TAG:-local}
+    environment:
+      REDIS_ADDR: redis:6379
+      THREADS_URL: http://threads:8085
+    depends_on:
+      redis: {condition: service_healthy}
+      threads: {condition: service_healthy}
+      fake_model: {condition: service_healthy}
+      bodies: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 1s
+      retries: 30
+
+  demo:
+    depends_on: !override
+      bodies: {condition: service_healthy}
+      brains: {condition: service_healthy}
+    volumes: [./hosts.sh:/hosts.sh:ro]
+    entrypoint: ["sh", "/hosts.sh"]
