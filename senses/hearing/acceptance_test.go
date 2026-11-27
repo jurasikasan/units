@@ -537,6 +537,26 @@ func TestMergeWindow(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+	t.Run("sender_falls_silent_ends_the_utterance", func(t *testing.T) {
+		// The sender speaks and then sends nothing at all (no silence
+		// packets): the utterance ends by the merge window on the clock,
+		// with the session still open, not when the session closes.
+		h := newHarness(t, nil)
+		id, addr := h.open(t)
+		s := newSender(t, addr, 0xA11CE)
+		s.tone(0, 8000, 0, 1.0)
+		h.waitType(t, "speechrecog.start-of-input", 1, 5*time.Second)
+		heard := h.waitType(t, "speechrecog.recognition-complete", 1, 3*time.Second)
+		if len(h.events("speechrecog.session-closed")) != 0 {
+			t.Fatalf("the session closed first: %+v", h.events("speechrecog.session-closed"))
+		}
+		if heard[0].Data["completion_cause"] == "success-maxtime" {
+			t.Fatalf("cut by maxtime, not by the pause: %+v", heard[0].Data)
+		}
+		if err := h.svc.Close(id); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("gap_600ms_splits", func(t *testing.T) {
 		h := newHarness(t, nil)
 		id, addr := h.open(t)
@@ -860,10 +880,10 @@ func TestSecondSSRCDropped(t *testing.T) {
 // --- (i) an idle session is closed with reason idle ---
 
 func TestIdleTimeout(t *testing.T) {
-	h := newHarness(t, func(c *Config) { c.IdleTimeout = 800 * time.Millisecond })
+	h := newHarness(t, func(c *Config) { c.IdleTimeout = 800 * time.Millisecond; c.ShortWords = ShortDrop })
 	_, addr := h.open(t)
 	s := newSender(t, addr, 0xA11CE)
-	s.tone(0, 8000, 0, 0.1) // a short burst: no utterance, just recent activity
+	s.tone(0, 8000, 0, 0.1) // a short burst, dropped: no utterance, just recent activity
 	// then no more packets: the session goes idle
 	closed := h.waitType(t, "speechrecog.session-closed", 1, 5*time.Second)
 	if got := closed[0].Data["reason"]; got != "idle" {
@@ -874,6 +894,16 @@ func TestIdleTimeout(t *testing.T) {
 	}
 	if evs := h.events("speechrecog.recognition-complete"); len(evs) != 0 {
 		t.Fatalf("unexpected heard: %+v", evs)
+	}
+}
+
+func TestIdleCloseFreesItsPlace(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.IdleTimeout = 400 * time.Millisecond; c.MaxSessions = 1 })
+	h.open(t)
+	h.waitType(t, "speechrecog.session-closed", 1, 5*time.Second)
+	// The one place is free again: a second session opens.
+	if _, _, err := h.svc.Open(context.Background(), nil, "", ""); err != nil {
+		t.Fatalf("open after an idle close: %v", err)
 	}
 }
 

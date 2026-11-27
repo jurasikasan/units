@@ -1,6 +1,6 @@
 # hearing
 
-The hearing organ (contract C5, `CONTRACT.md`): it listens to a stream of RTP
+The sense of hearing (contract C5, `CONTRACT.md`): it listens to a stream of RTP
 audio, decides where speech starts and ends, transcribes each utterance, and
 publishes what it heard as events. It decides nothing else — acting on the
 words is someone else's job.
@@ -31,7 +31,8 @@ words is someone else's job.
   (default 500) locally instead.
 - A speech window is a **candidate** until it has lasted `HEARING_ONSET`
   (default 200 ms) of wall-clock audio — a shorter burst raises no early
-  `start-of-input` (see below). Once started, silence of `HEARING_MERGE_WINDOW` (default 400 ms) or
+  `start-of-input` (see below). Once started, silence of `HEARING_MERGE_WINDOW` (default 400 ms) — or no packet
+  at all for that long, when a sender stops sending — or
   `HEARING_MAX_UTTERANCE` (default 25 s) ends the utterance and it is
   transcribed by `POST /v1/audio/transcriptions` (multipart `file`, WAV, 16 kHz
   PCM, `language` = the session's `speech_language`) on `STT_URL` (LiteLLM).

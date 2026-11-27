@@ -6,7 +6,7 @@ a completion cause instead of `ok`.
 
 ## 1. What it is
 
-The hearing apparatus: an organ that takes in sound in real time and reports what it
+The sense of hearing: it takes in sound in real time and reports what it
 recognised in it. Whoever drives it opens a session and gets an address; whatever sends
 audio there — a phone line, a browser line, a recording played back — is listened to.
 
@@ -24,14 +24,15 @@ beside it — instead of bending these.
   sends it.
 - **Events** on the Redis stream `hearing_events`, in the envelope of
   [`contracts/events.md`](../../contracts/events.md).
-  `ce_source` is `/senses/hearing` (the organ), `ce_type` is the MRCP resource's
+  `ce_source` is `/senses/hearing` (the sense), `ce_type` is the MRCP resource's
   (`speechrecog.*`), `ce_subject` is the `session_id`.
 - **Transcription** is an STT engine's, through OpenAI's `POST /v1/audio/transcriptions`
   — a router (LiteLLM) or one engine at `STT_URL` — the ear's inner part, as TTS is
   speech's. **Voice activity** is a VAD engine's ([`engines/vad/silero`](../../engines/vad/silero/)), or an energy detector in process.
 
-**How organs and devices meet**, the same rule as speech and phone: a receiver names an
-address, a sender is told where to send. hearing receives, so `open` returns where to
+**How senses and abilities meet devices**, the same rule as speech and phone: the organ is
+the device at the far end (a microphone, a line), the RTP between them is the nerve; a
+receiver names an address, a sender is told where to send. hearing receives, so `open` returns where to
 send; a line sends, so it is told (phone `listen`, revision 3).
 
 ### What it does not do
@@ -132,6 +133,9 @@ Guarantees:
 - **Merge.** A pause shorter than `HEARING_MERGE_WINDOW` does not end an utterance:
   "I'd like… uh… to order" is one. The utterance ends `HEARING_MERGE_WINDOW` after the
   last speech; `ended_at` is when the last speech ended, not when the event went out.
+  A sender that stops sending after it spoke (silence suppressed, a mouth quiet
+  between phrases) gives no silence to measure: no packet at all for
+  `HEARING_MERGE_WINDOW`, by the clock, ends the utterance the same way.
 - **Pre-roll.** The detector rises late on an onset consonant ("Как" of «Как тебя
   зовут?»), so what went to STT used to start after the word had. The last
   `HEARING_PREROLL` of audio before the first speech window goes to STT with the
@@ -218,7 +222,7 @@ The defaults for onset and merge were paid for in real calls
 
 The events are MRCPv2's speech recognizer's (RFC 6787 §9, resource type `speechrecog`):
 START-OF-INPUT (with Input-Type `speech`, §9.4.5) and RECOGNITION-COMPLETE with its
-Completion-Cause. The organ that hosts it is named for the persona (`senses/hearing`), and
+Completion-Cause. The sense that hosts it is named for the persona (`senses/hearing`), and
 `ce_source` carries that name. Where this contract leaves MRCP, on purpose:
 
 - hearing listens all the time a session is open; each utterance is an implicit RECOGNIZE

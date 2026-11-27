@@ -2,8 +2,8 @@
 # Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
 
 unit: senses/hearing
-kind: organ
-summary: A hearing organ. Takes RTP speech in, finds the utterances, transcribes them, reports the text. Decides nothing.
+kind: sense             # a sense: the ear is the device on the wire, RTP the nerve
+summary: The sense of hearing. Takes RTP speech in, finds the utterances, transcribes them, reports the text. Decides nothing.
 contract: CONTRACT.md
 maturity: probe         # probe | stable | legacy
 
@@ -15,7 +15,7 @@ provides:
   events:
     stream: hearing_events
     envelope: cloudevents-1.0     # contracts/events.md
-    source: /senses/hearing   # the organ; types are the MRCP resource's
+    source: /senses/hearing   # the sense; types are the MRCP resource's
     types:
       - speechrecog.start-of-input
       - speechrecog.recognition-complete

@@ -27,7 +27,7 @@ type Sink interface {
 // EventStream is the Redis stream hearing events go to.
 const EventStream = "hearing_events"
 
-// EventSource is the CloudEvents source of every event: the organ that sends
+// EventSource is the CloudEvents source of every event: the sense that sends
 // (persona-centric). The types are the MRCPv2 resource's (RFC 6787: speechrecog).
 const EventSource = "/senses/hearing"
 

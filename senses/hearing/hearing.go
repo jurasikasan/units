@@ -1,4 +1,4 @@
-// Package hearing is the hearing organ (contract C5): it opens audio
+// Package hearing is the sense of hearing (contract C5): it opens audio
 // sessions that receive RTP speech, runs voice activity detection and
 // speech-to-text on the utterances, and reports what was heard on the
 // hearing_events stream.
@@ -279,11 +279,7 @@ func (s *Service) Close(sessionID string) error {
 	if !ok {
 		return fmt.Errorf("unknown_session: no such session %q", sessionID)
 	}
-	if se.beginClose("closed") {
-		s.mu.Lock()
-		s.active--
-		s.mu.Unlock()
-	}
+	se.beginClose("closed")
 	return nil
 }
 
@@ -398,6 +394,11 @@ func (se *session) beginClose(reason string) bool {
 	se.closing = true
 	se.closeReason = reason
 	se.closeMu.Unlock()
+	// Every way a session closes (the tool, the idle timeout) gives its
+	// place back; an idle close once kept it, and the limit filled up.
+	se.svc.mu.Lock()
+	se.svc.active--
+	se.svc.mu.Unlock()
 	se.det.Forget(context.Background())
 	se.in.Stop()
 	return true
@@ -442,6 +443,19 @@ func (se *session) worker(ctx context.Context) {
 			}
 			if time.Since(ref) >= se.cfg.IdleTimeout {
 				se.beginClose("idle")
+			}
+			// A sender that stops sending after it spoke (silence suppressed,
+			// a mouth that is quiet between phrases) closes no silence window,
+			// so the utterance would wait for the next packet. No audio at all
+			// for the merge window, with nothing left to process, ends it as a
+			// silence gap would; its times stay the RTP timeline's.
+			if se.cand != nil && len(frames) == 0 && !ref.IsZero() && time.Since(ref) >= se.cfg.MergeWindow {
+				if se.cand.started {
+					se.emitHeard(ctx, se.cand, false)
+				} else {
+					se.closeShort(ctx, se.cand)
+				}
+				se.cand = nil
 			}
 		}
 	}

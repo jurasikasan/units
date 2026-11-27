@@ -1,4 +1,4 @@
-// Command hearing runs the hearing organ (C5): MCP tools open/close
+// Command hearing runs the sense of hearing (C5): MCP tools open/close
 // over streamable HTTP, RTP/UDP audio in, events on Redis.
 package main
 
