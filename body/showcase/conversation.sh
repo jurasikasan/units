@@ -22,7 +22,7 @@ A, B, THREADS, MODEL = "http://body_a:8080", "http://body_b:8080", "http://threa
 BRAIN_A, BRAIN_B = "00000000-0000-0000-0000-00000000a0a1", "00000000-0000-0000-0000-00000000b0b1"
 OPENING = "hello, who is there?"
 B_LINES = ["It is me, B. Who are you?", "Nice to meet you, A."]
-A_LINES = ["I am A. Hello, B."]
+A_LINES = ["Hello, I am the one holding an umbrella."]
 
 wait("A's ear", lambda: get(A + "/body")["ears"])
 wait("B's ear", lambda: get(B + "/body")["ears"])

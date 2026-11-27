@@ -1,0 +1,23 @@
+# "Nowhere", step four (UNIT-132), on top of compose.yaml, conversation.yaml
+# and hosts.yaml: B's policy handed from a model to the seat. A page answers
+# B's next thought (SSE of turns, POST an answer); then the demo moves B's
+# body directly over its MCP, B's brain perceives its body's act as not its
+# own, and Claude's way answers that thought (MCP await_turn, answer).
+#   docker compose -f body/showcase/compose.yaml -f body/showcase/conversation.yaml -f body/showcase/hosts.yaml -f body/showcase/seat.yaml up --build --abort-on-container-exit --exit-code-from demo
+#   docker compose -f body/showcase/compose.yaml -f body/showcase/conversation.yaml -f body/showcase/hosts.yaml -f body/showcase/seat.yaml down -v
+services:
+  seat:
+    build: ../../seat
+    image: units-seat:${UNITS_TAG:-local}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 1s
+      retries: 30
+
+  brains:
+    depends_on:
+      seat: {condition: service_healthy}
+
+  demo:
+    volumes: [./seat.sh:/seat.sh:ro]
+    entrypoint: ["sh", "/seat.sh"]

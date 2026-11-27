@@ -5,7 +5,8 @@ summary of each request for the demo (GET /requests).
 Which line a mind says next is read from what it was sent: the number of
 speak_aloud calls among its recalled assistant messages. So the script
 moves on only if the brain remembers its acts and recalls them as calls —
-memory is part of what is shown. Past its lines, a mind calls skip_turn.
+memory is part of what is shown. Past its lines, a mind calls skip_turn; so it does when the new moment is
+only its body's act done by someone else (the demo's opening on A).
 The model is the request's "model": a or b."""
 
 import json
@@ -13,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 LINES = {
     "b": ["It is me, B. Who are you?", "Nice to meet you, A."],
-    "a": ["I am A. Hello, B."],
+    "a": ["Hello, I am the one holding an umbrella."],
 }
 # The hosts' step changes B's policy mid-conversation to another model with
 # the same lines: it goes on from what B's memory says was already said.
@@ -43,11 +44,20 @@ def summary(body):
     }
 
 
+def only_the_body(msg):
+    """The new moment is only acts done through the body, not by this mind
+    (the demo's opening on A): nothing heard, so nothing to answer."""
+    parts = msg["content"] if isinstance(msg["content"], list) else [{"text": msg["content"]}]
+    return all(" body] " in p.get("text", "") for p in parts)
+
+
 def answer(body, k):
     who = body["model"]
     tools = {t["function"]["name"] for t in body.get("tools") or []}
     lines, n = LINES.get(who, []), said(body["messages"])
-    if "speak_aloud" in tools and n < len(lines):
+    if only_the_body(body["messages"][-1]):
+        thought, call = "My body did that, not I; I wait.", {"name": "skip_turn", "arguments": "{}"}
+    elif "speak_aloud" in tools and n < len(lines):
         thought, call = f"Someone spoke; I answer.", {"name": "speak_aloud", "arguments": json.dumps({"text": lines[n]})}
     else:
         thought, call = "Nothing more to say; I wait.", {"name": "skip_turn", "arguments": "{}"}
