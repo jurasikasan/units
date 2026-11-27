@@ -1,5 +1,8 @@
 # brain — contract
 
+Revision 4 (UNIT-132): the brain knows its own acts by the traceparent it sends with
+each; an act someone else did through its body is perceived on the channel `body` (§2.1).
+A person or Claude answers as a policy through `seat/`, with no change here.
 Revision 3 (UNIT-122): one process carries many brains, made, changed and let go through
 an API (§2.7); who answers a thought is the brain's **policy**, changed on its own while
 buffers and memory stay; with no policy the brain perceives and does not think (§3).
@@ -45,12 +48,19 @@ acknowledged, then resumes where the group left off. Every entry is acknowledged
 taken, an unreadable one too (counted).
 
 The envelope is [`contracts/events.md`](../contracts/events.md). Read from it: `ce_source`,
-`ce_id`, `ce_type`, `ce_time`, `data`. Nothing else.
+`ce_id`, `ce_type`, `ce_time`, `ce_traceparent`, `data`. Nothing else.
 
 - **Channel** = the last segment of `ce_source`: `/senses/sight` is `sight`, and a body's
-  republished `/bodies/a/hearing` is `hearing`. A body's own `body.act-complete` is a type
-  the brain does not read: what came of an act is perceived through the senses, and the act
-  itself the brain remembers on its own (§2.4).
+  republished `/bodies/a/hearing` is `hearing`.
+- **A body's acts** (`body.act-complete`, body CONTRACT §2.2): one whose `ce_traceparent`
+  is one the brain sent with an act of its own (§2.5) is passed over and counted
+  (`own_acts`) — the brain remembers its own acts itself (§2.4). Any other — another
+  traceparent, or none: someone drove the body directly over its MCP — is a percept of
+  the channel **`body`**, its line `did <tool> <args>` (`(failed: <error>)` after a failed
+  one), its perception time the act's `started_at`–`ended_at`; gated, buffered, thought
+  about and remembered like any percept, so the brain's memory says what its body did
+  that it did not. `data`'s `tool`, `args`, `is_error`, `error`, `started_at`, `ended_at`
+  are read; one without `tool` is malformed.
 - **Duplicates** — an event seen before by `ce_source` + `ce_id` (among the last 4096) is
   dropped and counted.
 
@@ -171,6 +181,9 @@ Without it the brain thinks and does nothing: no tools are offered, nothing is c
   thought without tools and without `tool_choice`: logged and counted (`body_errors`). A
   tool call in the answer to a thought offered no tools is no act: ignored and counted
   (`ignored_calls`).
+- **Its traceparent.** Each act is called with a W3C traceparent of the brain's own in
+  `_meta.traceparent`, remembered (the last 256): the body copies it onto its record of the
+  act, which the brain then knows as its own (§2.1).
 - **One act per thought, no loop.** The model's answer is one turn: its text is the
   thought; its **first** tool call is done on the body (`tools/call`, the arguments parsed
   as a JSON object; when they are not one, the call is not made and its result is
@@ -198,7 +211,7 @@ Each act: `msg: act`, `tool`, `call_id`, `args`, `result`, `is_error`, `act_ms`,
 `GET /health` on `PORT`: `{"status": "ok", "version", "buffered", "counts"}` — `counts` by
 reason: `read`, `ignored`, `malformed`, `duplicates`, `gated`, `empty`, `expired`,
 `overflow`, `thoughts`, `model_errors`, `frame_errors`, `memory_errors`, `acts`,
-`act_errors`, `ignored_calls`, `skips`, `body_errors`.
+`act_errors`, `ignored_calls`, `skips`, `body_errors`, `unthought`, `own_acts`.
 
 ### 2.7 The host: `/brains`
 

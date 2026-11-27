@@ -92,11 +92,20 @@ func TestParseStartAndIgnored(t *testing.T) {
 	if err != nil || ev.Kind != Ignored {
 		t.Fatalf("%+v %v", ev, err)
 	}
-	// A body's own acts on its stream are not percepts: what came of an act
-	// is perceived through the senses, and remembered by the brain itself.
-	ev, err = ParseEvent(fields(t, "/bodies/a", "body.act-complete", map[string]any{"tool": "skip_turn"}), ms(0))
-	if err != nil || ev.Kind != Ignored {
-		t.Fatalf("%+v %v", ev, err)
+	// A body's act is a percept of channel body: whose it is, the mind
+	// tells by its traceparent.
+	ev, err = ParseEvent(fields(t, "/bodies/a", "body.act-complete", map[string]any{"tool": "speak_aloud",
+		"args": map[string]any{"text": "hi"}, "started_at": stamp(ms(0)), "ended_at": stamp(ms(500))}), ms(0))
+	if err != nil || ev.Kind != BodyAct || ev.Channel != "body" || ev.Percept.Text != `did speak_aloud {"text":"hi"}` ||
+		!ev.Percept.Ended.Equal(ms(500)) {
+		t.Fatalf("%+v %+v %v", ev, ev.Percept, err)
+	}
+	ev, _ = ParseEvent(fields(t, "/bodies/a", "body.act-complete", map[string]any{"tool": "x", "is_error": true, "error": "boom"}), ms(0))
+	if ev.Percept.Text != "did x {} (failed: boom)" {
+		t.Fatalf("%q", ev.Percept.Text)
+	}
+	if _, err := ParseEvent(fields(t, "/bodies/a", "body.act-complete", map[string]any{}), ms(0)); err == nil {
+		t.Fatal("an act without its tool read")
 	}
 }
 

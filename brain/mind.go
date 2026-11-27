@@ -2,12 +2,15 @@ package brain
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -84,6 +87,8 @@ type Mind struct {
 	Now func() time.Time
 
 	policy   atomic.Pointer[Policy]
+	ownMu    sync.Mutex
+	own      *recent // traceparents of the brain's own acts
 	buffered atomic.Int64
 	bufs     *Buffers
 	opens    map[string]time.Time // channel + request_id of a start-of-input → when it came
@@ -172,9 +177,31 @@ func (m *Mind) Run(ctx context.Context, events <-chan Event) {
 }
 
 // take passes one event through the gate into the buffers.
+// markOwn remembers a traceparent as one of the brain's own acts; isOwn
+// tells one.
+func (m *Mind) markOwn(tp string) {
+	m.ownMu.Lock()
+	defer m.ownMu.Unlock()
+	if m.own == nil {
+		m.own = newRecent(256)
+	}
+	m.own.add(tp)
+}
+
+func (m *Mind) isOwn(tp string) bool {
+	m.ownMu.Lock()
+	defer m.ownMu.Unlock()
+	return tp != "" && m.own != nil && m.own.set[tp]
+}
+
 func (m *Mind) take(ev Event) {
 	if ev.Kind == Ignored {
 		m.Counts.Ignored.Add(1)
+		return
+	}
+	if ev.Kind == BodyAct && m.isOwn(ev.Traceparent) {
+		// The brain's own act: it remembers it itself (§2.4).
+		m.Counts.OwnActs.Add(1)
 		return
 	}
 	if !m.seen.add(ev.Key()) {
@@ -356,7 +383,9 @@ func (m *Mind) actOn(ctx context.Context, a Answer, offered bool) *Act {
 			timeout = DefaultActTimeout
 		}
 		actx, cancel := context.WithTimeout(ctx, timeout)
-		result, isError, err := m.Body.Act(actx, act.Name, args)
+		tp := newTraceparent()
+		m.markOwn(tp)
+		result, isError, err := m.Body.Act(actx, act.Name, args, tp)
 		cancel()
 		if err != nil {
 			result, isError = err.Error(), true
@@ -576,4 +605,12 @@ func (r *recent) add(key string) bool {
 	r.keys[r.next], r.set[key] = key, true
 	r.next = (r.next + 1) % len(r.keys)
 	return true
+}
+
+// newTraceparent is a W3C traceparent of the brain's own, sent with an act
+// so that the body's record of it is known as the brain's.
+func newTraceparent() string {
+	var b [24]byte
+	_, _ = rand.Read(b[:])
+	return "00-" + hex.EncodeToString(b[:16]) + "-" + hex.EncodeToString(b[16:]) + "-01"
 }

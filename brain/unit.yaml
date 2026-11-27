@@ -37,11 +37,15 @@ consumes:
     - unit: body
       via: events
       stream: body_{name}_events
-      types: [speechrecog.start-of-input, speechrecog.recognition-complete, sightrecog.start-of-input, sightrecog.recognition-complete]
+      types: [speechrecog.start-of-input, speechrecog.recognition-complete, sightrecog.start-of-input, sightrecog.recognition-complete, body.act-complete]
     - unit: body              # acts: whatever tools the body lists, offered to the model; one call per thought
       via: mcp
       env: BRAIN_BODY         # or a spec's body: {body}/mcp
       tools: []
+    - unit: seat              # a person or Claude as the policy, behind the same door
+      via: http
+      env: MODEL_URL          # or a policy's model_url
+      calls: [POST /v1/chat/completions]
     - unit: litellm          # a router, or one engine: any OpenAI-shaped chat door (with vision, for frames)
       via: http
       env: MODEL_URL

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/jurasikasan/units/shared/events"
 )
 
 // The body is a fake built with the MCP SDK, declaring the tools a body
@@ -23,15 +25,15 @@ type fakeBody struct {
 func (f *fakeBody) server(t *testing.T) *httptest.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "body", Version: "0"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{Name: "speak_aloud", Description: "Say something aloud."},
-		func(_ context.Context, _ *mcp.CallToolRequest, in struct {
+		func(_ context.Context, req *mcp.CallToolRequest, in struct {
 			Text string `json:"text" jsonschema:"the words to say"`
 		}) (*mcp.CallToolResult, map[string]any, error) {
-			f.record("speak_aloud", map[string]any{"text": in.Text})
+			f.record("speak_aloud", map[string]any{"text": in.Text}, req)
 			return nil, map[string]any{"spoken": in.Text, "completion_cause": "normal", "listeners": 1}, nil
 		})
 	mcp.AddTool(srv, &mcp.Tool{Name: "skip_turn", Description: "Do nothing this turn."},
-		func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, map[string]any, error) {
-			f.record("skip_turn", nil)
+		func(_ context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, map[string]any, error) {
+			f.record("skip_turn", nil, req)
 			return nil, map[string]any{"skipped": true}, nil
 		})
 	s := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
@@ -40,10 +42,11 @@ func (f *fakeBody) server(t *testing.T) *httptest.Server {
 	return s
 }
 
-func (f *fakeBody) record(name string, args map[string]any) {
+func (f *fakeBody) record(name string, args map[string]any, req *mcp.CallToolRequest) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, map[string]any{"name": name, "args": args})
+	tp, _ := req.Params.Meta["traceparent"].(string)
+	f.calls = append(f.calls, map[string]any{"name": name, "args": args, "traceparent": tp})
 }
 
 func (f *fakeBody) got() []map[string]any {
@@ -254,4 +257,56 @@ func TestRecallOfActsCutByTheWindow(t *testing.T) {
 			t.Fatalf("a tool message out of place: %s", raw)
 		}
 	}
+}
+
+// The brain's own acts come back on the body's stream with its traceparent
+// and are passed over; an act someone else did through the body is a
+// percept of channel body, thought about and remembered as the body's.
+func TestOwnActsAndTheBodysOthers(t *testing.T) {
+	body := &fakeBody{}
+	r := bodyRig(t, body, func(k int) map[string]any {
+		if k == 1 {
+			return map[string]any{"role": "assistant", "content": "I greet them.",
+				"tool_calls": []any{toolCall("call_1", "speak_aloud", `{"text":"hello"}`)}}
+		}
+		return map[string]any{"role": "assistant", "content": "My body did something I did not."}
+	})
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	r.hear("utt-1", "is anyone there?", now.Add(-time.Second), now.Add(-500*time.Millisecond))
+	eventually(t, "an act", func() bool { return len(body.got()) == 1 })
+	tp, _ := body.got()[0]["traceparent"].(string)
+	if len(tp) != 55 || !strings.HasPrefix(tp, "00-") {
+		t.Fatalf("the act carried no traceparent of the brain's: %q", tp)
+	}
+
+	act := func(tool, traceparent string, at time.Time) {
+		f, err := events.Fields("/bodies/a", events.Event{Type: "body.act-complete", Subject: "body-a", Traceparent: traceparent,
+			Data: map[string]any{"tool": tool, "args": map[string]any{}, "is_error": false,
+				"started_at": stamp(at), "ended_at": stamp(at.Add(10 * time.Millisecond))}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ev, err := ParseEvent(f, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.events <- ev
+	}
+	act("speak_aloud", tp, now)
+	eventually(t, "its own act passed over", func() bool { return r.mind.Counts.OwnActs.Load() == 1 })
+	act("skip_turn", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01", now.Add(time.Second))
+
+	eventually(t, "a second thought", func() bool { return len(r.model.got()) == 2 })
+	parts := userParts(t, r.model.got()[1])
+	if len(parts) != 1 || !strings.Contains(parts[0]["text"].(string), "body] did skip_turn {}") {
+		t.Fatalf("the body's act as perceived: %v", parts)
+	}
+	eventually(t, "remembered", func() bool {
+		for _, e := range r.threads.all() {
+			if e["sender"] == r.mind.Cfg.SubjectFor("body").String() {
+				return true
+			}
+		}
+		return false
+	})
 }

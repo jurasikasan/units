@@ -19,6 +19,12 @@ import (
 const (
 	suffixStart       = ".start-of-input"
 	suffixRecognition = ".recognition-complete"
+	// typeBodyAct is a body's record of an act done through it (body
+	// CONTRACT §2.2): perceived when someone else did it, passed over when
+	// it is the brain's own (known by its traceparent).
+	typeBodyAct = "body.act-complete"
+	// BodyChannel is the channel a body's acts are perceived on.
+	BodyChannel = "body"
 )
 
 // Kind is what an event is to the brain.
@@ -32,6 +38,9 @@ const (
 	Start
 	// Recognition: something perceived, in words and maybe a frame.
 	Recognition
+	// BodyAct: an act done through the body, a percept of channel body
+	// unless it is the brain's own.
+	BodyAct
 )
 
 // Frame is the reference a sense gives for the raw input behind an event,
@@ -80,7 +89,9 @@ type Event struct {
 	Source    string
 	ID        string
 	RequestID string
-	// Percept is set for a Recognition.
+	// Traceparent is the entry's ce_traceparent: whose act a BodyAct is.
+	Traceparent string
+	// Percept is set for a Recognition and a BodyAct.
 	Percept *Percept
 }
 
@@ -98,12 +109,13 @@ func ChannelOf(source string) string {
 }
 
 // ParseEvent reads a stream entry in the envelope of contracts/events.md.
-// Only ce_source, ce_id, ce_type, ce_time and, for the two types it reads,
-// data's request_id, started_at, ended_at, text, read, input_type,
-// completion_cause, frame and frame_error are looked at.
+// Only ce_source, ce_id, ce_type, ce_time, ce_traceparent and, for the types
+// it reads, data's request_id, started_at, ended_at, text, read, input_type,
+// completion_cause, frame and frame_error — and a body's act's tool, args,
+// is_error, error, started_at, ended_at — are looked at.
 func ParseEvent(fields map[string]any, received time.Time) (Event, error) {
 	str := func(k string) string { s, _ := fields[k].(string); return s }
-	e := Event{Type: str("ce_type"), Source: str("ce_source"), ID: str("ce_id")}
+	e := Event{Type: str("ce_type"), Source: str("ce_source"), ID: str("ce_id"), Traceparent: str("ce_traceparent")}
 	if e.Type == "" || e.Source == "" || e.ID == "" {
 		return e, fmt.Errorf("%w: ce_type, ce_source and ce_id are required", ErrMalformed)
 	}
@@ -112,6 +124,8 @@ func ParseEvent(fields map[string]any, received time.Time) (Event, error) {
 		return e, fmt.Errorf("%w: ce_source %q names no channel", ErrMalformed, e.Source)
 	}
 	switch {
+	case e.Type == typeBodyAct:
+		return parseBodyAct(e, str("data"), str("ce_time"), received)
 	case strings.HasSuffix(e.Type, suffixStart):
 		e.Kind = Start
 	case strings.HasSuffix(e.Type, suffixRecognition):
@@ -167,6 +181,50 @@ func ParseEvent(fields map[string]any, received time.Time) (Event, error) {
 			}
 			p.Frame = &f
 		}
+	}
+	e.Percept = p
+	return e, nil
+}
+
+// parseBodyAct reads a body's act as a percept of channel body: "did <tool>
+// <args>", when it was done.
+func parseBodyAct(e Event, raw, ceTime string, received time.Time) (Event, error) {
+	var data struct {
+		Tool      string          `json:"tool"`
+		Args      json.RawMessage `json:"args"`
+		IsError   bool            `json:"is_error"`
+		Error     string          `json:"error"`
+		StartedAt time.Time       `json:"started_at"`
+		EndedAt   time.Time       `json:"ended_at"`
+	}
+	if err := json.Unmarshal([]byte(raw), &data); err != nil {
+		return e, fmt.Errorf("%w: data: %v", ErrMalformed, err)
+	}
+	if data.Tool == "" {
+		return e, fmt.Errorf("%w: a body's act without its tool", ErrMalformed)
+	}
+	e.Kind, e.Channel = BodyAct, BodyChannel
+	args := strings.TrimSpace(string(data.Args))
+	if args == "" || args == "null" {
+		args = "{}"
+	}
+	text := "did " + data.Tool + " " + args
+	if data.IsError {
+		text += " (failed: " + data.Error + ")"
+	}
+	p := &Percept{Channel: BodyChannel, Source: e.Source, ID: e.ID, Type: e.Type, Text: text,
+		Started: data.StartedAt.UTC(), Ended: data.EndedAt.UTC(), Received: received}
+	if t, err := time.Parse(time.RFC3339Nano, ceTime); err == nil {
+		p.Sent = t.UTC()
+	}
+	if p.Started.IsZero() {
+		p.Started = p.Sent
+	}
+	if p.Started.IsZero() {
+		p.Started = received.UTC()
+	}
+	if p.Ended.IsZero() || p.Ended.Before(p.Started) {
+		p.Ended = p.Started
 	}
 	e.Percept = p
 	return e, nil

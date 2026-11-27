@@ -8,7 +8,9 @@ log and, with what it perceived, to its thread in `threads`. With a body (`BRAIN
 of each answer is done on the body — one act per thought, its result remembered, never
 fed back within the thought. Turn-based on purpose: no agent loop. One process carries
 many brains, made, changed and let go through `PUT /brains/{name}`; who answers a thought —
-the brain's policy — is changed on its own, buffers and memory kept.
+the brain's policy — is changed on its own, buffers and memory kept; a person or Claude
+plays it through [`seat/`](../seat/). Its own acts carry its traceparent; an act someone
+else did through its body is perceived on the channel `body` and remembered as the body's.
 
 What it promises, and exactly what crosses its walls, is `CONTRACT.md`; this file is for
 working inside it.

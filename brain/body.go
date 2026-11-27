@@ -83,12 +83,16 @@ func (b *Body) Tools(ctx context.Context) ([]openai.ChatCompletionToolUnionParam
 // Act calls one tool with args (a JSON object) and gives what the body
 // answered in words: its text content. isError is the tool's own failure
 // (the body said so); err is a call that did not reach the tool.
-func (b *Body) Act(ctx context.Context, name string, args map[string]any) (result string, isError bool, err error) {
+func (b *Body) Act(ctx context.Context, name string, args map[string]any, traceparent string) (result string, isError bool, err error) {
 	cs, err := b.session(ctx)
 	if err != nil {
 		return "", false, err
 	}
-	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+	params := &mcp.CallToolParams{Name: name, Arguments: args}
+	if traceparent != "" {
+		params.Meta = mcp.Meta{"traceparent": traceparent}
+	}
+	res, err := cs.CallTool(ctx, params)
 	if err != nil {
 		b.drop(cs)
 		return "", false, fmt.Errorf("body: %s: %w", name, err)
