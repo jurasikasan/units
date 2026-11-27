@@ -1,4 +1,4 @@
-# abilities/speaking — a mouth for a session's line
+# abilities/speaking — speaking onto a session's line
 
 `speech` speaks. It takes text through MCP tools, turns it into audio with
 a TTS engine behind OpenAI's `/v1/audio/speech`, and sends that audio out over RTP/UDP to a target on the

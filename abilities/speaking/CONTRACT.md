@@ -5,12 +5,12 @@ Revision 7. Revision 7 marks where each sentence starts in the stream:
 cuts it: `kill_on_barge_in` (§2.2, §2.4), MRCPv2's Kill-On-Barge-In. Revision 5 gives `speak` a deadline: `synthesis_timeout_ms` (§2.2), how long
 the line may wait for a piece of a phrase's audio before the phrase fails. Revision 3 took MRCPv2's vocabulary (§7): `say` → `speak`, `hush` → `stop`,
 `barge_in_occurred` added, `utterance.spoken` → `speechsynth.speak-complete` with a
-completion cause. Revision 4 names what went out `spoken` (it was `heard`): the organ knows
+completion cause. Revision 4 names what went out `spoken` (it was `heard`): the ability knows
 what it sent, not what anyone heard.
 
 ## 1. What it is
 
-The speech apparatus: an organ that turns text into speech in real time and sends it
+The ability to speak: it turns text into speech in real time and sends it
 somewhere as audio. Whoever drives it opens a session — a voice and a place to send
 audio — and feeds it text; speech assembles the text into speakable pieces, has them
 synthesised, plays them out at the pace of speech and reports what went out.
@@ -22,7 +22,7 @@ synthesised, plays them out at the pace of speech and reports what went out.
   what is behind it — a phone line, a browser line, a recorder.
 - **Events** on the Redis stream `speech_events`, in the envelope of
   [`contracts/events.md`](../../contracts/events.md).
-  `ce_source` is `/abilities/speaking` (the organ), `ce_type` is the MRCP resource's
+  `ce_source` is `/abilities/speaking` (the ability), `ce_type` is the MRCP resource's
   (`speechsynth.*`), `ce_subject` is the `session_id`.
 - **Synthesis** is a TTS engine's, through OpenAI's `POST /v1/audio/speech` —
   a router (LiteLLM) or one engine at `TTS_URL`. speech calls it per piece. A voice is
@@ -38,7 +38,7 @@ synthesised, plays them out at the pace of speech and reports what went out.
   checks only the name's shape; a voice the engine does not have fails the first `speak`
   (cause `error`);
 - does not choose what to say, in which voice, or when to stop — its driver does;
-- does not listen: the hearing apparatus is another organ;
+- does not listen: hearing is a sense of its own (`senses/hearing`);
 - does not stop on its own: whether someone interrupted is the driver's call, and
   `stop` or `barge_in_occurred` (§2.4) is how it says so.
 
@@ -190,7 +190,8 @@ What went out, not what was sent to TTS:
   `kill_on_barge_in` false (§2.4). The cause is whatever ended it after: `normal` when it
   played out, `cancelled` if a later `stop` or `close` cut it.
 
-"Sent" is the honest limit of an organ that is not the device: what left speech on RTP.
+"Sent" is the honest limit of an ability that is not the device (the organ, the mouth on
+the line): what left speech on RTP.
 What the far end actually played is behind the device's buffer — tens of milliseconds
 on one box or a LAN, more across the world. A driver that needs the wire's truth asks
 the device, not speech.
@@ -242,7 +243,7 @@ speech opens no inbound port for audio: it only sends.
 ## 7. Vocabulary: MRCPv2
 
 The verbs and events are MRCPv2's synthesizer resource (RFC 6787 §8, resource type
-`speechsynth`); the organ that hosts it is named for the persona (`abilities/speaking`),
+`speechsynth`); the ability that hosts it is named for the persona (`abilities/speaking`),
 and `ce_source` carries that name. Where this contract leaves MRCP, on purpose:
 
 - A stopped SPEAK still gets SPEAK-COMPLETE (`cancelled` / `barge-in`). MRCP sends none and

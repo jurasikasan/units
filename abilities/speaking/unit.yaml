@@ -2,8 +2,8 @@
 # Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
 
 unit: abilities/speaking
-kind: organ             # an organ: the mouth a session borrows onto its line
-summary: A mouth. Takes text and sends it out as audio to a target on the line. Decides nothing.
+kind: ability           # an ability: the mouth is the device on the line, RTP the nerve
+summary: The ability to speak. Takes text and sends it out as audio to a target on the line. Decides nothing.
 contract: CONTRACT.md
 maturity: probe         # probe | stable | legacy — happy path only, L16 only
 
@@ -15,7 +15,7 @@ provides:
   events:
     stream: speech_events
     envelope: cloudevents-1.0     # contracts/events.md
-    source: /abilities/speaking   # the organ; types are the MRCP resource's
+    source: /abilities/speaking   # the ability; types are the MRCP resource's
     types:
       - speechsynth.speech-marker
       - speechsynth.speak-complete

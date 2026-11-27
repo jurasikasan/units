@@ -1,7 +1,7 @@
 package speech_test
 
 // The open/say/close tools as an MCP client sees them, over the SDK's
-// in-memory transport. C0 §5 "Trace": the cause of every event of an organ's
+// in-memory transport. C0 §5 "Trace": the cause of every event of a unit's
 // session is the open call that made the session, so every event of the
 // session carries that call's traceparent — the one from the MCP call's
 // metadata — and an open without one leaves no ce_traceparent at all.

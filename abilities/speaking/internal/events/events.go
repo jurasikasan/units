@@ -13,7 +13,7 @@ import (
 
 const (
 	Stream = "speech_events"
-	// Source is the organ that sends (persona-centric); the types are the MRCPv2
+	// Source is the ability that sends (persona-centric); the types are the MRCPv2
 	// resource's (RFC 6787: speechsynth).
 	Source = "/abilities/speaking"
 
