@@ -79,7 +79,7 @@ func main() {
 	board := task.NewMCPServer(svc)
 	top := http.NewServeMux()
 	top.Handle("/mcp", httpHelper.LoggingMiddleware(
-		mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return board }, nil)))
+		mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return board }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})))
 	top.Handle("/", r)
 
 	log.Printf("task_board listening on :%s (MCP on /mcp)", port)

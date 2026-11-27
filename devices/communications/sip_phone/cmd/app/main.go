@@ -75,7 +75,7 @@ func main() {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	mux.Handle("/", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return tools }, nil))
+	mux.Handle("/", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return tools }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}))
 	httpSrv := &http.Server{Addr: ":" + env("PORT", "8080"), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
 	log.Printf("phone %s: SIP on %s, trunk %s, advertising %s:%d, up to %d calls", version, listen, cfg.Trunk, cfg.AdvertiseHost, cfg.SIPPort, cfg.MaxCalls)

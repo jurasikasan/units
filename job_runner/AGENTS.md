@@ -129,19 +129,14 @@ tool_timeout_sec = 3600
 ```
 
 **No client support, or the tools are not loaded yet**: it is JSON-RPC over
-HTTP POST. Initialize, keep the `Mcp-Session-Id` header from the reply, then
-call tools. Answers come as JSON or as one SSE `data:` line.
+HTTP POST, stateless: no session to open or keep, each call is one POST and
+its answer is JSON.
 
 ```bash
 H=(-H "Content-Type: application/json" -H "Accept: application/json, text/event-stream")
 [ -n "${JOB_RUNNER_TOKEN:-}" ] && H+=(-H "Authorization: Bearer $JOB_RUNNER_TOKEN")
-SID=$(curl -sS -D - -o /dev/null "${H[@]}" "$JOB_RUNNER_URL" -d \
-  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}' \
-  | tr -d '\r' | awk -F': ' 'tolower($1)=="mcp-session-id"{print $2}')
-H+=(-H "Mcp-Session-Id: $SID")
-curl -sS "${H[@]}" "$JOB_RUNNER_URL" -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 curl -sS -m 3600 "${H[@]}" "$JOB_RUNNER_URL" -d \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"run","arguments":{"key":"hello-1","script":"echo hello"}}}'
+  '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"run","arguments":{"key":"hello-1","script":"echo hello"}}}'
 ```
 
 ## 3. Prove it works
