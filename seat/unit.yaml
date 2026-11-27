@@ -1,0 +1,35 @@
+# Manifest: what a reader outside the unit reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: seat
+kind: seat              # where a policy sits: a person, or Claude, behind a model's door
+summary: The policy seat. An OpenAI chat completions door whose answers come from whoever sits in the seat the request's model names — a person on a page (SSE of turns, POST an answer) or Claude over MCP (await_turn, answer) — each turn held until it is answered or its caller gives up, and answered as a model would, with text and at most one tool call.
+contract: CONTRACT.md
+maturity: probe
+
+provides:
+  http:
+    port: 8080
+    calls:
+      - POST /v1/chat/completions          # the door: model names the seat; held until answered; no stream
+      - GET /seats/{seat}/turns            # the turns held now, oldest first, each request whole
+      - GET /seats/{seat}/events           # SSE: turn (a turn held), gone (answered, withdrawn, expired)
+      - POST /seats/{seat}/turns/{id}/answer   # {text?, tool_call?: {name, arguments}}; 409 for a second answer
+  mcp:
+    hub_name: seat
+    port: 8080          # streamable HTTP, stateless, on /mcp
+    tools: [await_turn, answer]
+  health: GET :8080/health
+
+consumes:
+  units: []
+  infra: []             # nothing kept: a turn lives as long as its caller waits
+
+wire: []
+
+config:
+  required: {}
+  optional:
+    PORT: "8080"
+    SEAT_HOLD: 10m       # the longest a turn is held, its caller waiting or not
+  secrets: {}
