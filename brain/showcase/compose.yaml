@@ -1,0 +1,124 @@
+name: brain-showcase
+
+# The brain on its own: no senses. Their events are published straight onto
+# hearing_events and sight_events by demo.sh, the way a sense would — that
+# is the wall. Beside the brain: Redis for the streams, threads (its own
+# Postgres) for memory, artifact_store (its own Postgres and MinIO) for the
+# frame, and a model door that echoes what it was given (fake_model.py).
+#   docker compose -f brain/showcase/compose.yaml up --build --abort-on-container-exit --exit-code-from demo
+#   docker compose -f brain/showcase/compose.yaml down -v
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      retries: 30
+
+  threads_db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: threads
+      POSTGRES_PASSWORD: threads
+      POSTGRES_DB: threads
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "threads"]
+      interval: 1s
+      retries: 30
+
+  threads:
+    build: ../../threads
+    image: units-threads:${UNITS_TAG:-local}
+    depends_on:
+      threads_db: {condition: service_healthy}
+    environment:
+      DATABASE_URL: postgres://threads:threads@threads_db:5432/threads?sslmode=disable
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/ready"]
+      interval: 1s
+      retries: 30
+
+  store_db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: store
+      POSTGRES_PASSWORD: store
+      POSTGRES_DB: store
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "store"]
+      interval: 1s
+      retries: 30
+
+  minio:
+    image: minio/minio:latest
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: showcase
+      MINIO_ROOT_PASSWORD: showcase
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 1s
+      retries: 30
+
+  artifact_store:
+    build: ../../artifact_store
+    image: units-artifact-store:${UNITS_TAG:-local}
+    depends_on:
+      store_db: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    environment:
+      DATABASE_URL: postgres://store:store@store_db:5432/store?sslmode=disable
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY_ID: showcase
+      MINIO_SECRET_ACCESS_KEY: showcase
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8094/health"]
+      interval: 1s
+      retries: 30
+
+  fake_model:
+    image: python:3.12-alpine
+    volumes: [./fake_model.py:/fake_model.py:ro]
+    command: [python3, -u, /fake_model.py]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 1s
+      retries: 30
+
+  brain:
+    build: ..
+    image: units-brain:${UNITS_TAG:-local}
+    depends_on:
+      redis: {condition: service_healthy}
+      threads: {condition: service_healthy}
+      artifact_store: {condition: service_healthy}
+      fake_model: {condition: service_healthy}
+    environment:
+      REDIS_ADDR: redis:6379
+      BRAIN_SENSES: hearing_events,sight_events
+      BRAIN_KEEP: hearing:4s,sight:1s
+      BRAIN_SUBJECT: 00000000-0000-0000-0000-00000000b0a1
+      BRAIN_SENDERS: hearing:00000000-0000-0000-0000-0000000000a1,sight:00000000-0000-0000-0000-0000000000a2
+      MODEL_URL: http://fake_model:8000/v1
+      MODEL: brain
+      THREADS_URL: http://threads:8085
+      ARTIFACT_URL: http://artifact_store:8094
+    # The log is the brain's stdout; here it is also kept in a volume, so the
+    # demo can read the thought from it. Root only to write that volume.
+    user: root
+    entrypoint: ["sh", "-c", "/brain 2>&1 | tee /logs/brain.log"]
+    volumes: [logs:/logs]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 1s
+      retries: 30
+
+  demo:
+    image: python:3.12-alpine
+    depends_on:
+      brain: {condition: service_healthy}
+    volumes: [./demo.sh:/demo.sh:ro, logs:/logs:ro]
+    entrypoint: ["sh", "/demo.sh"]
+
+volumes:
+  logs:

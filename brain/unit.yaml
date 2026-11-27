@@ -1,0 +1,78 @@
+# Manifest: what a reader outside the unit reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: brain
+kind: brain             # perceives, thinks, and acts through its body: one act per thought
+summary: The first brain, a minimal multiplexer of the senses. Reads the senses' recognitions off their streams, gates and buffers them per channel by perception time, thinks one thought at a time through an OpenAI chat door with the frames as pictures and, with a body, its tools offered; does the answer's first tool call on the body, never feeding the result back within the thought; writes the thought, the act and what it perceived to its thread.
+contract: CONTRACT.md
+maturity: probe
+
+provides:
+  health: GET :8080/health     # status, what waits, and what was dropped by reason
+
+consumes:
+  units:
+    # The senses come by config (BRAIN_SENSES), not by code: any stream whose
+    # events have the MRCP recognizer shape (*.start-of-input,
+    # *.recognition-complete). These two are the ones there are today.
+    - unit: senses/hearing
+      via: events
+      stream: hearing_events
+      types: [speechrecog.start-of-input, speechrecog.recognition-complete]
+    - unit: senses/sight
+      via: events
+      stream: sight_events
+      types: [sightrecog.start-of-input, sightrecog.recognition-complete]
+    # A body's stream is a sense stream too: its senses' events republished,
+    # /bodies/<name>/hearing being the channel hearing.
+    - unit: body
+      via: events
+      stream: body_{name}_events
+      types: [speechrecog.start-of-input, speechrecog.recognition-complete, sightrecog.start-of-input, sightrecog.recognition-complete]
+    - unit: body              # acts: whatever tools the body lists, offered to the model; one call per thought
+      via: mcp
+      env: BRAIN_BODY
+      tools: []
+    - unit: litellm          # a router, or one engine: any OpenAI-shaped chat door (with vision, for frames)
+      via: http
+      env: MODEL_URL
+      calls: [POST /v1/chat/completions]
+    - unit: artifact_store    # a frame's bytes, by the sha256 its event names
+      via: http
+      env: ARTIFACT_URL
+      calls: ["GET /v1/_sha256/{hex}"]
+    - unit: threads           # memory: one thread per brain, percepts and thoughts with occurred (v0.3.0)
+      via: http
+      env: THREADS_URL
+      calls: ["GET /threads", "POST /threads", "POST /threads/{id}/entries", "GET /threads/{id}/entries"]
+  infra: [redis]              # REDIS_ADDR, through units/shared/redis
+
+wire: []
+
+config:
+  required:
+    REDIS_ADDR: where the senses' streams are
+    BRAIN_SENSES: the senses' streams to read, comma-separated, e.g. hearing_events,sight_events
+  optional:
+    PORT: "8080"
+    BRAIN_GROUP: brain            # the consumer group on each stream; a restart resumes where it left off
+    BRAIN_GATE: ""                # channel:open|closed, comma-separated; a channel not named is open
+    BRAIN_KEEP: 4s                # each channel's lifetime in perception time: channel:duration, and a bare duration for the rest
+    BRAIN_BUFFER_MAX: "32"        # percepts per channel's buffer at most, the oldest pushed out
+    BRAIN_SETTLE: 500ms           # a tick: this long after the last event, a recognition buffered, no start-of-input open
+    BRAIN_MAX_WAIT: 3s            # a tick: once the oldest buffered percept has waited this long
+    BRAIN_BIND: 200ms             # percepts of different channels this close in perception time are one moment
+    BRAIN_RECALL: "20"            # entries of the thread read back as context; 0 none, 1000 at most
+    BRAIN_PROMPT_FILE: ""         # the system prompt; empty: the unit's own (prompt.txt)
+    BRAIN_THREAD: ""              # the thread id; empty: found by BRAIN_SUBJECT's membership, or opened and joined
+    BRAIN_SUBJECT: ""             # the brain's subject id; empty: one derived, the same on every start
+    BRAIN_SENDERS: ""             # channel:subject-id, comma-separated, what each sense writes as; a channel not named: one derived from its name
+    BRAIN_MODEL_TIMEOUT: 60s      # how long one thought may take
+    BRAIN_BODY: ""                # the body's MCP, e.g. http://body_a:8080/mcp; empty: no body, it only thinks
+    BRAIN_ACT_TIMEOUT: 90s        # how long one act on the body may take
+    MODEL_URL: http://litellm:4000/v1
+    MODEL: brain                  # the router's group, or the engine's name
+    THREADS_URL: http://threads:8085
+    ARTIFACT_URL: http://artifact_store:8094
+  secrets:
+    MODEL_KEY: the chat door's bearer (a router's key); empty for an engine
