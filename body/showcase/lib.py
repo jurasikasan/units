@@ -82,6 +82,28 @@ class Redis:
         return out
 
 
+def sse(url, want, seconds=30):
+    """Read server-sent events at url until want(events) is truthy; the events."""
+    got, cur = [], {}
+    deadline = time.monotonic() + seconds
+    with u.urlopen(url, timeout=seconds) as res:
+        check(res.headers.get("Content-Type") == "text/event-stream", "GET " + url + " is an event stream")
+        for line in res:
+            line = line.decode().rstrip("\n")
+            if line.startswith("id: "):
+                cur["id"] = line[4:]
+            elif line.startswith("data: "):
+                cur["event"] = json.loads(line[6:])
+            elif line == "" and cur:
+                got.append(cur)
+                cur = {}
+                if want(got):
+                    return got
+            if time.monotonic() > deadline:
+                break
+    raise SystemExit("FAIL: timed out reading " + url)
+
+
 def words(s):
     return set(re.findall(r"[a-z']+", (s or "").lower()))
 

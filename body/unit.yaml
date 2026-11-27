@@ -3,7 +3,7 @@
 
 unit: body
 kind: body              # a socket between the world and a head: senses in, acts out, no mind
-summary: A body, one subject. Opens its own hearing and sight sessions and serves where they take input as its ears and eyes (GET /body, with its description); republishes its own perception, and only its own, onto its stream; offers its acts — speak_aloud through speaking to the ears of the bodies in its earshot, skip_turn — as MCP tools to whoever drives it, and records each act beside its percepts.
+summary: A body, one subject. Opens its own hearing and sight sessions and serves where they take input as its ears and eyes (GET /body, with its description); republishes its own perception, and only its own, onto its stream, and serves that stream over HTTP as server-sent events; offers its acts — speak_aloud through speaking to the ears of the bodies in its earshot, skip_turn — as MCP tools to whoever drives it, and records each act beside its percepts.
 contract: CONTRACT.md
 maturity: probe
 
@@ -28,7 +28,9 @@ provides:
       - body.act-complete
   http:
     port: 8080
-    calls: [GET /body]  # who it is, its description, its ears and eyes now
+    calls:
+      - GET /body                 # who it is, its description, its ears and eyes now
+      - GET /bodies/{name}/events # its stream as server-sent events, CloudEvents JSON; from now, ?from=<id>, Last-Event-ID
   health: GET :8080/health
 
 consumes:

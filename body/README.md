@@ -5,7 +5,8 @@ own hearing and sight sessions and serves where they take input as its ears and 
 (`GET /body`, with its description); it republishes its own perception — only its own —
 onto its stream; it offers its acts as MCP tools to whoever drives it: `speak_aloud`,
 said through `abilities/speaking` to the ears of the bodies in its earshot, and
-`skip_turn`; each act is recorded on the same stream. It knows nothing of a head.
+`skip_turn`; each act is recorded on the same stream, which a head outside reads over
+HTTP (`GET /bodies/<name>/events`, server-sent events). It knows nothing of a head.
 
 What it promises, and exactly what crosses its walls, is `CONTRACT.md`; this file is for
 working inside it.
@@ -21,6 +22,8 @@ working inside it.
   per ear) and the act's record on the stream.
 - `server.go` — the MCP tools and `body://self` (official Go SDK, streamable HTTP,
   stateless), `GET /body`.
+- `events.go` — `GET /bodies/<name>/events`: the body's stream as server-sent events, each
+  entry a CloudEvent in JSON, from now, from an id, or after `Last-Event-ID`.
 - `door.go` — an MCP client to a unit, one session kept, dropped on a failure below the tool.
 
 Tests: hearing, sight and speaking are fakes built with the MCP SDK (`httptest`),
@@ -36,8 +39,9 @@ bash check.sh
 VAD, whisper) and speaking (piper), one of each shared by both, and Redis. `demo.sh`
 plays A's head: it calls A's `speak_aloud("hello, who is there?")` over MCP and checks
 that B's stream carries a `recognition-complete` with those words, A's stream the
-`body.act-complete` and no recognition of its own, and that `GET /body` of each shows its
-description and its ear:
+`body.act-complete` and no recognition of its own, that `GET /body` of each shows its
+description and its ear, and that a head outside sees the same over HTTP: B's percept and
+A's act on `GET /bodies/<name>/events`:
 
 ```bash
 docker compose -f showcase/compose.yaml up --build --abort-on-container-exit --exit-code-from demo

@@ -8,12 +8,14 @@
 #     those words, from /bodies/b/hearing, about B;
 #   - A's stream records the act (body.act-complete, speak_aloud, the text
 #     and what was spoken), and carries no recognition: A did not hear
-#     itself, and B's perception is not A's.
+#     itself, and B's perception is not A's;
+#   - a head outside sees the same over HTTP: GET /bodies/<name>/events
+#     from the start carries B's percept and A's act, as CloudEvents.
 set -eu
 exec python3 -u - <<'EOF'
 import sys
 sys.path.insert(0, "/")
-from lib import Redis, acts, check, get, heard, tool, wait
+from lib import Redis, acts, check, get, heard, sse, tool, wait
 
 A, B = "http://body_a:8080", "http://body_b:8080"
 SAID = "hello, who is there?"
@@ -45,6 +47,18 @@ check(len(done) == 1 and done[0]["data"]["args"]["text"] == SAID
       "A's stream records the act")
 check(not [x for x in mine if x["ce_type"].startswith("speechrecog.recognition")],
       "A's stream has no recognition: A did not hear itself, and B's perception is not A's")
+
+seen = sse(B + "/bodies/b/events?from=0", lambda es: any(x["event"]["id"] == e["ce_id"] for x in es))
+p = next(x for x in seen if x["event"]["id"] == e["ce_id"])
+print("B's percept over HTTP:", p)
+check(p["event"]["type"] == "speechrecog.recognition-complete" and p["event"]["source"] == "/bodies/b/hearing"
+      and p["event"]["subject"] == b["id"] and p["event"]["data"]["text"] == e["data"]["text"],
+      "a head outside sees B's percept on GET /bodies/b/events, as a CloudEvent")
+seen = sse(A + "/bodies/a/events?from=0", lambda es: any(x["event"]["type"] == "body.act-complete" for x in es))
+act = next(x for x in seen if x["event"]["type"] == "body.act-complete")
+check(act["event"]["data"]["tool"] == "speak_aloud" and act["event"]["id"] == done[0]["ce_id"]
+      and act["event"]["source"] == "/bodies/a",
+      "a head outside sees A's act on GET /bodies/a/events")
 
 print("PASS")
 EOF

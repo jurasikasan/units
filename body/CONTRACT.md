@@ -1,5 +1,6 @@
 # body — contract
 
+Revision 2 (UNIT-127): its stream over HTTP for a head outside the inside network (§2.5).
 Revision 1 (UNIT-119): the body, a socket between the world and a head. It sees, hears,
 and does what it is given — today two things: speak aloud, and skip the turn.
 
@@ -8,6 +9,7 @@ senses' streams ─(its own sessions only)─▶ body's stream ◀─ its acts
         ▲                                                     │
   hearing / sight open                       MCP tools for a head
   (its ears, its eyes: GET /body)            speak_aloud → speaking → the ears in earshot
+                                             GET /bodies/<name>/events: the stream, over HTTP
 ```
 
 A head is whoever drives it — a model through `brain/`, Claude as a puppet, a person
@@ -135,6 +137,29 @@ next batch of perception. Answers at once.
 not configured). RTP sent to an ear is heard in the formats hearing takes (speaking's L16
 among them).
 
+### 2.5 `GET /bodies/<name>/events`
+
+The body's stream (§2.2) as [server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html),
+for a head that is not on the inside network: with this and `/mcp` a head needs only the
+body's base URL. `<name>` is `BODY_NAME`; any other name is `404` (the place for a host
+of many bodies, UNIT-122).
+
+- **Where it starts.** After the entry `Last-Event-ID` names (a reconnect), else after
+  `?from=<id>` (`from=0`: the whole stream), else from now — after the entry that was
+  last when the request came. An id that is not a stream entry id is `400`.
+- **One entry, one event.** `id:` the Redis entry id, `data:` the entry as a CloudEvent in
+  its JSON format: each `ce_` field without the prefix, `data` as JSON (as a string when it
+  is not JSON). No `event:` line: an `EventSource` gets each in `onmessage`.
+
+```
+id: 1764238502310-0
+data: {"specversion":"1.0","id":"7f1c…","source":"/bodies/b/hearing","type":"speechrecog.recognition-complete","subject":"0f6b…","time":"2026-11-27T10:15:04.120Z","datacontenttype":"application/json","traceparent":"00-…","data":{"text":"Hello, who is there?",…}}
+```
+
+- A comment line (`: keep-alive`) when nothing came for 15 s; the stream ends only when
+  the head goes or Redis fails (counted in `errors`; the head reconnects with its last id).
+- Each watcher holds one blocking read on Redis; there is no fan-out of its own.
+
 `GET /health`: `{"status": "ok", "version", "self", "counts"}` — `counts`: `relayed`,
 `foreign`, `dropped`, `opened`, `open_errors`, `acts`, `act_errors`, `errors`.
 
@@ -169,7 +194,7 @@ is_error, act_ms), and every failure with its `err`.
 | `BODY_EARSHOT` | other bodies' base URLs, comma-separated | — (nobody) |
 | `BODY_SPEAK_TIMEOUT` | how long `speak_aloud` waits for its phrase | `60s` |
 | `BODY_RETRY` | the pause before a sense is asked to open again | `2s` |
-| `PORT` | MCP, `GET /body`, `GET /health` | `8080` |
+| `PORT` | MCP, `GET /body`, the events, `GET /health` | `8080` |
 
 A malformed value stops the start.
 

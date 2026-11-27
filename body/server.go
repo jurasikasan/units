@@ -59,7 +59,8 @@ func (b *Body) MCPServer() *mcp.Server {
 	return srv
 }
 
-// Handler serves MCP on /mcp (streamable HTTP, stateless) and GET /body.
+// Handler serves MCP on /mcp (streamable HTTP, stateless), GET /body, and
+// the body's stream on GET /bodies/{name}/events.
 func (b *Body) Handler() *http.ServeMux {
 	srv := b.MCPServer()
 	mux := http.NewServeMux()
@@ -69,6 +70,7 @@ func (b *Body) Handler() *http.ServeMux {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(b.Self())
 	})
+	mux.HandleFunc("GET /bodies/{name}/events", b.serveEvents)
 	return mux
 }
 
