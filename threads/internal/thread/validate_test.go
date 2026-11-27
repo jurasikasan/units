@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -40,6 +41,33 @@ func TestValidateEntryKinds(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateEntry(tc.e)
+			if tc.ok {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrInvalid)
+			}
+		})
+	}
+}
+
+func TestValidateOccurred(t *testing.T) {
+	start := time.Date(2026, 11, 27, 21, 0, 12, 0, time.UTC)
+	same, after, before := start, start.Add(time.Second), start.Add(-time.Second)
+	cases := []struct {
+		name string
+		o    *Occurred
+		ok   bool
+	}{
+		{"none", nil, true},
+		{"a moment", &Occurred{Start: start}, true},
+		{"a span", &Occurred{Start: start, End: &after}, true},
+		{"an instant span", &Occurred{Start: start, End: &same}, true},
+		{"ends before it starts", &Occurred{Start: start, End: &before}, false},
+		{"no start", &Occurred{End: &after}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateEntry(NewEntry{Sender: alice, Kind: KindJoin, Occurred: tc.o})
 			if tc.ok {
 				require.NoError(t, err)
 			} else {

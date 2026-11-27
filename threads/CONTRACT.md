@@ -1,8 +1,10 @@
 # threads — contract
 
-Status: v0.2.0 — v0.1.0 plus a `file` block, and a `tool_result` that
-carries what the tool returned beside its words (`media`); every entry
-valid under v0.1.0 is valid still.
+Status: v0.3.0 — v0.2.0 plus an entry's optional `occurred`, when what it
+tells of happened (perception time beside `at`'s transport time); every
+entry valid under v0.2.0 is valid still. v0.2.0 added a `file` block, and a
+`tool_result` that carries what the tool returned beside its words
+(`media`).
 
 The traces subjects leave in the world: a thread is a journal of what happened
 in one place — what was said, who came and went. Shared by whoever takes part,
@@ -36,8 +38,25 @@ Name and members are not stored on the thread; they are read off its entries
 | `at` | when threads accepted it, RFC 3339, UTC |
 | `content` | a list of blocks, below; empty for kinds that carry none |
 | `name` | `update` only: the thread's new name |
+| `occurred` | optional, any kind: when what the entry tells of happened, below |
 
 An entry is never changed or deleted on its own. A correction is a new entry.
+
+### occurred
+
+Two times, kept apart as the senses keep them (envelope vs data): `at` is
+when threads accepted the entry, transport time; `occurred` is when what it
+tells of happened in the world, as its writer knows it — a sense's
+`started_at` / `ended_at`, the span a thought is about.
+
+| Field | Meaning |
+|---|---|
+| `start` | RFC 3339; required when `occurred` is given |
+| `end` | RFC 3339, optional (a moment, or a span still open); never before `start` |
+
+threads stores it and returns it in UTC (an offset written is converted, the
+instant kept), never fills it in, and never orders by it: `seq` stays the
+only order, so an entry about an earlier moment appended later reads later.
 
 ### kind
 
@@ -89,10 +108,11 @@ referenced; keeping those bytes is the writer's business.
   the order they joined).
 - `DELETE /threads/{id}` — the thread, its entries and its children's, for
   good. The one way anything leaves the journal.
-- `POST /threads/{id}/entries` — `{sender, kind, content?, name?}`; 201 with
-  the entry, `id`, `seq` and `at` filled in. 400 on an unknown kind or block
-  type, a field the entry or its block type does not have, or content that
-  does not fit the kind; 404 when the thread does not exist.
+- `POST /threads/{id}/entries` — `{sender, kind, content?, name?, occurred?}`;
+  201 with the entry, `id`, `seq` and `at` filled in. 400 on an unknown kind
+  or block type, a field the entry or its block type does not have, content
+  that does not fit the kind, or an `occurred` without `start` or ending
+  before it starts; 404 when the thread does not exist.
 - `GET /threads/{id}/entries` — always oldest first, `limit` 1…1000 (100 by
   default), and at most one of: `after={seq}` (the entries after it, 0 by
   default), `before={seq}` (the `limit` entries before it), `tail=true` (the

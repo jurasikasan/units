@@ -92,12 +92,26 @@ func (s *DefaultService) Append(ctx context.Context, thread uuid.UUID, n NewEntr
 	if content == nil {
 		content = []Block{}
 	}
-	e := &Entry{ID: uuid.New(), Thread: thread, Sender: n.Sender, Kind: n.Kind, Content: content, Name: n.Name}
+	e := &Entry{ID: uuid.New(), Thread: thread, Sender: n.Sender, Kind: n.Kind, Content: content, Name: n.Name,
+		Occurred: utc(n.Occurred)}
 	if err := s.repo.Append(ctx, e); err != nil {
 		return nil, err
 	}
 	s.announce(ctx, e)
 	return e, nil
+}
+
+// utc keeps the writer's instants, said in UTC as every time threads returns.
+func utc(o *Occurred) *Occurred {
+	if o == nil {
+		return nil
+	}
+	out := &Occurred{Start: o.Start.UTC()}
+	if o.End != nil {
+		end := o.End.UTC()
+		out.End = &end
+	}
+	return out
 }
 
 // announce publishes the append. A failure is logged and dropped: the journal

@@ -166,13 +166,15 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 // @Summary      Append an entry
 // @Description  Stores the entry at the end of the thread; seq, id and at are filled in.
 // @Description  create carries at least one block; join and leave nothing; update the new name.
+// @Description  occurred (optional, any kind): when what the entry tells of happened, {start, end?},
+// @Description  end not before start; stored and returned, never filled in, never an order.
 // @Tags         entries
 // @Accept       json
 // @Produce      json
 // @Param        id     path  string          true  "thread id"
-// @Param        entry  body  thread.NewEntry true  "sender, kind, content, name"
+// @Param        entry  body  thread.NewEntry true  "sender, kind, content, name, occurred"
 // @Success      201  {object}  thread.Entry
-// @Failure      400  {string}  string "Unknown kind or block type, or content that does not fit the kind"
+// @Failure      400  {string}  string "Unknown kind or block type, content that does not fit the kind, or occurred ending before it starts"
 // @Failure      404  {string}  string "No such thread"
 // @Router       /threads/{id}/entries [post]
 func (h *Handler) Append(w http.ResponseWriter, r *http.Request) {

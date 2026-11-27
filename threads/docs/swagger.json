@@ -295,7 +295,7 @@
                 }
             },
             "post": {
-                "description": "Stores the entry at the end of the thread; seq, id and at are filled in.\ncreate carries at least one block; join and leave nothing; update the new name.",
+                "description": "Stores the entry at the end of the thread; seq, id and at are filled in.\ncreate carries at least one block; join and leave nothing; update the new name.\noccurred (optional, any kind): when what the entry tells of happened, {start, end?},\nend not before start; stored and returned, never filled in, never an order.",
                 "consumes": [
                     "application/json"
                 ],
@@ -315,7 +315,7 @@
                         "required": true
                     },
                     {
-                        "description": "sender, kind, content, name",
+                        "description": "sender, kind, content, name, occurred",
                         "name": "entry",
                         "in": "body",
                         "required": true,
@@ -332,7 +332,7 @@
                         }
                     },
                     "400": {
-                        "description": "Unknown kind or block type, or content that does not fit the kind",
+                        "description": "Unknown kind or block type, content that does not fit the kind, or occurred ending before it starts",
                         "schema": {
                             "type": "string"
                         }
@@ -414,6 +414,14 @@
                 "name": {
                     "type": "string"
                 },
+                "occurred": {
+                    "description": "Occurred is when what the entry tells of happened, as its writer\nknows it; absent when the writer did not say. Never filled in here,\nnever an order: seq is.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/thread.Occurred"
+                        }
+                    ]
+                },
                 "sender": {
                     "type": "string"
                 },
@@ -440,6 +448,14 @@
                 "name": {
                     "type": "string"
                 },
+                "occurred": {
+                    "description": "Occurred is optional: when what the entry tells of happened.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/thread.Occurred"
+                        }
+                    ]
+                },
                 "sender": {
                     "type": "string"
                 }
@@ -452,6 +468,17 @@
                     "type": "string"
                 },
                 "parent": {
+                    "type": "string"
+                }
+            }
+        },
+        "thread.Occurred": {
+            "type": "object",
+            "properties": {
+                "end": {
+                    "type": "string"
+                },
+                "start": {
                     "type": "string"
                 }
             }

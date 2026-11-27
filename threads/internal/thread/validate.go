@@ -37,6 +37,14 @@ func validateEntry(e NewEntry) error {
 	if e.Sender == uuid.Nil {
 		return invalid("sender is required")
 	}
+	if o := e.Occurred; o != nil {
+		if o.Start.IsZero() {
+			return invalid("occurred needs start")
+		}
+		if o.End != nil && o.End.Before(o.Start) {
+			return invalid("occurred ends before it starts")
+		}
+	}
 	switch e.Kind {
 	case KindCreate:
 		if e.Name != "" {

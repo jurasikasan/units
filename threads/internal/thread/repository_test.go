@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -173,6 +174,40 @@ func TestLiveChildrenGoWithTheParent(t *testing.T) {
 	noParent := uuid.New()
 	_, err = svc.Open(ctx, NewThread{Parent: &noParent})
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+// occurred comes back as written, and the order stays seq's: an entry about
+// an earlier moment appended later is still later.
+func TestLiveOccurredRoundTripAndNeverOrders(t *testing.T) {
+	svc, _ := liveService(t)
+	ctx := context.Background()
+	th, err := svc.Open(ctx, NewThread{})
+	require.NoError(t, err)
+	late := time.Date(2026, 11, 27, 21, 0, 13, 0, time.UTC)
+	early := time.Date(2026, 11, 27, 21, 0, 12, 500_000_000, time.UTC)
+	earlyEnd := early.Add(700 * time.Millisecond)
+
+	first := say("later moment")
+	first.Occurred = &Occurred{Start: late}
+	_, err = svc.Append(ctx, th.ID, first)
+	require.NoError(t, err)
+	second := say("earlier span")
+	second.Occurred = &Occurred{Start: early, End: &earlyEnd}
+	_, err = svc.Append(ctx, th.ID, second)
+	require.NoError(t, err)
+	_, err = svc.Append(ctx, th.ID, say("no time"))
+	require.NoError(t, err)
+
+	es, err := svc.Entries(ctx, th.ID, PageQuery{})
+	require.NoError(t, err)
+	require.Len(t, es, 3)
+	require.Equal(t, "later moment", es[0].Content[0].Text)
+	require.True(t, late.Equal(es[0].Occurred.Start))
+	require.Nil(t, es[0].Occurred.End)
+	require.True(t, early.Equal(es[1].Occurred.Start))
+	require.True(t, earlyEnd.Equal(*es[1].Occurred.End))
+	require.Equal(t, time.UTC, es[1].Occurred.Start.Location())
+	require.Nil(t, es[2].Occurred)
 }
 
 func TestLiveBlocksRoundTrip(t *testing.T) {

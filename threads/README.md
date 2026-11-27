@@ -9,7 +9,9 @@ it promises is `CONTRACT.md`; this file is for working inside it.
   service publishes after the entry is stored, logs a failed publish and
   returns the entry anyway. No `REDIS_ADDR`, no publisher: threads works as
   before and announces nothing.
-- `internal/db` — the migration runner and `migrations/`, applied on boot.
+- `internal/db` — the migration runner and `migrations/`, applied on boot;
+  `0002_occurred` adds an entry's perception time (`occurred_start`,
+  `occurred_end`), held to end ≥ start by the table too.
 - `internal/thread/repository_test.go` — the SQL against a real Postgres
   (`THREADS_TEST_DATABASE_URL`); `check.sh` starts one in docker.
 - `internal/thread/announce_test.go` — the event's shape, a Redis that is down

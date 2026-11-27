@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -59,6 +60,12 @@ func TestAppendStatus(t *testing.T) {
 		{"a field a block does not have", `{"sender":"` + alice.String() + `","kind":"create","content":[{"type":"text","text":"hi","role":"user"}]}`, nil, 400},
 		{"a join with content", `{"sender":"` + alice.String() + `","kind":"join","content":[{"type":"text","text":"hi"}]}`, nil, 400},
 		{"no such thread", `{"sender":"` + alice.String() + `","kind":"join"}`, ErrNotFound, 404},
+		{"occurred, a moment", `{"sender":"` + alice.String() + `","kind":"join","occurred":{"start":"2026-11-27T21:00:12.5Z"}}`, nil, 201},
+		{"occurred, a span", `{"sender":"` + alice.String() + `","kind":"join","occurred":{"start":"2026-11-27T21:00:12Z","end":"2026-11-27T21:00:13Z"}}`, nil, 201},
+		{"occurred ending before it starts", `{"sender":"` + alice.String() + `","kind":"join","occurred":{"start":"2026-11-27T21:00:13Z","end":"2026-11-27T21:00:12Z"}}`, nil, 400},
+		{"occurred without start", `{"sender":"` + alice.String() + `","kind":"join","occurred":{"end":"2026-11-27T21:00:12Z"}}`, nil, 400},
+		{"occurred with a field it does not have", `{"sender":"` + alice.String() + `","kind":"join","occurred":{"start":"2026-11-27T21:00:12Z","at":"x"}}`, nil, 400},
+		{"occurred not a time", `{"sender":"` + alice.String() + `","kind":"join","occurred":{"start":"yesterday"}}`, nil, 400},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -75,6 +82,22 @@ func TestAppendStoresEmptyContentAsList(t *testing.T) {
 	require.Equal(t, 201, rec.Code)
 	require.NotNil(t, repo.appended[0].Content)
 	require.Contains(t, rec.Body.String(), `"content":[]`)
+}
+
+// occurred is kept as the writer's instant, said in UTC, and returned.
+func TestAppendKeepsOccurredInUTC(t *testing.T) {
+	repo := &fakeRepo{}
+	rec := serve(repo, http.MethodPost, tid+"/entries", `{"sender":"`+alice.String()+
+		`","kind":"join","occurred":{"start":"2026-11-27T23:00:12.5+02:00","end":"2026-11-27T21:00:13Z"}}`)
+	require.Equal(t, 201, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), `"occurred":{"start":"2026-11-27T21:00:12.5Z","end":"2026-11-27T21:00:13Z"}`)
+	require.Equal(t, time.UTC, repo.appended[0].Occurred.Start.Location())
+}
+
+func TestAppendWithoutOccurredReturnsNone(t *testing.T) {
+	rec := serve(&fakeRepo{}, http.MethodPost, tid+"/entries", `{"sender":"`+alice.String()+`","kind":"join"}`)
+	require.Equal(t, 201, rec.Code)
+	require.NotContains(t, rec.Body.String(), "occurred")
 }
 
 func TestEntriesPage(t *testing.T) {

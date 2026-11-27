@@ -162,10 +162,14 @@ func (r *PGXRepository) Append(ctx context.Context, e *Entry) error {
 	if e.Name != "" {
 		name = &e.Name
 	}
+	var start, end *time.Time
+	if e.Occurred != nil {
+		start, end = &e.Occurred.Start, e.Occurred.End
+	}
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO entries (id, thread, seq, sender, kind, content, name)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING at`,
-		e.ID, e.Thread, e.Seq, e.Sender, e.Kind, content, name).Scan(&e.At); err != nil {
+		`INSERT INTO entries (id, thread, seq, sender, kind, content, name, occurred_start, occurred_end)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING at`,
+		e.ID, e.Thread, e.Seq, e.Sender, e.Kind, content, name, start, end).Scan(&e.At); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -182,7 +186,7 @@ func (r *PGXRepository) Entries(ctx context.Context, thread uuid.UUID, p Page) (
 		return nil, ErrNotFound
 	}
 
-	const cols = `id, thread, seq, sender, kind, at, content, COALESCE(name, '')`
+	const cols = `id, thread, seq, sender, kind, at, content, COALESCE(name, ''), occurred_start, occurred_end`
 	var rows pgx.Rows
 	var err error
 	if p.Tail || p.Before > 0 {
@@ -206,10 +210,14 @@ func (r *PGXRepository) Entries(ctx context.Context, thread uuid.UUID, p Page) (
 		var e Entry
 		var content []byte
 		var at time.Time
-		if err := rows.Scan(&e.ID, &e.Thread, &e.Seq, &e.Sender, &e.Kind, &at, &content, &e.Name); err != nil {
+		var start, end *time.Time
+		if err := rows.Scan(&e.ID, &e.Thread, &e.Seq, &e.Sender, &e.Kind, &at, &content, &e.Name, &start, &end); err != nil {
 			return nil, err
 		}
 		e.At = at
+		if start != nil {
+			e.Occurred = utc(&Occurred{Start: *start, End: end})
+		}
 		if err := json.Unmarshal(content, &e.Content); err != nil {
 			return nil, fmt.Errorf("entry %s content: %w", e.ID, err)
 		}

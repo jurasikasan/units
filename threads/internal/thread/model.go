@@ -44,6 +44,18 @@ type Entry struct {
 	At      time.Time `json:"at"`
 	Content []Block   `json:"content"`
 	Name    string    `json:"name,omitempty"`
+	// Occurred is when what the entry tells of happened, as its writer
+	// knows it; absent when the writer did not say. Never filled in here,
+	// never an order: seq is.
+	Occurred *Occurred `json:"occurred,omitempty"`
+}
+
+// Occurred is perception time beside at's transport time: when what an
+// entry tells of happened in the world. End is absent for a moment or an
+// open span; it is never before Start.
+type Occurred struct {
+	Start time.Time  `json:"start"`
+	End   *time.Time `json:"end,omitempty"`
 }
 
 // NewEntry is what a caller sends to append; the rest is the service's.
@@ -52,6 +64,8 @@ type NewEntry struct {
 	Kind    string    `json:"kind"`
 	Content []Block   `json:"content,omitempty"`
 	Name    string    `json:"name,omitempty"`
+	// Occurred is optional: when what the entry tells of happened.
+	Occurred *Occurred `json:"occurred,omitempty"`
 }
 
 // Block types.
