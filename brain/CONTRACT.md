@@ -1,5 +1,8 @@
 # brain — contract
 
+Revision 3 (UNIT-122): one process carries many brains, made, changed and let go through
+an API (§2.7); who answers a thought is the brain's **policy**, changed on its own while
+buffers and memory stay; with no policy the brain perceives and does not think (§3).
 Revision 2 (UNIT-120): the brain acts through its body — one act per thought, turn by
 turn, never a loop (§2.5). Revision 1 (UNIT-118): the first brain, a minimal multiplexer of
 the senses; it perceives and thinks; its thoughts go to its log and to its memory.
@@ -12,8 +15,10 @@ sense streams → gate → per-channel buffers → tick → model (OpenAI, the b
 The point is its walls. The brain knows a sense only by its events, the model only by
 OpenAI's chat completions, its memory only by threads' REST API, a frame only by
 artifact_store's read by sha256, its body only by the MCP tools the body lists. §2 names
-exactly what crosses each wall; nothing else does. A third sense comes by config
-(`BRAIN_SENSES`), not by code; so does a body's stream (`body_<name>_events`), whose
+exactly what crosses each wall; nothing else does. Each wall is per brain: what the
+env names below (`BRAIN_*`, `MODEL*`) is the one brain made from the env, and the spec of
+§2.7 says the same for a brain made through the API. A third sense comes by config
+(`BRAIN_SENSES`, or a spec's `senses`), not by code; so does a body's stream (`body_<name>_events`), whose
 `/bodies/<name>/hearing` is the channel `hearing` like any other.
 
 ## 1. Two times
@@ -32,8 +37,9 @@ moment it was answered − the end of the perception span it is about.
 
 ### 2.1 In: the senses' events
 
-Redis streams named in `BRAIN_SENSES`, read by the consumer group `BRAIN_GROUP` (one
-consumer). A new group starts at the stream's end: on its first start the brain perceives
+Redis streams named in `BRAIN_SENSES` (a spec's `senses`, or its body's stream), read by
+the brain's consumer group — `BRAIN_GROUP` for the env's brain, `brain_<name>` for one made
+through the API (one consumer each). A new group starts at the stream's end: on its first start the brain perceives
 from then on, not the stream's history. A restart reads first what was delivered and not
 acknowledged, then resumes where the group left off. Every entry is acknowledged once
 taken, an unreadable one too (counted).
@@ -73,6 +79,11 @@ against the digest. Nothing else. A frame that cannot be fetched (store down, 40
 that are not the ones named) is said in words instead (§2.3), counted and logged.
 
 ### 2.3 Out: the model
+
+The brain's **policy** answers: today a model at an OpenAI chat door — `MODEL_URL`,
+`MODEL`, `MODEL_KEY` for the env's brain, a spec's `policy` `{model_url, model, key}` for
+one made through the API (§2.7). The policy is the RL word for what turns an observation
+into an action: the brain makes the observation and remembers; only the policy changes.
 
 `POST {MODEL_URL}/chat/completions` through OpenAI's Go SDK (`openai-go`, no retries), `Authorization: Bearer {MODEL_KEY}` when set.
 With a body (§2.5) the request also carries its `tools` and `"tool_choice": "required"`:
@@ -118,7 +129,7 @@ with neither, `(no words)`, or `(no words: <completion_cause>)` when that is not
 
 Read from the answer: `choices[0].message.content`, trimmed — the thought — and
 `choices[0].message.tool_calls` (§2.5). A model that fails or times out
-(`BRAIN_MODEL_TIMEOUT`) makes no thought and no act: logged and counted; the percepts are
+(the policy's `timeout`, else `BRAIN_MODEL_TIMEOUT`) makes no thought and no act: logged and counted; the percepts are
 still remembered.
 
 ### 2.4 Memory: threads (CONTRACT v0.3.0)
@@ -189,6 +200,55 @@ reason: `read`, `ignored`, `malformed`, `duplicates`, `gated`, `empty`, `expired
 `overflow`, `thoughts`, `model_errors`, `frame_errors`, `memory_errors`, `acts`,
 `act_errors`, `ignored_calls`, `skips`, `body_errors`.
 
+### 2.7 The host: `/brains`
+
+One process carries many brains, each with its own walls as above. Declarative: the
+application says what a brain is and the host makes it so; the host keeps nothing — after
+a restart it carries only what is declared again (memory is in threads, found by subject;
+each group resumes where it left off).
+
+**`PUT /brains/{name}`** — a spec, JSON, unknown fields refused. `{name}`: lower-case
+letters, digits, `_`, `-`; it names the group `brain_<name>`.
+
+```json
+{"subject": "0f6b…", "body": "http://bodies:8080/bodies/alice",
+ "policy": {"model_url": "http://litellm:4000/v1", "model": "brain", "key": "…", "timeout": "60s"},
+ "prompt": "…", "senses": ["body_alice_events"], "thread": "…",
+ "gate": "sight:closed", "keep": "4s,sight:1s", "senders": "hearing:<uuid>",
+ "buffer_max": 32, "settle": "500ms", "max_wait": "3s", "bind": "200ms", "recall": 20, "act_timeout": "90s"}
+```
+
+| Field | Meaning | Absent |
+|---|---|---|
+| `subject` | the character's subject id: memory is found by it (§2.4) | derived: uuid v5 of `urn:units:brain:<name>` |
+| `body` | the body's URL; its MCP is `{body}/mcp`; at `…/bodies/<n>` its stream `body_<n>_events` is read | no body: it only thinks |
+| `senses` | the streams to read | the body's stream; without a body at `…/bodies/<n>` it is required |
+| `policy` | who answers; `timeout` a duration | nobody: it perceives and does not think |
+| `prompt` | the system prompt's text | the host's (`BRAIN_PROMPT_FILE`, or `prompt.txt`) |
+| the rest | as `BRAIN_THREAD`, `BRAIN_GATE`, `BRAIN_KEEP`, `BRAIN_SENDERS`, `BRAIN_BUFFER_MAX`, `BRAIN_SETTLE`, `BRAIN_MAX_WAIT`, `BRAIN_BIND`, `BRAIN_RECALL`, `BRAIN_ACT_TIMEOUT` (§4), in their syntax | their defaults |
+
+`201` with the brain when it is new. A spec that differs from the brain's only in `policy`
+changes the policy and nothing else (`200`); the same spec, `200`, nothing changes; another
+spec lets the brain go and makes it anew (`200`). A spec refused: `400`, `bad_spec: …`.
+
+The answer, and each item of `GET /brains`:
+
+```json
+{"name": "alice", "subject": "0f6b…", "spec": {…, no policy}, "policy": {"model_url": "…", "model": "brain"}, "buffered": 0}
+```
+
+The policy's `key` is never answered.
+
+- **`PUT /brains/{name}/policy`** — a policy, or `null`: who answers from the next thought
+  on. Buffers, memory and the group are not touched. `404` for no such brain.
+- **`GET /brains/{name}/policy`** — the policy, or `null`.
+- **`GET /brains/{name}`** — the brain as above, with its `counts`.
+- **`DELETE /brains/{name}`** — lets it go: its reading stops, its thought in flight ends;
+  `204`, or `404`.
+
+`GET /health`: `{"status": "ok", "version", "brains": {"<name>": {"buffered", "counts"}}}`,
+and for the env's brain `buffered` and `counts` at the top as well.
+
 ## 3. The loop
 
 1. **Gate.** Per channel, open (default) or closed (`BRAIN_GATE`). A closed channel's
@@ -215,7 +275,10 @@ reason: `read`, `ignored`, `malformed`, `duplicates`, `gated`, `empty`, `expired
 4. **Moments.** A percept joins the moment before it when it starts within `BRAIN_BIND` of
    that moment's end (overlapping is within) and the moment holds another channel than its
    own: the senses' reports of one moment bind; two utterances alone are two moments.
-5. **Thought** — §2.3; with a body, its one act (§2.5); then the log (§2.6) and memory
+5. **No policy** — a tick with nobody to answer lets the percepts it took go: no thought,
+   nothing remembered, counted (`unthought`). The world does not wait for a player; what
+   happened meanwhile is learned later, from carriers or from others.
+6. **Thought** — §2.3; with a body, its one act (§2.5); then the log (§2.6) and memory
    (§2.4). The tick is not free again until the act is answered: one thought and one act
    at a time, turn by turn.
 
@@ -228,8 +291,9 @@ grows).
 | Variable | Meaning | Default |
 |---|---|---|
 | `REDIS_ADDR` | where the senses' streams are | — (required) |
-| `BRAIN_SENSES` | the streams to read, comma-separated | — (required) |
-| `BRAIN_GROUP` | the consumer group | `brain` |
+| `BRAIN_SENSES` | the streams to read, comma-separated; set, a brain is made from the env at start | — (no brain from the env: only what is PUT) |
+| `BRAIN_NAME` | the env's brain's name on `/brains` | `self` |
+| `BRAIN_GROUP` | the env's brain's consumer group | `brain` |
 | `BRAIN_GATE` | `channel:open\|closed`, comma-separated | every channel open |
 | `BRAIN_KEEP` | `channel:duration`, and a bare duration for every channel not named | `4s` |
 | `BRAIN_BUFFER_MAX` | percepts per channel at most | `32` |
@@ -241,7 +305,7 @@ grows).
 | `BRAIN_THREAD` | the memory thread's id | found or opened (§2.4) |
 | `BRAIN_SUBJECT` | the brain's subject id | derived: uuid v5 (URL namespace) of `urn:units:brain:self` |
 | `BRAIN_SENDERS` | `channel:subject-id`, comma-separated | derived per channel: uuid v5 of `urn:units:brain:channel:<channel>` |
-| `BRAIN_MODEL_TIMEOUT` | how long one thought may take | `60s` |
+| `BRAIN_MODEL_TIMEOUT` | how long one thought may take, for a policy that names no timeout | `60s` |
 | `BRAIN_BODY` | the body's MCP, e.g. `http://body_a:8080/mcp` | — (no body: it only thinks) |
 | `BRAIN_ACT_TIMEOUT` | how long one act may take | `90s` |
 | `MODEL_URL` | an OpenAI-shaped chat base | `http://litellm:4000/v1` |
@@ -249,7 +313,10 @@ grows).
 | `MODEL_KEY` | its bearer; empty for an engine | — |
 | `THREADS_URL` | threads' base | `http://threads:8085` |
 | `ARTIFACT_URL` | artifact_store's base | `http://artifact_store:8094` |
-| `PORT` | `GET /health` | `8080` |
+| `PORT` | `/brains`, `GET /health` | `8080` |
+
+`THREADS_URL`, `ARTIFACT_URL`, `BRAIN_PROMPT_FILE` and `BRAIN_MODEL_TIMEOUT` are the host's,
+for every brain; the rest make the env's brain only.
 
 A malformed value stops the start: a brain running on a knob it did not read is worse than
 one that did not start.

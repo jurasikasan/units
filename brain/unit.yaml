@@ -3,12 +3,21 @@
 
 unit: brain
 kind: brain             # perceives, thinks, and acts through its body: one act per thought
-summary: The first brain, a minimal multiplexer of the senses. Reads the senses' recognitions off their streams, gates and buffers them per channel by perception time, thinks one thought at a time through an OpenAI chat door with the frames as pictures and, with a body, its tools offered; does the answer's first tool call on the body, never feeding the result back within the thought; writes the thought, the act and what it perceived to its thread.
+summary: The first brain, a minimal multiplexer of the senses; one process carries many, made, changed and let go through PUT /brains/{name}, each one's policy (who answers a thought) changed on its own. Reads the senses' recognitions off their streams, gates and buffers them per channel by perception time, thinks one thought at a time through an OpenAI chat door with the frames as pictures and, with a body, its tools offered; does the answer's first tool call on the body, never feeding the result back within the thought; writes the thought, the act and what it perceived to its thread.
 contract: CONTRACT.md
 maturity: probe
 
 provides:
-  health: GET :8080/health     # status, what waits, and what was dropped by reason
+  http:
+    port: 8080
+    calls:
+      - PUT /brains/{name}          # a spec: subject, body, policy, prompt, knobs; declarative, kept nowhere
+      - GET /brains
+      - GET /brains/{name}
+      - DELETE /brains/{name}
+      - PUT /brains/{name}/policy   # who answers: {model_url, model, key?, timeout?} or null
+      - GET /brains/{name}/policy
+  health: GET :8080/health     # status, and per brain what waits and what was dropped by reason
 
 consumes:
   units:
@@ -31,7 +40,7 @@ consumes:
       types: [speechrecog.start-of-input, speechrecog.recognition-complete, sightrecog.start-of-input, sightrecog.recognition-complete]
     - unit: body              # acts: whatever tools the body lists, offered to the model; one call per thought
       via: mcp
-      env: BRAIN_BODY
+      env: BRAIN_BODY         # or a spec's body: {body}/mcp
       tools: []
     - unit: litellm          # a router, or one engine: any OpenAI-shaped chat door (with vision, for frames)
       via: http
@@ -52,9 +61,13 @@ wire: []
 config:
   required:
     REDIS_ADDR: where the senses' streams are
-    BRAIN_SENSES: the senses' streams to read, comma-separated, e.g. hearing_events,sight_events
   optional:
     PORT: "8080"
+    # A brain made from the env at start when BRAIN_SENSES is set; the knobs
+    # below are its. THREADS_URL, ARTIFACT_URL, BRAIN_PROMPT_FILE and
+    # BRAIN_MODEL_TIMEOUT are the host's, for every brain.
+    BRAIN_SENSES: ""              # the senses' streams to read, comma-separated, e.g. hearing_events,sight_events; empty: no brain from the env
+    BRAIN_NAME: self              # the env's brain's name on /brains
     BRAIN_GROUP: brain            # the consumer group on each stream; a restart resumes where it left off
     BRAIN_GATE: ""                # channel:open|closed, comma-separated; a channel not named is open
     BRAIN_KEEP: 4s                # each channel's lifetime in perception time: channel:duration, and a bare duration for the rest
@@ -67,7 +80,7 @@ config:
     BRAIN_THREAD: ""              # the thread id; empty: found by BRAIN_SUBJECT's membership, or opened and joined
     BRAIN_SUBJECT: ""             # the brain's subject id; empty: one derived, the same on every start
     BRAIN_SENDERS: ""             # channel:subject-id, comma-separated, what each sense writes as; a channel not named: one derived from its name
-    BRAIN_MODEL_TIMEOUT: 60s      # how long one thought may take
+    BRAIN_MODEL_TIMEOUT: 60s      # how long one thought may take, for a policy that names no timeout
     BRAIN_BODY: ""                # the body's MCP, e.g. http://body_a:8080/mcp; empty: no body, it only thinks
     BRAIN_ACT_TIMEOUT: 90s        # how long one act on the body may take
     MODEL_URL: http://litellm:4000/v1

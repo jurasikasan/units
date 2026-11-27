@@ -6,7 +6,9 @@ through an OpenAI chat door — the frames sent as pictures — and writes the t
 log and, with what it perceived, to its thread in `threads`. With a body (`BRAIN_BODY`,
 [`body/`](../body/)) it acts: the body's tools are offered to the model, and the first call
 of each answer is done on the body — one act per thought, its result remembered, never
-fed back within the thought. Turn-based on purpose: no agent loop.
+fed back within the thought. Turn-based on purpose: no agent loop. One process carries
+many brains, made, changed and let go through `PUT /brains/{name}`; who answers a thought —
+the brain's policy — is changed on its own, buffers and memory kept.
 
 What it promises, and exactly what crosses its walls, is `CONTRACT.md`; this file is for
 working inside it.
@@ -24,14 +26,19 @@ working inside it.
 - `doors.go` — the model (`POST /chat/completions`, through openai-go) and artifact_store (`GET
   /v1/_sha256/{hex}`); `memory.go` — threads (find or open the thread, recall, append).
 - `streams.go` — the consumer group: the unacknowledged first, then new entries.
+- `host.go` — the host: a spec read into a brain (`Build`), `Put` (a policy changed alone,
+  a brain made anew on another spec), `Delete`, the `/brains` API and `GET /health`.
 - `config.go` — `BRAIN_GATE`, `BRAIN_KEEP`, `BRAIN_SENDERS` and the defaults;
-  `cmd/brain` reads the environment, fails on a malformed value, serves `GET /health`.
+  `cmd/brain` reads the environment, makes the env's brain through the host when
+  `BRAIN_SENSES` is set, fails on a malformed value.
 - `prompt.txt` — the default system prompt, embedded.
 
 Tests: the model, threads and artifact_store are fakes (`httptest`) answering only the
 routes the contract names (`mind_test.go`); the body is a fake MCP server built with the
 SDK and the model answers with tool calls (`body_test.go`); the streams run against a real Redis
-(`streams_test.go`, `BRAIN_TEST_REDIS_ADDR`), which `check.sh` starts in docker.
+(`streams_test.go`, `BRAIN_TEST_REDIS_ADDR`), which `check.sh` starts in docker. The host
+is tested through its HTTP API (`host_test.go`): a brain made, its policy changed and taken
+away, made anew, let go; specs refused.
 
 ```bash
 bash check.sh
@@ -51,4 +58,5 @@ docker compose -f showcase/compose.yaml down -v
 
 Acting is shown in the body's "nowhere" showcase, its second step: two bodies, a brain
 behind each, a conversation of a few turns (`../body/showcase/conversation.yaml`, see
-[body's README](../body/README.md)).
+[body's README](../body/README.md)); its third step makes both bodies and both brains
+through the hosts' APIs and changes a policy mid-conversation (`hosts.yaml`).

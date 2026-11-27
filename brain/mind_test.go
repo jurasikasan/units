@@ -227,12 +227,12 @@ func newRigWith(t *testing.T, tune func(*Config), setup func(*rig)) *rig {
 	}
 	r.mind = &Mind{
 		Cfg:    cfg,
-		Model:  Model{URL: ms.URL + "/v1", Name: "brain"},
 		Store:  Store{URL: ss.URL},
 		Memory: &Memory{URL: ts.URL, Self: self},
 		Counts: &Counts{},
 		Log:    slog.New(slog.NewJSONHandler(r.log, nil)),
 	}
+	r.mind.SetPolicy(&Policy{Model: Model{URL: ms.URL + "/v1", Name: "brain"}})
 	r.events = make(chan Event, 16)
 	if setup != nil {
 		setup(r)

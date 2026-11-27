@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"log/slog"
 	"net/http"
@@ -13,8 +12,6 @@ import (
 	"strconv"
 	"syscall"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/jurasikasan/units/brain"
 	sharedredis "github.com/jurasikasan/units/shared/redis"
@@ -26,101 +23,57 @@ var version = "dev"
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	senses := brain.ParseList(os.Getenv("BRAIN_SENSES"))
-	if len(senses) == 0 {
-		log.Fatal("brain: BRAIN_SENSES names no stream: the streams of the senses to read, e.g. hearing_events,sight_events")
-	}
-	closed, err := brain.ParseGate(envStr("BRAIN_GATE", ""))
-	must(err, "BRAIN_GATE")
-	keep, keepDefault, err := brain.ParseKeep(envStr("BRAIN_KEEP", ""), brain.DefaultKeep)
-	must(err, "BRAIN_KEEP")
-	senders, err := brain.ParseSenders(envStr("BRAIN_SENDERS", ""))
-	must(err, "BRAIN_SENDERS")
-	self := brain.DerivedSubject("self")
-	if v := envStr("BRAIN_SUBJECT", ""); v != "" {
-		self, err = uuid.Parse(v)
-		must(err, "BRAIN_SUBJECT")
-	}
-	prompt := brain.DefaultPrompt
+	prompt := ""
 	if f := envStr("BRAIN_PROMPT_FILE", ""); f != "" {
 		raw, err := os.ReadFile(f)
 		must(err, "BRAIN_PROMPT_FILE")
 		prompt = string(raw)
 	}
-	thread := envStr("BRAIN_THREAD", "")
-	if thread != "" {
-		_, err := uuid.Parse(thread)
-		must(err, "BRAIN_THREAD")
-	}
-
-	cfg := brain.Config{
-		Closed: closed, Keep: keep, KeepDefault: keepDefault,
-		BufferMax:    envInt("BRAIN_BUFFER_MAX", brain.DefaultBufferMax),
-		Settle:       envDur("BRAIN_SETTLE", brain.DefaultSettle),
-		MaxWait:      envDur("BRAIN_MAX_WAIT", brain.DefaultMaxWait),
-		Bind:         envDur("BRAIN_BIND", brain.DefaultBind),
-		Recall:       envInt("BRAIN_RECALL", brain.DefaultRecall),
+	hc := brain.HostConfig{
+		ThreadsURL:   envStr("THREADS_URL", brain.DefaultThreadsURL),
+		ArtifactURL:  envStr("ARTIFACT_URL", brain.DefaultArtifactURL),
 		Prompt:       prompt,
-		Self:         self,
-		Senders:      senders,
 		ModelTimeout: envDur("BRAIN_MODEL_TIMEOUT", brain.DefaultModelTimeout),
-		ActTimeout:   envDur("BRAIN_ACT_TIMEOUT", brain.DefaultActTimeout),
-	}
-	if cfg.Recall > 1000 {
-		log.Fatal("brain: BRAIN_RECALL is at most 1000, threads' page")
-	}
-	client := &http.Client{Timeout: 30 * time.Second}
-	// Without a body the brain thinks and does nothing (CONTRACT §2.5). An
-	// act may take as long as the body takes to do it: the act's own timeout
-	// bounds it, not the client's.
-	var body *brain.Body
-	if u := envStr("BRAIN_BODY", ""); u != "" {
-		body = &brain.Body{URL: u, HTTP: &http.Client{}}
-	}
-	counts := &brain.Counts{}
-	memory := &brain.Memory{URL: envStr("THREADS_URL", brain.DefaultThreadsURL), Client: client, Self: self, Thread: thread}
-	mind := &brain.Mind{
-		Cfg:    cfg,
-		Model:  brain.Model{URL: envStr("MODEL_URL", brain.DefaultModelURL), Key: envStr("MODEL_KEY", ""), Name: envStr("MODEL", brain.DefaultModel), Client: &http.Client{}},
-		Store:  brain.Store{URL: envStr("ARTIFACT_URL", brain.DefaultArtifactURL), Client: client},
-		Memory: memory,
-		Body:   body,
-		Counts: counts,
-		Log:    logger,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-
 	rdb := sharedredis.GetRedisClient(ctx)
-	streams := brain.Streams{Client: rdb, Names: senses, Group: envStr("BRAIN_GROUP", brain.DefaultGroup), Consumer: "brain"}
-	if err := streams.Ensure(ctx); err != nil {
-		log.Fatalf("brain: %v", err)
-	}
-	logger.Info("brain: up", "version", version, "senses", senses, "group", streams.Group, "self", self.String(),
-		"keep_default", keepDefault.String(), "settle", cfg.Settle.String(), "max_wait", cfg.MaxWait.String(),
-		"bind", cfg.Bind.String(), "recall", cfg.Recall, "thread", thread, "body", body != nil)
-	if id, opened, err := memory.Resolve(ctx); err != nil {
-		logger.Warn("memory: no thread yet, trying again at each thought", "err", err.Error())
-	} else {
-		logger.Info("memory: thread", "thread", id, "opened", opened)
-	}
+	h := brain.NewHost(hc, rdb, logger)
+	h.Start(ctx)
 
-	events := make(chan brain.Event, 64)
-	go streams.Run(ctx, events, counts, logger)
-	go mind.Run(ctx, events)
+	// A brain named by the env (BRAIN_SENSES) is made at start, as a brain
+	// run alone always was: its group BRAIN_GROUP, its subject BRAIN_SUBJECT,
+	// its policy the env's model. Without one, the host carries only what
+	// is PUT.
+	if senses := brain.ParseList(os.Getenv("BRAIN_SENSES")); len(senses) > 0 {
+		name := envStr("BRAIN_NAME", "self")
+		spec := brain.Spec{
+			Subject: envStr("BRAIN_SUBJECT", ""), Senses: senses, Thread: envStr("BRAIN_THREAD", ""),
+			Gate: envStr("BRAIN_GATE", ""), Keep: envStr("BRAIN_KEEP", ""), Senders: envStr("BRAIN_SENDERS", ""),
+			BufferMax: envInt("BRAIN_BUFFER_MAX", brain.DefaultBufferMax),
+			Settle:    envStr("BRAIN_SETTLE", ""), MaxWait: envStr("BRAIN_MAX_WAIT", ""), Bind: envStr("BRAIN_BIND", ""),
+			ActTimeout: envStr("BRAIN_ACT_TIMEOUT", ""),
+			Policy: &brain.PolicySpec{ModelURL: envStr("MODEL_URL", brain.DefaultModelURL),
+				Model: envStr("MODEL", brain.DefaultModel), Key: envStr("MODEL_KEY", "")},
+		}
+		recall := envInt("BRAIN_RECALL", brain.DefaultRecall)
+		spec.Recall = &recall
+		bodyMCP, group := envStr("BRAIN_BODY", ""), envStr("BRAIN_GROUP", brain.DefaultGroup)
+		h.Default = name
+		h.Overrides = func(b *brain.Built) { b.BodyMCP, b.Group = bodyMCP, group }
+		l, _, err := h.Put(ctx, name, spec)
+		must(err, "the brain of the env")
+		logger.Info("brain: the env's brain made", "name", name, "senses", senses, "group", group,
+			"subject", l.Subject, "body", bodyMCP != "")
+	}
+	logger.Info("brain: up", "version", version, "default", h.Default)
 
 	port := envInt("PORT", brain.DefaultPort)
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status": "ok", "version": version, "buffered": mind.Buffered(), "counts": counts.Snapshot(),
-		})
-	})
-	srv := &http.Server{Addr: ":" + strconv.Itoa(port), Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: ":" + strconv.Itoa(port), Handler: h.Handler(version), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
+		h.Stop()
 		_ = srv.Close()
 	}()
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

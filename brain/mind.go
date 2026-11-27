@@ -64,10 +64,16 @@ func DerivedSubject(name string) uuid.UUID {
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("urn:units:brain:"+name))
 }
 
+// Policy is who answers a thought now (CONTRACT §2.3): today a model at an
+// OpenAI chat door. Timeout bounds one thought; zero: the config's.
+type Policy struct {
+	Model   Model
+	Timeout time.Duration
+}
+
 // Mind is the loop: events in, gate, buffers, tick, one thought at a time.
 type Mind struct {
 	Cfg    Config
-	Model  Model
 	Store  Store
 	Memory *Memory
 	// Body is what the brain acts through; nil: it only thinks.
@@ -77,6 +83,7 @@ type Mind struct {
 	// Now is the brain's clock; time.Now when nil.
 	Now func() time.Time
 
+	policy   atomic.Pointer[Policy]
 	buffered atomic.Int64
 	bufs     *Buffers
 	opens    map[string]time.Time // channel + request_id of a start-of-input → when it came
@@ -89,6 +96,13 @@ type Mind struct {
 }
 
 // Buffered is how many percepts wait for a tick now.
+// SetPolicy changes who answers from the next thought on; nil: nobody, and
+// the brain perceives and does not think. Buffers and memory are not touched.
+func (m *Mind) SetPolicy(p *Policy) { m.policy.Store(p) }
+
+// Policy is who answers now, or nil.
+func (m *Mind) Policy() *Policy { return m.policy.Load() }
+
 func (m *Mind) Buffered() int { return int(m.buffered.Load()) }
 
 func (m *Mind) now() time.Time {
@@ -140,9 +154,17 @@ func (m *Mind) Run(ctx context.Context, events <-chan Event) {
 			if len(ps) == 0 {
 				continue
 			}
+			p := m.Policy()
+			if p == nil {
+				// Nobody to think them: let go, not remembered. The world
+				// does not wait for a player.
+				m.Counts.Unthought.Add(int64(len(ps)))
+				m.Log.Info("no thought: no policy", "percepts", len(ps))
+				continue
+			}
 			thinking = true
 			go func() {
-				m.think(ctx, ps)
+				m.think(ctx, ps, p)
 				done <- struct{}{}
 			}()
 		}
@@ -206,7 +228,7 @@ func (m *Mind) due() bool {
 }
 
 // think makes one thought of ps: recall, the model, the log, memory.
-func (m *Mind) think(ctx context.Context, ps []Percept) {
+func (m *Mind) think(ctx context.Context, ps []Percept, p *Policy) {
 	moments := Bind(ps, m.Cfg.Bind)
 	start, end := Span(ps)
 
@@ -240,9 +262,13 @@ func (m *Mind) think(ctx context.Context, ps []Percept) {
 	}
 
 	tools := m.tools(ctx)
-	tctx, cancel := context.WithTimeout(ctx, m.Cfg.ModelTimeout)
+	timeout := p.Timeout
+	if timeout <= 0 {
+		timeout = m.Cfg.ModelTimeout
+	}
+	tctx, cancel := context.WithTimeout(ctx, timeout)
 	asked := m.now()
-	answer, err := m.Model.Think(tctx, msgs, tools)
+	answer, err := p.Model.Think(tctx, msgs, tools)
 	cancel()
 	answered := m.now()
 	sentFirst, sentLast := sentSpan(ps)

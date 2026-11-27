@@ -106,3 +106,14 @@ func (b *Body) Act(ctx context.Context, name string, args map[string]any) (resul
 	}
 	return strings.Join(parts, "\n"), res.IsError, nil
 }
+
+// Close ends the session to the body, if there is one.
+func (b *Body) Close() {
+	b.mu.Lock()
+	cs := b.cs
+	b.cs = nil
+	b.mu.Unlock()
+	if cs != nil {
+		_ = cs.Close()
+	}
+}
