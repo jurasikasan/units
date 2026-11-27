@@ -1,0 +1,65 @@
+# Manifest: what a reader outside the unit reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: senses/sight
+kind: sense             # a sense: the camera is the device on the wire, RTP the nerve
+summary: The sense of sight. Takes RTP video (H.264, decoded through ffmpeg) and already-worded observations in, notices a change in the scene, keeps the frames in artifact_store, has them put into words, reports it with the stream's own times. Decides nothing.
+contract: CONTRACT.md
+maturity: probe         # probe | stable | legacy
+
+provides:
+  mcp:
+    hub_name: sight     # the prefix mcp-hub gives its tools: sight.open, …
+    port: 8080
+    tools: [open, close]
+  events:
+    stream: sight_events
+    envelope: cloudevents-1.0     # contracts/events.md
+    source: /senses/sight
+    types:                        # MRCPv2's recognizer shape under sight's own resource (CONTRACT §7)
+      - sightrecog.start-of-input
+      - sightrecog.recognition-complete
+      - sightrecog.session-closed
+  health: GET :8080/health
+
+consumes:
+  units:
+    - unit: litellm         # a router, or one engine: any OpenAI-shaped chat door with a vision model
+      via: http
+      env: VISION_URL
+      calls: [POST /v1/chat/completions]
+    - unit: artifact_store  # the change frame and the described frame, as JPEG; events name them by sha256
+      via: http
+      env: ARTIFACT_URL
+      calls: ["PUT /v1/{space}/{name}"]
+  infra: [redis]        # REDIS_ADDR, through units/shared/redis
+
+# Needs ffmpeg in the image (the Dockerfile installs it): H.264 is decoded by an
+# ffmpeg process per stream (CONTRACT §4.1).
+# What is seen arrives here: a video stream on a UDP port pair per open session,
+# words (and single frames) as SenML packs on one URL per session.
+wire:
+  - 45000-45199/udp     # video_in: RTP H.264 on the even port, RTCP on the one above
+  - 8080/tcp            # sight_in: POST /in/{session_id}, application/senml+json
+
+config:
+  required:
+    REDIS_ADDR: sight_events stream target
+  optional:
+    PORT: "8080"
+    VISION_URL: http://litellm:4000/v1
+    VISION_KEY: ""                 # the router's bearer; empty for an engine
+    VISION_MODEL: vision           # the router's group, or the engine's name
+    SIGHT_VISION_TIMEOUT: 60s
+    SIGHT_CHANGE_THRESHOLD: "0.06" # mean grey difference (0-1) from the frame last described that is a change
+    SIGHT_DESCRIBE_EVERY: 10s      # the rate limit: at most one description per this much of the input's time; 0 = none
+    SIGHT_SAMPLE_EVERY: 500ms      # at most one decoded picture per this much of the stream's time goes to the detector; 0 = every one
+    SIGHT_MAX_SESSIONS: "4"
+    SIGHT_IDLE_TIMEOUT: 2m
+    SIGHT_IN_URL: http://sight:8080   # the base senders reach sight by; sight_in is {SIGHT_IN_URL}/in/{session_id}
+    VIDEO_IN_HOST: sight           # the host video_in is given out with
+    VIDEO_IN_PORT_MIN: "45000"
+    VIDEO_IN_PORT_MAX: "45199"
+    SIGHT_FFMPEG: ffmpeg           # the ffmpeg binary
+    ARTIFACT_URL: http://artifact_store:8094
+    SIGHT_ARTIFACT_SPACE: sight    # artifact_store's space; its RETENTION for it is how long frames are kept

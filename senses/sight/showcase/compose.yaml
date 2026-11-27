@@ -1,0 +1,86 @@
+name: sight-showcase
+
+# Sight on its own: a vision door that sees without a model (fake_vision.py),
+# artifact_store with its own Postgres and MinIO for the frames sight keeps,
+# sight, and a fake source (demo.sh) that streams a generated video over RTP
+# with ffmpeg and sends a worded observation as SenML, then checks the events
+# on sight_events and that their frames resolve in artifact_store.
+#   docker compose up --build --abort-on-container-exit --exit-code-from demo
+services:
+  redis:
+    image: redis:7-alpine
+
+  fake_vision:
+    image: python:3.12-alpine
+    volumes: [./fake_vision.py:/fake_vision.py:ro]
+    command: [python3, -u, /fake_vision.py]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 1s
+      retries: 30
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: store
+      POSTGRES_PASSWORD: store
+      POSTGRES_DB: store
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "store"]
+      interval: 1s
+      retries: 30
+
+  minio:
+    image: minio/minio:latest
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: showcase
+      MINIO_ROOT_PASSWORD: showcase
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 1s
+      retries: 30
+
+  artifact_store:
+    build: ../../../artifact_store
+    image: units-artifact-store:${UNITS_TAG:-local}
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    environment:
+      DATABASE_URL: postgres://store:store@postgres:5432/store?sslmode=disable
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY_ID: showcase
+      MINIO_SECRET_ACCESS_KEY: showcase
+      RETENTION: sight=1d     # how long sight's frames are kept
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8094/health"]
+      interval: 1s
+      retries: 30
+
+  sight:
+    build: ..
+    image: units-senses-sight:${UNITS_TAG:-local}
+    environment:
+      REDIS_ADDR: redis:6379
+      VISION_URL: http://fake_vision:8000/v1
+      VISION_MODEL: vision
+      ARTIFACT_URL: http://artifact_store:8094
+      SIGHT_ARTIFACT_SPACE: sight
+      SIGHT_IN_URL: http://sight:8080
+      VIDEO_IN_HOST: sight
+      SIGHT_DESCRIBE_EVERY: 1s     # the scene changes 2 s in: described as it is seen
+      SIGHT_SAMPLE_EVERY: 100ms    # every picture of the 10 fps stream
+    depends_on:
+      redis: {condition: service_started}
+      fake_vision: {condition: service_healthy}
+      artifact_store: {condition: service_healthy}
+
+  demo:
+    build:
+      context: .
+      dockerfile: demo.Dockerfile
+    depends_on:
+      sight: {condition: service_started}
+    volumes: [./demo.sh:/demo.sh:ro]
+    entrypoint: ["sh", "/demo.sh"]
