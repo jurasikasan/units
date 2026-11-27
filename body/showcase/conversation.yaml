@@ -1,0 +1,89 @@
+# "Nowhere", step two (UNIT-120), on top of compose.yaml: a brain behind each
+# body. Each brain perceives only its body's stream and acts only through its
+# body's MCP; their memories are threads (its own Postgres); their mind is a
+# scripted model (conversation_model.py) that answers every thought with one
+# tool call — its next line through speak_aloud, or skip_turn.
+#
+# The demo starts it by speaking once as A: "hello, who is there?". Then the
+# brains take turns: B answers, A answers, B answers, A has nothing to say.
+#   docker compose -f body/showcase/compose.yaml -f body/showcase/conversation.yaml up --build --abort-on-container-exit --exit-code-from demo
+#   docker compose -f body/showcase/compose.yaml -f body/showcase/conversation.yaml down -v
+services:
+  threads_db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: threads
+      POSTGRES_PASSWORD: threads
+      POSTGRES_DB: threads
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "threads"]
+      interval: 1s
+      retries: 30
+
+  threads:
+    build: ../../threads
+    image: units-threads:${UNITS_TAG:-local}
+    depends_on:
+      threads_db: {condition: service_healthy}
+    environment:
+      DATABASE_URL: postgres://threads:threads@threads_db:5432/threads?sslmode=disable
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/ready"]
+      interval: 1s
+      retries: 30
+
+  fake_model:
+    image: python:3.12-alpine
+    volumes: [./conversation_model.py:/conversation_model.py:ro]
+    command: [python3, -u, /conversation_model.py]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 1s
+      retries: 30
+
+  brain_a:
+    build: ../../brain
+    image: units-brain:${UNITS_TAG:-local}
+    environment: &brain
+      REDIS_ADDR: redis:6379
+      BRAIN_SENSES: body_a_events
+      BRAIN_BODY: http://body_a:8080/mcp
+      BRAIN_SUBJECT: 00000000-0000-0000-0000-00000000a0a1
+      MODEL_URL: http://fake_model:8000/v1
+      MODEL: a
+      THREADS_URL: http://threads:8085
+    depends_on:
+      redis: {condition: service_healthy}
+      threads: {condition: service_healthy}
+      fake_model: {condition: service_healthy}
+      body_a: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 1s
+      retries: 30
+
+  brain_b:
+    image: units-brain:${UNITS_TAG:-local}
+    environment:
+      <<: *brain
+      BRAIN_SENSES: body_b_events
+      BRAIN_BODY: http://body_b:8080/mcp
+      BRAIN_SUBJECT: 00000000-0000-0000-0000-00000000b0b1
+      MODEL: b
+    depends_on:
+      brain_a: {condition: service_started}   # built there
+      redis: {condition: service_healthy}
+      threads: {condition: service_healthy}
+      fake_model: {condition: service_healthy}
+      body_b: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 1s
+      retries: 30
+
+  demo:
+    depends_on:
+      brain_a: {condition: service_healthy}
+      brain_b: {condition: service_healthy}
+    volumes: [./demo.sh:/demo.sh:ro, ./lib.py:/lib.py:ro, ./conversation.sh:/conversation.sh:ro]
+    entrypoint: ["sh", "/conversation.sh"]

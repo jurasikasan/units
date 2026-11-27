@@ -1,0 +1,89 @@
+# Manifest: what a reader outside the unit reads instead of its code.
+# Meaning lives in CONTRACT.md; this is what a validator and an assembler read.
+
+unit: body
+kind: body              # a socket between the world and a head: senses in, acts out, no mind
+summary: A body, one subject. Opens its own hearing and sight sessions and serves where they take input as its ears and eyes (GET /body, with its description); republishes its own perception, and only its own, onto its stream; offers its acts — speak_aloud through speaking to the ears of the bodies in its earshot, skip_turn — as MCP tools to whoever drives it, and records each act beside its percepts.
+contract: CONTRACT.md
+maturity: probe
+
+provides:
+  mcp:
+    hub_name: body      # one per running body; a head lists the tools, never assumes them
+    port: 8080          # streamable HTTP, stateless, on /mcp
+    tools: [speak_aloud, skip_turn]   # speak_aloud only with a mouth (SPEAKING_MCP_URL)
+    resources: ["body://self"]
+  events:
+    stream: body_{name}_events    # {name} is BODY_NAME; BODY_STREAM names another
+    envelope: cloudevents-1.0     # contracts/events.md
+    # /bodies/{name} for its acts, /bodies/{name}/hearing and /bodies/{name}/sight for
+    # what its senses reported, republished as they came; ce_subject is BODY_ID.
+    types:
+      - speechrecog.start-of-input
+      - speechrecog.recognition-complete
+      - speechrecog.session-closed
+      - sightrecog.start-of-input
+      - sightrecog.recognition-complete
+      - sightrecog.session-closed
+      - body.act-complete
+  http:
+    port: 8080
+    calls: [GET /body]  # who it is, its description, its ears and eyes now
+  health: GET :8080/health
+
+consumes:
+  units:
+    - unit: senses/hearing
+      via: mcp
+      env: HEARING_MCP_URL
+      tools: [open, close]
+    - unit: senses/hearing
+      via: events
+      stream: hearing_events
+      types: [speechrecog.start-of-input, speechrecog.recognition-complete, speechrecog.session-closed]
+    - unit: senses/sight
+      via: mcp
+      env: SIGHT_MCP_URL
+      tools: [open, close]
+    - unit: senses/sight
+      via: events
+      stream: sight_events
+      types: [sightrecog.start-of-input, sightrecog.recognition-complete, sightrecog.session-closed]
+    - unit: abilities/speaking
+      via: mcp
+      env: SPEAKING_MCP_URL
+      tools: [open, speak, close]
+    - unit: abilities/speaking
+      via: events
+      stream: speech_events
+      types: [speechsynth.speak-complete, speechsynth.session-closed]
+    - unit: body              # the bodies in earshot: where their ears are now
+      via: http
+      env: BODY_EARSHOT
+      calls: [GET /body]
+  infra: [redis]              # REDIS_ADDR, through units/shared/redis
+
+# No port of its own for sound or light: its ears and eyes are its senses'
+# sessions, and speaking sends from speaking.
+wire: []
+
+config:
+  required:
+    REDIS_ADDR: where the senses' streams are, and the body's own
+    BODY_NAME: the body's name, lower-case letters, digits, '_' and '-'; it names the stream, the source and the group
+  optional:
+    PORT: "8080"
+    BODY_ID: ""                   # the subject's uuid; empty: derived from BODY_NAME, the same on every start
+    BODY_DESCRIPTION: ""          # what an observer perceives of this body, in words
+    BODY_DESCRIPTION_FILE: ""     # or the same from a file; not both
+    BODY_STREAM: ""               # empty: body_{name}_events
+    BODY_GROUP: ""                # the consumer group on the senses' and speaking's streams; empty: body_{name}
+    HEARING_MCP_URL: ""           # hearing's MCP, e.g. http://hearing:8080/mcp; empty: no ears
+    SIGHT_MCP_URL: ""             # sight's MCP, e.g. http://sight:8080/mcp; empty: no eyes
+    SPEAKING_MCP_URL: ""          # speaking's MCP, e.g. http://speaking:8080/; empty: no mouth, no speak_aloud
+    BODY_VOICE: ""                # speaking's voice_name, e.g. piper_lessac; required with a mouth
+    BODY_LANGUAGE: ""             # ISO 639-1, the senses' session language; empty: they guess
+    BODY_EARSHOT: ""              # the bodies within earshot: their base URLs, comma-separated
+    BODY_SPEAK_TIMEOUT: 60s       # how long speak_aloud waits for its phrase to be spoken
+    BODY_RETRY: 2s                # the pause before a sense that would not open is asked again
+  secrets: {}

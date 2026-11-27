@@ -1,0 +1,183 @@
+# body — contract
+
+Revision 1 (UNIT-119): the body, a socket between the world and a head. It sees, hears,
+and does what it is given — today two things: speak aloud, and skip the turn.
+
+```
+senses' streams ─(its own sessions only)─▶ body's stream ◀─ its acts
+        ▲                                                     │
+  hearing / sight open                       MCP tools for a head
+  (its ears, its eyes: GET /body)            speak_aloud → speaking → the ears in earshot
+```
+
+A head is whoever drives it — a model through `brain/`, Claude as a puppet, a person
+through a page — and the body knows none of them: the same MCP tools and the same stream
+for all. Tools are the body's extensions (a phone, a chat, a sword are, for simplicity,
+the body too); *how* an act is done is the body's own, automatic, not the head's thinking.
+
+One running body is one subject: `BODY_ID`. §2 names exactly what crosses its walls;
+nothing else does.
+
+## 1. What it is
+
+- **Self.** What an observer perceives of this subject, `BODY_DESCRIPTION`, served with
+  its id, name and where its senses take input (§2.4). The world will later hand this to
+  other bodies' senses; nothing reads it for perception yet.
+- **Senses.** On start the body opens one hearing session and one sight session, each
+  only when its URL is configured. What they answer — `audio_in`, `video_in`/`sight_in` —
+  are its ears and eyes: whatever sends there is heard or seen. In "nowhere" that is
+  another body's mouth; later, the world. A session that closes by itself (idle, failure)
+  is opened again; a sense that will not open is asked again every `BODY_RETRY`. On
+  shutdown the body closes its sessions.
+- **Its own perception, and only its own.** Of the senses' streams the body keeps the
+  events whose `ce_subject` is one of its sessions and republishes them onto its stream.
+  A head reads only that stream: it never sees another body's perception.
+- **Acts**, as MCP tools (§2.3). The list is the body's to declare; a head lists it.
+- **What it did** goes onto the same stream, so a head and an observer see its acts
+  beside its percepts.
+
+## 2. Walls
+
+### 2.1 Senses: hearing and sight
+
+MCP over streamable HTTP (the official Go SDK) at `HEARING_MCP_URL`, `SIGHT_MCP_URL`.
+
+| Call | Arguments sent | Read from the answer |
+|---|---|---|
+| hearing `open` | `speech_language` = `BODY_LANGUAGE`, when set | `session_id`, `audio_in` |
+| sight `open` | `language` = `BODY_LANGUAGE`, when set | `session_id`, `video_in`, `sight_in` |
+| either `close` | `session_id` | nothing (on shutdown) |
+
+Their streams, `hearing_events` and `sight_events`, read by the consumer group
+`BODY_GROUP` from the body's start (a new group starts at the stream's end). Read from an
+entry: `ce_subject`, `ce_type`; and to republish, `ce_id`, `ce_time`, `ce_traceparent`,
+`data` as they are. Every entry is acknowledged once looked at.
+
+- An entry whose `ce_subject` is not one of the body's sessions: passed over, counted
+  (`foreign`).
+- One of its sessions', of a type in the table below: republished (§2.2).
+- One of its sessions', of any other type: counted (`dropped`), not republished.
+- `*.session-closed` of its session: republished, then the session is forgotten and its
+  sense opened again; the new address replaces the old in `GET /body`.
+
+| Republished `ce_type` |
+|---|
+| `speechrecog.start-of-input`, `speechrecog.recognition-complete`, `speechrecog.session-closed` |
+| `sightrecog.start-of-input`, `sightrecog.recognition-complete`, `sightrecog.session-closed` |
+
+The body reads nothing in `data`: what a sense recognised is the sense's to say and the
+head's to understand.
+
+### 2.2 Out: the body's stream
+
+`BODY_STREAM` (default `body_<name>_events`), the envelope of
+[`contracts/events.md`](../contracts/events.md), `ce_subject` = `BODY_ID` on every entry.
+
+**Percepts**, republished: `ce_id`, `ce_type`, `ce_time`, `ce_traceparent` and `data`
+exactly as the sense wrote them — perception times and transport time unchanged —;
+`ce_source` = `/bodies/<name>/hearing` or `/bodies/<name>/sight`, so a consumer that
+names a channel by the source's last segment (the brain) sees `hearing` and `sight`.
+
+**Acts**: `ce_type` `body.act-complete`, `ce_source` `/bodies/<name>`, one per tool call
+that ran (§2.3), when it ended; `ce_traceparent` the call's, when it came with one.
+
+```json
+{"tool": "speak_aloud", "args": {"text": "hello, who is there?"},
+ "result": {"spoken": "hello, who is there?", "completion_cause": "normal", "listeners": 1},
+ "is_error": false, "started_at": "2026-11-27T10:15:02.310Z", "ended_at": "2026-11-27T10:15:04.020Z"}
+```
+
+A failed act: `is_error: true`, `result: null`, `error` the tool error's text.
+
+### 2.3 In: the head's MCP
+
+Streamable HTTP, stateless, JSON responses, on `/mcp`. Tool errors are MCP tool errors
+whose text starts with a code (`bad_argument`, `speaking`, `timeout`). One act runs at a
+time: a second call waits for the first (one body, one mouth). A call's `_meta.traceparent`
+is passed on to speaking and onto the act's event.
+
+**`speak_aloud(text)`** → `{spoken, completion_cause?, listeners}` — only on a body with a
+mouth (`SPEAKING_MCP_URL`). The body says it to whoever is within earshot:
+
+1. For each base URL in `BODY_EARSHOT`, `GET {url}/body` (§2.4) for its `ears[0].audio_in`
+   now. A body that does not answer, or has no ear open, does not hear this phrase.
+2. One speaking session per listener, aimed at its ear: `open {to: audio_in, voice_name:
+   BODY_VOICE}` once, kept while the ear stays where it was; when the ear has moved, the
+   old session is closed and a new one opened. A session speaking closed on its own
+   (`speechsynth.session-closed` on its stream, or `speak` answering `unknown_session`) is
+   opened again, once per phrase.
+3. `speak {session_id, text}` to each, then wait for each phrase's
+   `speechsynth.speak-complete` (`speech_events`, the same group; `request_id`, `spoken`,
+   `completion_cause` read) — at most `BODY_SPEAK_TIMEOUT` for all of them.
+
+`spoken` is the most of the text that went out to any listener, `completion_cause`
+speaking's for that phrase (`normal`: all of it); `listeners` how many ears it was sent
+to. Nobody in earshot is not an error: `{spoken: "", listeners: 0}`, nothing opened. Every
+listener's speaking failing is `speaking: …`; no phrase reported in time is `timeout: …`.
+
+What speaking reports is what it *sent*, not what anyone heard: whether a listener heard
+it is that listener's own perception, on its own stream.
+
+**`skip_turn()`** → `{skipped: true}`. Does nothing, on purpose: the head waits for the
+next batch of perception. Answers at once.
+
+**Resource `body://self`** — `application/json`, the same as `GET /body`.
+
+### 2.4 `GET /body`
+
+```json
+{"id": "0f6b…", "name": "a", "description": "a tall woman in a grey coat",
+ "ears": [{"audio_in": "hearing:44017"}],
+ "eyes": [{"video_in": "sight:45000", "sight_in": "http://sight:8080/in/sg-7d02c1aa"}]}
+```
+
+`ears` and `eyes` are where its senses take input now: empty while a sense is not open (or
+not configured). RTP sent to an ear is heard in the formats hearing takes (speaking's L16
+among them).
+
+`GET /health`: `{"status": "ok", "version", "self", "counts"}` — `counts`: `relayed`,
+`foreign`, `dropped`, `opened`, `open_errors`, `acts`, `act_errors`, `errors`.
+
+## 3. The log
+
+JSON lines on stdout: `sense: opened` (sense, session, address), `sense: its session
+closed, opening again`, `mouth: aimed` / `spoken` per listener, `act` (tool, args, result,
+is_error, act_ms), and every failure with its `err`.
+
+## 4. What it does not do
+
+- think, or know there is a head: it waits to be told;
+- read what its senses recognised: it carries it;
+- know devices: in "nowhere" there are none, and the body is described by words alone;
+- hear itself: its mouth is aimed only at the ears in its earshot.
+
+## 5. Config
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `REDIS_ADDR` | the streams | — (required) |
+| `BODY_NAME` | its name: lower-case letters, digits, `_`, `-`; names the stream, source and group | — (required) |
+| `BODY_ID` | the subject's uuid | derived: uuid v5 (URL namespace) of `urn:units:body:<name>` |
+| `BODY_DESCRIPTION` / `BODY_DESCRIPTION_FILE` | what an observer perceives of it; text, or a file — not both | empty |
+| `BODY_STREAM` | where it publishes | `body_<name>_events` |
+| `BODY_GROUP` | its consumer group on the senses' and speaking's streams | `body_<name>` |
+| `HEARING_MCP_URL` | hearing's MCP | — (no ears) |
+| `SIGHT_MCP_URL` | sight's MCP | — (no eyes) |
+| `SPEAKING_MCP_URL` | speaking's MCP | — (no mouth, no `speak_aloud`) |
+| `BODY_VOICE` | speaking's `voice_name` | — (required with a mouth) |
+| `BODY_LANGUAGE` | the senses' session language, ISO 639-1 | — (they guess) |
+| `BODY_EARSHOT` | other bodies' base URLs, comma-separated | — (nobody) |
+| `BODY_SPEAK_TIMEOUT` | how long `speak_aloud` waits for its phrase | `60s` |
+| `BODY_RETRY` | the pause before a sense is asked to open again | `2s` |
+| `PORT` | MCP, `GET /body`, `GET /health` | `8080` |
+
+A malformed value stops the start.
+
+## 6. Open
+
+- **The world** hands bodies to each other's senses: who is in earshot or in sight,
+  and what an observer perceives of them (`description`), instead of `BODY_EARSHOT`.
+- **More acts**: the tools that are the body's extensions (a phone, a chat).
+- **Devices** described in `GET /body` once there are any.
+- **A sense lost without a word** (it restarted) is not noticed until it sends one;
+  the ear then points nowhere.

@@ -1,0 +1,113 @@
+name: body-showcase
+
+# "Nowhere": two bodies, A and B, each in the other's earshot, and nothing
+# else — no world, no devices, no head. Real hearing (silero VAD, whisper STT)
+# and real speaking (piper TTS), one of each, shared by both bodies: each
+# body opens its own sessions and keeps only its own perception.
+#
+# demo.sh plays the head of A: it calls A's speak_aloud over MCP and checks
+# that B heard the words, on B's stream, and that A's stream records the act.
+#   docker compose -f body/showcase/compose.yaml up --build --abort-on-container-exit --exit-code-from demo
+#   docker compose -f body/showcase/compose.yaml down -v
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      retries: 30
+
+  vad:
+    build: ../../engines/vad/silero
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8096/health')"]
+      interval: 3s
+      start_period: 60s
+
+  whisper:
+    build: ../../engines/stt/whisper
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      # hearing has cut the clip with its own VAD; a second pass drops short words
+      WHISPER_VAD_FILTER: "false"
+    volumes: [hf-cache:/root/.cache/huggingface]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 5s
+      start_period: 600s
+
+  piper:
+    build: ../../engines/tts/piper
+
+  hearing:
+    build: ../../senses/hearing
+    image: units-hearing:${UNITS_TAG:-local}
+    environment:
+      REDIS_ADDR: redis:6379
+      STT_URL: http://whisper:8001/v1
+      STT_MODEL: whisper
+      VAD_URL: http://vad:8096
+      AUDIO_IN_HOST: hearing
+    depends_on:
+      redis: {condition: service_healthy}
+      vad: {condition: service_healthy}
+      whisper: {condition: service_healthy}
+
+  speaking:
+    build: ../../abilities/speaking
+    image: units-speaking:${UNITS_TAG:-local}
+    environment:
+      REDIS_ADDR: redis:6379
+      TTS_URL: http://piper:8000/v1
+    depends_on:
+      redis: {condition: service_healthy}
+      piper: {condition: service_healthy}
+
+  body_a:
+    build: ..
+    image: units-body:${UNITS_TAG:-local}
+    environment: &body
+      REDIS_ADDR: redis:6379
+      BODY_NAME: a
+      BODY_DESCRIPTION: a tall woman in a grey coat, holding an umbrella
+      HEARING_MCP_URL: http://hearing:8080/mcp
+      SPEAKING_MCP_URL: http://speaking:8080/
+      BODY_VOICE: piper_lessac
+      BODY_LANGUAGE: en
+      BODY_EARSHOT: http://body_b:8080
+    depends_on:
+      redis: {condition: service_healthy}
+      hearing: {condition: service_started}
+      speaking: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 1s
+      retries: 30
+
+  body_b:
+    image: units-body:${UNITS_TAG:-local}
+    environment:
+      <<: *body
+      BODY_NAME: b
+      BODY_DESCRIPTION: a small man in a yellow raincoat
+      BODY_EARSHOT: http://body_a:8080
+    depends_on:
+      body_a: {condition: service_started}   # built there
+      redis: {condition: service_healthy}
+      hearing: {condition: service_started}
+      speaking: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 1s
+      retries: 30
+
+  demo:
+    image: python:3.12-alpine
+    depends_on:
+      body_a: {condition: service_healthy}
+      body_b: {condition: service_healthy}
+    volumes: [./demo.sh:/demo.sh:ro, ./lib.py:/lib.py:ro]
+    entrypoint: ["sh", "/demo.sh"]
+
+volumes:
+  hf-cache:
