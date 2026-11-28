@@ -43,12 +43,15 @@ for _ in range(30):
 print("open:", s)
 
 # Measured: a camera's stream. ffmpeg sends RTP to video_in and RTCP sender
-# reports to the port above it, at the video's own pace (-re).
+# reports to the port above it, at the video's own pace: the realtime filter
+# lets each frame go when its time comes. Not -re: ffmpeg 6.1's lavfi input
+# then sends the first 0.5 s at once and every later frame 0.5 s ahead of the
+# clock its sender reports keep, which no camera can (UNIT-111).
 sent_from = time.time()
 subprocess.run([
-    "ffmpeg", "-hide_banner", "-loglevel", "error", "-re",
+    "ffmpeg", "-hide_banner", "-loglevel", "error",
     "-f", "lavfi", "-i",
-    "color=c=0x202020:s=320x240:r=10:d=2[a];smptebars=s=320x240:r=10:d=2[b];[a][b]concat=n=2:v=1:a=0",
+    "color=c=0x202020:s=320x240:r=10:d=2[a];smptebars=s=320x240:r=10:d=2[b];[a][b]concat=n=2:v=1:a=0,realtime",
     "-c:v", "libx264", "-profile:v", "baseline", "-tune", "zerolatency", "-g", "10",
     "-f", "rtp", "rtp://" + s["video_in"],
 ], check=True, stdout=subprocess.DEVNULL)
