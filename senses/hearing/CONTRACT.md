@@ -103,7 +103,7 @@ Stream `hearing_events`. `data` is JSON; every event carries `session_id`.
 | `ce_type` | When | `data` beyond `session_id` |
 |---|---|---|
 | `speechrecog.start-of-input` | speech has gone on for `HEARING_ONSET`; or a shorter burst was transcribed to words (then late, with its `recognition-complete`, see Short) | `request_id`, `input_type` (`speech`), `started_at` |
-| `speechrecog.recognition-complete` | the speaker stopped for `HEARING_MERGE_WINDOW`, or the session ended, or the utterance reached `HEARING_MAX_UTTERANCE` | `request_id`, `completion_cause`, `text`, `language`, `started_at`, `ended_at` |
+| `speechrecog.recognition-complete` | the speaker stopped for `HEARING_MERGE_WINDOW`, or the session ended, or the utterance reached `HEARING_MAX_UTTERANCE` | `request_id`, `completion_cause`, `input_type` (`speech`), `text`, `language`, `started_at`, `ended_at` |
 | `speechrecog.session-closed` | the session is over | `reason`: `closed` / `idle` / `failed` |
 
 Guarantees:
@@ -227,7 +227,9 @@ Completion-Cause. The sense that hosts it is named for the persona (`senses/hear
 
 - hearing listens all the time a session is open; each utterance is an implicit RECOGNIZE
   request with its own `request_id`. There is no RECOGNIZE method, no grammar, and the
-  result is plain text, not NLSML.
+  result is plain text, not NLSML. What NLSML's `<input mode="speech">` would say rides
+  on RECOGNITION-COMPLETE as `input_type` (`speech`), the same word START-OF-INPUT
+  carries, so a reader of the recognition alone knows the words were said (UNIT-128).
 - A client's answer to START-OF-INPUT — BARGE-IN-OCCURRED to the synthesizer (§8.8) — is
   not hearing's: hearing decides nothing.
 - Sessions are opened and closed over MCP, not as MRCP channels over SIP/SDP;

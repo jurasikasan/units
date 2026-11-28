@@ -476,6 +476,10 @@ func TestOneSecondBurst(t *testing.T) {
 	if got := heard[0].Data["completion_cause"]; got != "success" {
 		t.Fatalf("completion_cause = %v, want success", got)
 	}
+	// UNIT-128: the recognition says on its own that the words were said
+	if got := heard[0].Data["input_type"]; got != "speech" {
+		t.Fatalf("input_type = %v, want speech", got)
+	}
 	startedAt, err := time.Parse(time.RFC3339Nano, started[0].Data["started_at"].(string))
 	if err != nil {
 		t.Fatalf("bad started_at: %v", err)

@@ -65,7 +65,7 @@ recognizer's (RFC 6787 §9; CONTRACT.md §7):
 | type | data |
 |---|---|
 | `speechrecog.start-of-input` | `request_id`, `input_type` (`speech`), `started_at` |
-| `speechrecog.recognition-complete` | `request_id`, `completion_cause` (`success` \| `no-match` \| `success-maxtime` \| `recognizer-error`), `text`, `language`, `started_at`, `ended_at` |
+| `speechrecog.recognition-complete` | `request_id`, `input_type` (`speech`), `completion_cause` (`success` \| `no-match` \| `success-maxtime` \| `recognizer-error`), `text`, `language`, `started_at`, `ended_at` |
 | `speechrecog.session-closed` | `reason`: `closed` \| `idle` \| `failed` |
 
 Ids are `hr-`/`utt-` plus 8 hex digits.

@@ -582,6 +582,7 @@ func (se *session) closeShort(ctx context.Context, u *utterance) {
 		emit(TypeRecognitionComplete, map[string]any{
 			"request_id":       u.id,
 			"completion_cause": CauseSuccess,
+			"input_type":       "speech",
 			"text":             tr.res.Text,
 			"language":         tr.res.Language,
 			"started_at":       stamp(u.start),
@@ -655,6 +656,7 @@ func (se *session) emitHeard(ctx context.Context, u *utterance, maxtime bool) {
 		"session_id":       se.id,
 		"request_id":       u.id,
 		"completion_cause": CauseRecognizerError,
+		"input_type":       "speech",
 		"text":             "",
 		"language":         "",
 		"started_at":       stamp(u.start),

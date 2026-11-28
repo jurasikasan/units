@@ -9,6 +9,7 @@
 #     tool_choice required, every request ended with the new moment (a
 #     result never came back within a thought), and each brain made exactly
 #     one act per thought;
+#   - words heard reached the model quoted ([… hearing] "…"), as said;
 #   - memory: each brain's thread holds its acts as tool_call and
 #     tool_result blocks, and a later request recalled an act as a call and
 #     its tool message.
@@ -63,6 +64,10 @@ for who, body in (("a", on_a), ("b", on_b)):
     check(mine and all(q["tools"] == ["skip_turn", "speak_aloud"] and q["tool_choice"] == "required" for q in mine),
           f"{who}: the body's tools offered, tool_choice required, in all {len(mine)} requests")
     check(all(q["roles"][-1] == "user" for q in mine), f"{who}: every request ends with the new moment")
+    # UNIT-128: words heard reach the model quoted, as said
+    heard_parts = [p for q in mine for p in q["last"].split(" | ") if " hearing] " in p]
+    check(heard_parts and all(" hearing] \"" in p for p in heard_parts),
+          f"{who}: what was heard reached the model quoted: {heard_parts}")
     # The opening was the demo's act on A, not A's brain's.
     brain_acts = len(acts(body)) - (1 if who == "a" else 0)
     check(brain_acts == len(mine), f"{who}: one act per thought ({len(mine)} thoughts, {brain_acts} acts)")
