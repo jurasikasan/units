@@ -55,7 +55,7 @@ config:
     SIGHT_DESCRIBE_EVERY: 10s      # the rate limit: at most one description per this much of the input's time; 0 = none
     SIGHT_SAMPLE_EVERY: 500ms      # at most one decoded picture per this much of the stream's time goes to the detector; 0 = every one
     SIGHT_MAX_SESSIONS: "4"
-    SIGHT_IDLE_TIMEOUT: 2m
+    SIGHT_IDLE_TIMEOUT: 2m         # a session's idle_timeout_ms instead (0 = never)
     SIGHT_IN_URL: http://sight:8080   # the base senders reach sight by; sight_in is {SIGHT_IN_URL}/in/{session_id}
     VIDEO_IN_HOST: sight           # the host video_in is given out with
     VIDEO_IN_PORT_MIN: "45000"

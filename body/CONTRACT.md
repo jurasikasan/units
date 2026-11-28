@@ -33,9 +33,9 @@ for a body made through the API.
 - **Senses.** On start the body opens one hearing session and one sight session, each
   only when its URL is configured. What they answer — `audio_in`, `video_in`/`sight_in` —
   are its ears and eyes: whatever sends there is heard or seen. In "nowhere" that is
-  another body's mouth; later, the world. An ear is opened never to idle out: silence is
-  heard too, so a body left in silence keeps its ear where it is. A session that closes
-  by itself (a failure, sight's idle timeout) is opened again; a sense that will not open is asked again every `BODY_RETRY`. On
+  another body's mouth; later, the world. An ear and an eye are opened never to idle out:
+  silence is heard and darkness seen too, so a body left in silence keeps its ear and eye
+  where they are. A session that closes by itself (a failure) is opened again; a sense that will not open is asked again every `BODY_RETRY`. On
   shutdown the body closes its sessions.
 - **Its own perception, and only its own.** Of the senses' streams the body keeps the
   events whose `ce_subject` is one of its sessions and republishes them onto its stream.
@@ -53,7 +53,7 @@ MCP over streamable HTTP (the official Go SDK) at `HEARING_MCP_URL`, `SIGHT_MCP_
 | Call | Arguments sent | Read from the answer |
 |---|---|---|
 | hearing `open` | `idle_timeout_ms` = `0` (never idles out); `speech_language` = `BODY_LANGUAGE`, when set | `session_id`, `audio_in` |
-| sight `open` | `language` = `BODY_LANGUAGE`, when set | `session_id`, `video_in`, `sight_in` |
+| sight `open` | `idle_timeout_ms` = `0` (never idles out); `language` = `BODY_LANGUAGE`, when set | `session_id`, `video_in`, `sight_in` |
 | either `close` | `session_id` | nothing (on shutdown) |
 
 Their streams, `hearing_events` and `sight_events`, read once for every body of the host

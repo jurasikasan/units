@@ -101,8 +101,11 @@ func New(cfg Config, rdb *redis.Client, client *http.Client, log *slog.Logger) *
 	if cfg.SightURL != "" {
 		b.sight = &sense{channel: "sight", stream: SightStream, closed: "sightrecog.session-closed",
 			door: &Door{Name: "sight", URL: cfg.SightURL, HTTP: doorClient}}
+		// An eye that sees nothing is still an eye: it never idles out
+		// either, and keeps its address.
+		b.sight.args = map[string]any{"idle_timeout_ms": 0}
 		if cfg.Language != "" {
-			b.sight.args = map[string]any{"language": cfg.Language}
+			b.sight.args["language"] = cfg.Language
 		}
 	}
 	if cfg.SpeakingURL != "" {

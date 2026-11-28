@@ -41,9 +41,9 @@ func testRedis(t *testing.T) *redis.Client {
 }
 
 // fakeSense is hearing or sight: open hands out a session and its address,
-// close is recorded. With idleAfter, a hearing session idles out as
-// hearing's does — its session-closed on the stream — unless it was opened
-// with idle_timeout_ms 0.
+// close is recorded. With idleAfter, a session idles out as the sense's
+// does — its session-closed on the stream — unless it was opened with
+// idle_timeout_ms 0.
 type fakeSense struct {
 	kind      string // hearing | sight
 	rdb       *redis.Client
@@ -61,18 +61,22 @@ func (f *fakeSense) server() *httptest.Server {
 		defer f.mu.Unlock()
 		f.n++
 		f.opens = append(f.opens, in)
-		if f.kind == "hearing" {
-			id := fmt.Sprintf("hs-%d", f.n)
+		idle := func(id, source, typ, stream string) {
 			if v, set := in["idle_timeout_ms"]; f.idleAfter > 0 && (!set || v != float64(0)) {
 				time.AfterFunc(f.idleAfter, func() {
-					fields, _ := events.Fields("/senses/hearing", events.Event{Type: "speechrecog.session-closed", Subject: id,
+					fields, _ := events.Fields(source, events.Event{Type: typ, Subject: id,
 						Data: map[string]any{"session_id": id, "reason": "idle"}})
-					_ = f.rdb.XAdd(context.Background(), &redis.XAddArgs{Stream: HearingStream, Values: fields}).Err()
+					_ = f.rdb.XAdd(context.Background(), &redis.XAddArgs{Stream: stream, Values: fields}).Err()
 				})
 			}
+		}
+		if f.kind == "hearing" {
+			id := fmt.Sprintf("hs-%d", f.n)
+			idle(id, "/senses/hearing", "speechrecog.session-closed", HearingStream)
 			return nil, map[string]any{"session_id": id, "audio_in": fmt.Sprintf("hearing:%d", 44000+f.n)}, nil
 		}
 		id := fmt.Sprintf("sg-%d", f.n)
+		idle(id, "/senses/sight", "sightrecog.session-closed", SightStream)
 		return nil, map[string]any{"session_id": id, "video_in": fmt.Sprintf("sight:%d", 45000+2*f.n), "sight_in": "http://sight:8080/in/" + id}, nil
 	})
 	mcp.AddTool(srv, &mcp.Tool{Name: "close"}, func(_ context.Context, _ *mcp.CallToolRequest, in struct {
@@ -391,32 +395,48 @@ func TestASenseIsOpenedAgain(t *testing.T) {
 	}
 }
 
-// UNIT-131: a body opens its ear never to idle out, so left in silence it
-// keeps the same ear and publishes no session-closed — where hearing would
-// close an ear opened without it every idle timeout.
-func TestAnEarInSilenceStays(t *testing.T) {
+// UNIT-131: a body opens its ear and its eye never to idle out, so left in
+// silence and darkness it keeps the same ear and eye and publishes no
+// session-closed — where the senses would close a session opened without
+// it every idle timeout.
+func TestAnEarAndAnEyeInSilenceStay(t *testing.T) {
 	rdb := testRedis(t)
 	hearing := &fakeSense{kind: "hearing", rdb: rdb, idleAfter: 100 * time.Millisecond}
 	hs := hearing.server()
 	defer hs.Close()
-	a := startBody(t, rdb, Config{Name: "a", HearingURL: hs.URL, Language: "en"})
-	eventually(t, "an ear", func() bool { return len(a.body.Self().Ears) == 1 })
+	sight := &fakeSense{kind: "sight", rdb: rdb, idleAfter: 100 * time.Millisecond}
+	ss := sight.server()
+	defer ss.Close()
+	a := startBody(t, rdb, Config{Name: "a", HearingURL: hs.URL, SightURL: ss.URL, Language: "en"})
+	eventually(t, "an ear and an eye", func() bool { s := a.body.Self(); return len(s.Ears) == 1 && len(s.Eyes) == 1 })
+	eye := a.body.Self().Eyes[0]
 
 	time.Sleep(800 * time.Millisecond) // eight idle timeouts of silence
 	if ears := a.body.Self().Ears; len(ears) != 1 || ears[0].AudioIn != "hearing:44001" {
 		t.Fatalf("the ear moved: %v", ears)
 	}
-	if n := hearing.openCount(); n != 1 {
-		t.Fatalf("opened %d times, want once", n)
+	if eyes := a.body.Self().Eyes; len(eyes) != 1 || eyes[0] != eye {
+		t.Fatalf("the eye moved: %v, was %v", eyes, eye)
+	}
+	for _, f := range []*fakeSense{hearing, sight} {
+		if n := f.openCount(); n != 1 {
+			t.Fatalf("%s opened %d times, want once", f.kind, n)
+		}
 	}
 	hearing.mu.Lock()
 	args := hearing.opens[0]
 	hearing.mu.Unlock()
 	if args["idle_timeout_ms"] != float64(0) || args["speech_language"] != "en" {
-		t.Fatalf("open's arguments: %v", args)
+		t.Fatalf("hearing open's arguments: %v", args)
+	}
+	sight.mu.Lock()
+	args = sight.opens[0]
+	sight.mu.Unlock()
+	if args["idle_timeout_ms"] != float64(0) || args["language"] != "en" {
+		t.Fatalf("sight open's arguments: %v", args)
 	}
 	for _, e := range entries(t, rdb, "body_a_events") {
-		if e["ce_type"] == "speechrecog.session-closed" {
+		if strings.HasSuffix(fmt.Sprint(e["ce_type"]), ".session-closed") {
 			t.Fatalf("published a session-closed: %v", e)
 		}
 	}

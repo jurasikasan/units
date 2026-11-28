@@ -19,7 +19,8 @@ func NewMCPServer(svc *Service, version string) *mcp.Server {
 			"records named description or read (vs: words) or frame (vd: a single JPEG or PNG, base64url), each with its time t. " +
 			"Optional: recognize (only \"scene\", the default); language (ISO 639-1) to describe in; " +
 			"the session's own instead of the deployment's: vision_model (OpenAI's model), vision_prompt, " +
-			"describe_every_ms (at most one description per this much of the input's time), change_threshold (0–1).",
+			"describe_every_ms (at most one description per this much of the input's time), change_threshold (0–1), " +
+			"idle_timeout_ms (how long without input closes the session; 0 is never).",
 	}, openTool(svc))
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "close",
@@ -35,6 +36,7 @@ type openIn struct {
 	VisionPrompt    string   `json:"vision_prompt,omitempty"`
 	DescribeEveryMS int      `json:"describe_every_ms,omitempty"`
 	ChangeThreshold float64  `json:"change_threshold,omitempty"`
+	IdleTimeoutMS   *int     `json:"idle_timeout_ms,omitempty"`
 }
 
 type openOut struct {
@@ -53,14 +55,19 @@ type closeOut struct {
 
 func openTool(svc *Service) mcp.ToolHandlerFor[openIn, openOut] {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in openIn) (*mcp.CallToolResult, openOut, error) {
-		o, err := svc.Open(ctx, Options{
+		opts := Options{
 			Recognize:       in.Recognize,
 			Language:        in.Language,
 			VisionModel:     in.VisionModel,
 			VisionPrompt:    in.VisionPrompt,
 			DescribeEvery:   time.Duration(in.DescribeEveryMS) * time.Millisecond,
 			ChangeThreshold: in.ChangeThreshold,
-		}, traceparent(req))
+		}
+		if in.IdleTimeoutMS != nil {
+			d := time.Duration(*in.IdleTimeoutMS) * time.Millisecond
+			opts.IdleTimeout = &d
+		}
+		o, err := svc.Open(ctx, opts, traceparent(req))
 		if err != nil {
 			return nil, openOut{}, err
 		}

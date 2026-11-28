@@ -50,7 +50,7 @@ consumes:
     - unit: senses/sight
       via: mcp
       env: SIGHT_MCP_URL
-      tools: [open, close]
+      tools: [open, close]      # open with idle_timeout_ms 0: an eye in the dark stays
     - unit: senses/sight
       via: events
       stream: sight_events

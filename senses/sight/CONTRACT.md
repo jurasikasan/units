@@ -56,7 +56,7 @@ is the envelope's, what was perceived when is the data's.
 
 Errors are MCP tool errors whose text starts with a code from §2.3.
 
-### 2.1 `open(recognize?, language?, vision_model?, vision_prompt?, describe_every_ms?, change_threshold?)` → `session_id`, `video_in`, `sight_in`
+### 2.1 `open(recognize?, language?, vision_model?, vision_prompt?, describe_every_ms?, change_threshold?, idle_timeout_ms?)` → `session_id`, `video_in`, `sight_in`
 
 | Argument | Required | Meaning |
 |---|---|---|
@@ -66,6 +66,7 @@ Errors are MCP tool errors whose text starts with a code from §2.3.
 | `vision_prompt` | no | the session's own prompt instead of the default one; the answer must keep its shape (§3, `read`) |
 | `describe_every_ms` | no | this session's `SIGHT_DESCRIBE_EVERY` |
 | `change_threshold` | no | this session's `SIGHT_CHANGE_THRESHOLD`, 0–1 |
+| `idle_timeout_ms` | no | this session's `SIGHT_IDLE_TIMEOUT`; `0`: it never idles out — an eye that sees nothing is still an eye |
 
 ```json
 {"language": "en"}
@@ -83,8 +84,9 @@ Stops taking input: `video_in` is released, what it got is decoded and looked at
 last picture, what was queued on `sight_in` is handled, an observation waiting for its words
 (§3, rate limit) is described now; then `sightrecog.session-closed`. `close` answers once
 that event is out. Closing a closed session is `{"ok": true}`, no second event. A session
-that gets nothing — no packet of its stream, no pack — for `SIGHT_IDLE_TIMEOUT` closes by
-itself (reason `idle`).
+that gets nothing — no packet of its stream, no pack — for its idle timeout
+(`idle_timeout_ms`, else `SIGHT_IDLE_TIMEOUT`) closes by itself (reason `idle`); one
+opened with `idle_timeout_ms` 0 never does.
 
 ### 2.3 Error codes
 
@@ -93,7 +95,7 @@ itself (reason `idle`).
 | `capacity` | the session limit is reached, or no `video_in` port pair is free |
 | `unsupported_recognizer` | `recognize` names something sight cannot recognise |
 | `unknown_session` | no such session |
-| `bad_argument` | `describe_every_ms` below zero, `change_threshold` outside 0–1 |
+| `bad_argument` | `describe_every_ms` or `idle_timeout_ms` below zero, `change_threshold` outside 0–1 |
 
 ## 3. Events
 

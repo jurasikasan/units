@@ -9,7 +9,7 @@ times. It decides nothing about what it saw.
 ## What it does
 
 - Serves two MCP tools over streamable HTTP on `PORT` (default **8080**, stateless):
-  - `open(recognize?, language?, vision_model?, vision_prompt?, describe_every_ms?, change_threshold?)`
+  - `open(recognize?, language?, vision_model?, vision_prompt?, describe_every_ms?, change_threshold?, idle_timeout_ms?)`
     → `{"session_id": "sg-…", "video_in": "sight:45000", "sight_in": "http://sight:8080/in/sg-…"}`.
     `recognize` is a list; the only value is `"scene"` (the default). Over the session
     limit, or no free port → tool error `capacity…`; an unknown value →
@@ -51,8 +51,8 @@ times. It decides nothing about what it saw.
   `recognition-complete`, at its own time, with no detector and no model.
 - Every `start-of-input` gets exactly one `recognition-complete` with the same
   `request_id`; every `open` ends in exactly one `sightrecog.session-closed`, the
-  session's last event. A session with no input for `SIGHT_IDLE_TIMEOUT` (default 2 min)
-  closes with `reason: idle`.
+  session's last event. A session with no input for its idle timeout (`idle_timeout_ms`,
+  else `SIGHT_IDLE_TIMEOUT`, default 2 min) closes with `reason: idle`; `0` never idles out.
 
 ## Events
 

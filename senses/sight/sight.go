@@ -99,7 +99,8 @@ type Config struct {
 }
 
 // Options is what an open may ask for beyond the deployment's config. Zero
-// values keep the deployment's.
+// values keep the deployment's; IdleTimeout is a pointer, since 0 is a
+// value of its own (never idle out).
 type Options struct {
 	Recognize       []string
 	Language        string
@@ -107,6 +108,7 @@ type Options struct {
 	VisionPrompt    string
 	DescribeEvery   time.Duration
 	ChangeThreshold float64
+	IdleTimeout     *time.Duration
 }
 
 // Opened is what an open hands out.
@@ -193,8 +195,8 @@ func NewService(cfg Config) *Service {
 // traceparent of the MCP open call; every event of the session carries
 // exactly that value.
 func (s *Service) Open(ctx context.Context, o Options, traceparent string) (Opened, error) {
-	if o.DescribeEvery < 0 || o.ChangeThreshold < 0 || o.ChangeThreshold > 1 {
-		return Opened{}, fmt.Errorf("bad_argument: describe_every_ms below zero, or change_threshold outside 0–1")
+	if o.DescribeEvery < 0 || o.ChangeThreshold < 0 || o.ChangeThreshold > 1 || o.IdleTimeout != nil && *o.IdleTimeout < 0 {
+		return Opened{}, fmt.Errorf("bad_argument: describe_every_ms or idle_timeout_ms below zero, or change_threshold outside 0–1")
 	}
 	recognize := o.Recognize
 	if len(recognize) == 0 {
@@ -211,6 +213,9 @@ func (s *Service) Open(ctx context.Context, o Options, traceparent string) (Open
 	}
 	if o.ChangeThreshold > 0 {
 		cfg.ChangeThreshold = o.ChangeThreshold
+	}
+	if o.IdleTimeout != nil {
+		cfg.IdleTimeout = *o.IdleTimeout // 0: the session never idles out
 	}
 	door := vision.Door{URL: cfg.VisionURL, Key: cfg.VisionKey, Model: cfg.VisionModel, Prompt: o.VisionPrompt}
 	if o.VisionModel != "" {
@@ -438,7 +443,11 @@ func (se *session) lastInput() time.Time {
 func (se *session) worker(ctx context.Context) {
 	defer close(se.done)
 	frames := se.frames
-	tick := time.NewTicker(min(max(se.cfg.IdleTimeout/4, 10*time.Millisecond), time.Second))
+	idle := se.cfg.IdleTimeout
+	if idle <= 0 {
+		idle = time.Second // never idles out: the tick only has to come round
+	}
+	tick := time.NewTicker(min(max(idle/4, 10*time.Millisecond), time.Second))
 	defer tick.Stop()
 	reason := ""
 	for reason == "" || frames != nil {
@@ -458,7 +467,7 @@ func (se *session) worker(ctx context.Context) {
 			}
 			se.handle(ctx, it)
 		case <-tick.C:
-			if reason == "" && time.Since(se.lastInput()) >= se.cfg.IdleTimeout && se.beginClose() {
+			if reason == "" && se.cfg.IdleTimeout > 0 && time.Since(se.lastInput()) >= se.cfg.IdleTimeout && se.beginClose() {
 				reason = "idle"
 			}
 		}

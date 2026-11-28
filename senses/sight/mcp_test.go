@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -97,5 +98,54 @@ func TestMCPOpenClose(t *testing.T) {
 	res = callTool(t, cs, &mcp.CallToolParams{Name: "close", Arguments: map[string]any{"session_id": "sg-00000000"}})
 	if !res.IsError || !strings.HasPrefix(toolText(res), "unknown_session") {
 		t.Errorf("close unknown: %s", toolText(res))
+	}
+}
+
+// UNIT-131 for sight: open's idle_timeout_ms is the session's own; 0 never
+// idles out; absent keeps the deployment's; below zero is bad_argument.
+func TestMCPOpenIdleTimeout(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.IdleTimeout = 100 * time.Millisecond })
+	cs := connectMCP(t, h.svc)
+	open := func(args map[string]any) string {
+		t.Helper()
+		res := callTool(t, cs, &mcp.CallToolParams{Name: "open", Arguments: args})
+		if res.IsError {
+			t.Fatalf("open %v: %s", args, toolText(res))
+		}
+		return res.StructuredContent.(map[string]any)["session_id"].(string)
+	}
+	never := open(map[string]any{"idle_timeout_ms": 0})
+	deployments := open(map[string]any{})
+	own := open(map[string]any{"idle_timeout_ms": 400})
+	closed := func(id string) string {
+		for _, e := range h.sink.Events() {
+			if e.Type == TypeSessionClosed && e.Subject == id {
+				return data(e)["reason"].(string)
+			}
+		}
+		return ""
+	}
+	time.Sleep(250 * time.Millisecond)
+	if closed(deployments) != "idle" || closed(own) != "" {
+		t.Fatalf("after 250 ms: the deployment's %q (want idle), its own 400 ms %q (want open)", closed(deployments), closed(own))
+	}
+	time.Sleep(450 * time.Millisecond)
+	if closed(own) != "idle" || closed(never) != "" {
+		t.Fatalf("after 700 ms: its own %q (want idle), never %q (want open)", closed(own), closed(never))
+	}
+	// still looking: words sent to it are seen
+	h.send(t, never, []map[string]any{{"n": "read", "t": at(0), "vs": "EXIT"}})
+	var mine []Event
+	for _, e := range h.close(t, never) {
+		if e.Subject == never {
+			mine = append(mine, e)
+		}
+	}
+	if types(mine) != TypeRecognitionComplete+" "+TypeSessionClosed || data(mine[1])["reason"] != "closed" {
+		t.Fatalf("the eye that stayed: %s", types(mine))
+	}
+	res := callTool(t, cs, &mcp.CallToolParams{Name: "open", Arguments: map[string]any{"idle_timeout_ms": -1}})
+	if !res.IsError || !strings.HasPrefix(toolText(res), "bad_argument") {
+		t.Fatalf("idle_timeout_ms -1: %s", toolText(res))
 	}
 }
