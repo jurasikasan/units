@@ -12,7 +12,11 @@
 //     filled with silence (one lost packet is one silence fill);
 //   - sequence numbers are extended past the 16-bit wrap, so a session
 //     goes on past 65,536 packets; a packet older than the next expected
-//     one (late past the window, or a duplicate) is dropped.
+//     one (late past the window, or a duplicate) is dropped;
+//   - RTP timestamps are extended past the 32-bit wrap (about 24.85 h at
+//     48 kHz), the wrap cycle chosen so the RTP time since the previous
+//     packet agrees with the arrival clock to within half a wrap; times
+//     still come from the timestamps, arrival only picks the cycle.
 package rtpin
 
 import (
@@ -59,17 +63,42 @@ type In struct {
 	outAccStart  time.Time
 	haveAccStart bool
 	rate         int       // the payload type's clock: 8000 (PT 0/8) or 48000 (PT 96)
-	firstTS      uint32    // the RTP timestamp of the first accepted packet
-	srcTotal     uint32    // source samples placed so far (for lost-packet times)
+	firstTS      int64     // the extended RTP timestamp of the first accepted packet
+	srcTotal     int64     // source samples placed so far (for lost-packet times)
 	firstWall    time.Time // the wall clock, read once, at the first accepted packet
+	extTS        int64     // the newest extended RTP timestamp seen
+	refWall      time.Time // when the packet that set extTS arrived
 	lastPacket   time.Time
 	lastSrcCount int
+
+	// now is the arrival clock; nil is time.Now. Tests set it.
+	now func() time.Time
 }
 
 type pend struct {
 	payload []byte
-	ts      uint32 // the packet's RTP timestamp
+	ts      int64 // the packet's extended RTP timestamp
 	t       time.Time
+}
+
+func (in *In) clock() time.Time {
+	if in.now != nil {
+		return in.now()
+	}
+	return time.Now()
+}
+
+// extend places a 32-bit RTP timestamp on the session's 64-bit timeline.
+// Of the timestamps that read as ts modulo 2^32, it takes the one nearest
+// to where the RTP clock should be by now: the newest timestamp seen, moved
+// on by the wall time since its packet arrived. So a reordered packet lands just
+// behind, a long session goes on past the wrap, and a silence longer than
+// half a wrap (about 12.4 h at 48 kHz) still reads forward. Arrival only
+// chooses the cycle; the time comes from ts itself (C5 §3).
+func (in *In) extend(ts uint32, now time.Time) int64 {
+	// in microseconds, so a silence of years does not overflow the product
+	expect := in.extTS + int64(now.Sub(in.refWall)/time.Microsecond)*int64(in.rate)/1e6
+	return expect + int64(int32(ts-uint32(expect)))
 }
 
 // New listens on host:port for RTP. port 0 lets the kernel pick a
@@ -182,8 +211,10 @@ func (in *In) handle(pkt *rtp.Packet) (Frame, bool) {
 		// C5 §3: times are placed by the RTP timestamps. The wall clock is
 		// read exactly once, here, at the owner's first packet; from then on
 		// packet times derive from pkt.Timestamp and arrival plays no part.
-		in.firstWall = time.Now()
-		in.firstTS = pkt.Timestamp
+		now := in.clock()
+		in.firstWall = now
+		in.firstTS = int64(pkt.Timestamp)
+		in.extTS, in.refWall = int64(pkt.Timestamp), now
 		in.baseSeq = pkt.SequenceNumber
 		in.resampler.SetRate(rate)
 	} else if pkt.SSRC != in.ownerSSRC || pkt.PayloadType != in.ownerPT {
@@ -199,15 +230,21 @@ func (in *In) handle(pkt *rtp.Packet) (Frame, bool) {
 		return Frame{}, false // late past its window, or a duplicate
 	}
 
+	now := in.clock()
+	ts := in.extend(pkt.Timestamp, now)
+	if ts > in.extTS {
+		in.extTS, in.refWall = ts, now
+	}
+	in.lastPacket = now
+
 	if offset == in.nextOffset {
-		in.pushPayload(pkt.Payload, pkt.Timestamp)
+		in.pushPayload(pkt.Payload, ts)
 		in.nextOffset++
 		in.drainPending()
 	} else if _, exists := in.pending[offset]; !exists {
-		in.pending[offset] = &pend{payload: pkt.Payload, ts: pkt.Timestamp, t: time.Now()}
+		in.pending[offset] = &pend{payload: pkt.Payload, ts: ts, t: now}
 		in.flushStale()
 	}
-	in.lastPacket = time.Now()
 
 	if len(in.outAcc) == 0 {
 		return Frame{}, false
@@ -239,7 +276,7 @@ func (in *In) flushStale() {
 			minP = p
 		}
 	}
-	if minOff < 0 || time.Since(minP.t) < JitterWindow {
+	if minOff < 0 || in.clock().Sub(minP.t) < JitterWindow {
 		return
 	}
 	for in.nextOffset < minOff {
@@ -251,7 +288,7 @@ func (in *In) flushStale() {
 	in.nextOffset++
 }
 
-func (in *In) pushPayload(payload []byte, ts uint32) {
+func (in *In) pushPayload(payload []byte, ts int64) {
 	var src []int16
 	switch in.ownerPT {
 	case 0:
@@ -283,24 +320,30 @@ func (in *In) pushSilence() {
 	in.pushSamples(src, in.firstTS+in.srcTotal)
 }
 
-func (in *In) pushSamples(src []int16, ts uint32) {
+func (in *In) pushSamples(src []int16, ts int64) {
 	if !in.haveAccStart {
 		// C5 §3: "placed by the RTP timestamps of the packets". The
 		// time of this sample is firstWall + (pkt.Timestamp -
 		// firstTimestamp)/rate, where rate is the payload type's clock
-		// (PT 0/8: 8000, PT 96: 48000). The subtraction is plain uint32
-		// arithmetic, i.e. taken modulo 2^32, so a timestamp that wraps
-		// past 2^32 keeps the times increasing instead of jumping back.
-		// Packet gaps (a sender suppressing silence) land where the RTP
-		// clock says; arrival time plays no part after the first packet.
-		diff := ts - in.firstTS // modulo 2^32
-		in.outAccStart = in.firstWall.Add(time.Duration(int64(diff) * int64(time.Second) / int64(in.rate)))
+		// (PT 0/8: 8000, PT 96: 48000), on timestamps extended past the
+		// 32-bit wrap (extend), so a session longer than a wrap keeps its
+		// times increasing. Packet gaps (a sender suppressing silence) land
+		// where the RTP clock says; arrival only chooses the wrap cycle.
+		diff := ts - in.firstTS
+		in.outAccStart = in.firstWall.Add(ticks(diff, in.rate))
 		in.haveAccStart = true
 	}
 	out := in.resampler.Push(src)
-	in.srcTotal += uint32(len(src))
+	in.srcTotal += int64(len(src))
 	if len(out) == 0 {
 		return
 	}
 	in.outAcc = append(in.outAcc, out...)
+}
+
+// ticks is n samples of a rate-Hz clock as a duration, whole seconds apart
+// so that a session of days does not overflow the nanoseconds.
+func ticks(n int64, rate int) time.Duration {
+	r := int64(rate)
+	return time.Duration(n/r)*time.Second + time.Duration(n%r)*time.Second/time.Duration(r)
 }

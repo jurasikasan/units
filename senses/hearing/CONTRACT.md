@@ -158,7 +158,10 @@ Guarantees:
   utterance happened either way.
 
 Times are hearing's clock (RFC 3339, UTC, ms), placed by the RTP timestamps of the
-packets, so jitter on the way does not move them.
+packets, so jitter on the way does not move them. The timestamps are read past their
+32-bit wrap (≈24.85 h at 48 kHz, ≈6.2 days at 8 kHz), so a session of days keeps its
+times going forward; the arrival clock only tells which wrap a timestamp is in, so a
+silence longer than half a wrap still reads forward.
 
 ## 4. Audio in
 
