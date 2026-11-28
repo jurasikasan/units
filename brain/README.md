@@ -23,7 +23,8 @@ working inside it.
   moments, the counts.
 - `mind.go` — the loop: gate, buffers, tick (settle, max wait, one thought in flight), the
   request, the one act, the log, memory and recall (an act as a tool call and its tool
-  message); `Line` is a percept in words.
+  message); `Line` is a percept in words; `SetPolicy`, which withdraws the thought in
+  flight and gives its percepts back to the buffers (`policy_test.go`).
 - `body.go` — the body (MCP through the official Go SDK): its tools as openai-go function
   tools, one call, its answer in words.
 - `doors.go` — the model (`POST /chat/completions`, through openai-go) and artifact_store (`GET

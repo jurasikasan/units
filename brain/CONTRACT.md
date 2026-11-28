@@ -1,5 +1,8 @@
 # brain — contract
 
+Revision 6 (UNIT-134): a policy change ends the thought in flight — its request withdrawn,
+its percepts given back to their buffers — and the next thought goes to the new policy
+(§2.7).
 Revision 5 (UNIT-129): no `tool_choice` is sent; a model's words with no tool call are
 its answer into its body, said aloud through `speak_aloud` and remembered as that act
 (§2.5).
@@ -222,7 +225,8 @@ Each act: `msg: act`, `tool`, `call_id`, `args`, `result`, `is_error`, `act_ms`,
 `GET /health` on `PORT`: `{"status": "ok", "version", "buffered", "counts"}` — `counts` by
 reason: `read`, `ignored`, `malformed`, `duplicates`, `gated`, `empty`, `expired`,
 `overflow`, `thoughts`, `model_errors`, `frame_errors`, `memory_errors`, `acts`,
-`act_errors`, `ignored_calls`, `skips`, `body_errors`, `unthought`, `own_acts`.
+`act_errors`, `ignored_calls`, `skips`, `body_errors`, `unthought`, `own_acts`,
+`withdrawn` (thoughts ended by a policy change, §2.7).
 
 ### 2.7 The host: `/brains`
 
@@ -264,8 +268,22 @@ The answer, and each item of `GET /brains`:
 
 The policy's `key` is never answered.
 
-- **`PUT /brains/{name}/policy`** — a policy, or `null`: who answers from the next thought
-  on. Buffers, memory and the group are not touched. `404` for no such brain.
+- **`PUT /brains/{name}/policy`** — a policy, or `null`: who answers from now on. Memory
+  and the group are not touched. `404` for no such brain.
+
+**A policy change ends the thought in flight**, whatever the old policy was — through
+either `PUT`, to another policy or to `null`: a seat can hold a thought for minutes, and
+the new policy should not wait behind it. The thought's request is withdrawn (its context
+cancelled, the connection closed: a seat counts the turn `withdrawn`); nothing of it is
+logged as a thought or written to memory; it is counted (`withdrawn`) and logged
+(`msg: "no thought: the policy changed, the thought withdrawn"`). The percepts it took go
+back to their buffers as if just perceived: those still within their channel's lifetime
+(`BRAIN_KEEP`, on the channel's own clock, §3) wait for the next tick; the rest are
+dropped and counted (`expired`, `overflow`) — logged once as
+`msg: "percepts given back"` with `percepts`, `dropped`, `buffered`. The next thought goes
+to the new policy (with `null`, its percepts are `unthought`). A policy equal to the one
+in place (same `model_url`, `model`, `key`, `timeout`) is no change. A thought whose
+answer is already in is not withdrawn: its act and memory go on.
 - **`GET /brains/{name}/policy`** — the policy, or `null`.
 - **`GET /brains/{name}`** — the brain as above, with its `counts`.
 - **`DELETE /brains/{name}`** — lets it go: its reading stops, its thought in flight ends;
@@ -305,7 +323,8 @@ and for the env's brain `buffered` and `counts` at the top as well.
    happened meanwhile is learned later, from carriers or from others.
 6. **Thought** — §2.3; with a body, its one act (§2.5); then the log (§2.6) and memory
    (§2.4). The tick is not free again until the act is answered: one thought and one act
-   at a time, turn by turn.
+   at a time, turn by turn. A policy change withdraws a thought still waiting for its
+   answer, its percepts given back (§2.7).
 
 Bounded everywhere: buffers by lifetime and count, one thought in flight, recall by count,
 the read from Redis by a channel of 64 events (a brain behind slows its reading; no queue

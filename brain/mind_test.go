@@ -34,6 +34,11 @@ type fakeModel struct {
 	maxIn    atomic.Int32
 	// answer, when set, is the k-th answer's message (tool calls and all).
 	answer func(k int) map[string]any
+	// hold, when set, keeps each request until it is closed or the caller
+	// withdraws the request (a seat holding a turn): held counts those
+	// taken, withdrawn those whose caller went away.
+	hold            chan struct{}
+	held, withdrawn atomic.Int32
 }
 
 func (f *fakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -51,6 +56,15 @@ func (f *fakeModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var body map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&body)
+	if f.hold != nil {
+		f.held.Add(1)
+		select {
+		case <-r.Context().Done():
+			f.withdrawn.Add(1)
+			return
+		case <-f.hold:
+		}
+	}
 	time.Sleep(f.delay)
 	f.mu.Lock()
 	f.requests = append(f.requests, body)

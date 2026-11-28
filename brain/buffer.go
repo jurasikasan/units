@@ -27,6 +27,7 @@ type Counts struct {
 	BodyErrors   atomic.Int64 // tool lists the body did not give
 	Unthought    atomic.Int64 // percepts let go at a tick with no policy to think them
 	OwnActs      atomic.Int64 // the body's records of the brain's own acts, passed over
+	Withdrawn    atomic.Int64 // thoughts ended by a policy change before the answer came
 }
 
 // Snapshot is the counts as a map, for the health answer.
@@ -38,7 +39,7 @@ func (c *Counts) Snapshot() map[string]int64 {
 		"model_errors": c.ModelErrors.Load(), "frame_errors": c.FrameErrors.Load(),
 		"memory_errors": c.MemoryErrs.Load(), "acts": c.Acts.Load(), "act_errors": c.ActErrors.Load(),
 		"ignored_calls": c.IgnoredCalls.Load(), "skips": c.Skips.Load(), "body_errors": c.BodyErrors.Load(),
-		"unthought": c.Unthought.Load(), "own_acts": c.OwnActs.Load(),
+		"unthought": c.Unthought.Load(), "own_acts": c.OwnActs.Load(), "withdrawn": c.Withdrawn.Load(),
 	}
 }
 

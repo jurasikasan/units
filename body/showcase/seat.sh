@@ -7,8 +7,10 @@
 #     with B's second line, which A hears;
 #   - the demo moves B's body directly (skip_turn over B's MCP, no
 #     traceparent); B's brain perceives it on the channel body, as an act
-#     not its own, and thinks: a turn that an MCP client takes with
-#     await_turn (the act in its words) and answers;
+#     not its own, and thinks: a turn held in the seat b; B is handed to
+#     the seat b2 meanwhile, the turn in b is withdrawn at once (UNIT-134)
+#     and the same percept thought again in b2, a turn that an MCP client
+#     takes with await_turn (the act in its words) and answers;
 #   - B's memory holds it all: the model's line, the page's line, its
 #     body's act from the channel body, the MCP answer; the seat counts two
 #     answers; the model b thought once.
@@ -86,12 +88,21 @@ wait("A to skip after it", lambda: [x for x in acts(r.entries("body_a_events"), 
 
 # Someone moves B's body directly: B's brain perceives it as its body's act.
 print("the demo moves B's body directly:", tool(BODIES + "/bodies/b/mcp", "skip_turn", {}))
-res = mcp(SEAT + "/mcp", "await_turn", {"seat": "b", "wait_seconds": 120}, timeout=150)
+# UNIT-134: B's thought of it is held in the seat b; nobody answers there.
+# B is handed to the seat b2: the held turn is withdrawn at once, and the
+# same percept is thought again, in b2.
+wait("B's thought held in the seat b", lambda: get(f"{SEAT}/seats/b/turns"), seconds=120)
+code, _ = send("PUT", f"{BRAINS}/brains/b/policy", {"model_url": SEAT + "/v1", "model": "b2", "timeout": "120s"})
+check(code == 200, "B handed to the seat b2 while its thought is held in b")
+wait("the turn in b withdrawn", lambda: get(SEAT + "/health")["counts"]["withdrawn"] >= 1 and not get(f"{SEAT}/seats/b/turns"),
+     seconds=10)
+check(get(f"{BRAINS}/brains/b")["counts"]["withdrawn"] == 1, "B counts its thought withdrawn")
+res = mcp(SEAT + "/mcp", "await_turn", {"seat": "b2", "wait_seconds": 120}, timeout=150)
 seen = res["structuredContent"]
 text = res["content"][0]["text"]
 print("the MCP client sees:", seen, "\n" + text[-600:])
 check(seen["turn_id"] and "body] did skip_turn {}" in text, "the MCP client's turn tells B's body's act, not B's own")
-res = mcp(SEAT + "/mcp", "answer", {"seat": "b", "turn_id": seen["turn_id"], "text": MOVED, "tool": "skip_turn"})
+res = mcp(SEAT + "/mcp", "answer", {"seat": "b2", "turn_id": seen["turn_id"], "text": MOVED, "tool": "skip_turn"})
 check(not res.get("isError"), "the MCP client answers")
 
 

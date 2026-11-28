@@ -88,7 +88,9 @@ The fourth step, `showcase/seat.yaml` on top of all three: B played by [`seat/`]
 After B's first line (the model's), `seat.sh` hands B's policy to the seat; it answers B's
 next turn as a page would (SSE of turns, `POST` the answer — B's second line, which A
 hears); then it moves B's body directly over its MCP, and B's brain, perceiving its body's
-act as not its own, thinks a turn that an MCP client answers (`await_turn`, `answer`).
+act as not its own, thinks a turn held in the seat `b`; handed to the seat `b2` meanwhile,
+B withdraws that turn at once and thinks the same percept again in `b2`, a turn that an
+MCP client answers (`await_turn`, `answer`).
 B's memory holds the model's line, the page's, its body's act and the MCP answer:
 
 ```bash

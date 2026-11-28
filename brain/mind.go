@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"sort"
 	"strings"
@@ -86,13 +87,17 @@ type Mind struct {
 	// Now is the brain's clock; time.Now when nil.
 	Now func() time.Time
 
-	policy   atomic.Pointer[Policy]
-	ownMu    sync.Mutex
-	own      *recent // traceparents of the brain's own acts
-	buffered atomic.Int64
-	bufs     *Buffers
-	opens    map[string]time.Time // channel + request_id of a start-of-input → when it came
-	seen     *recent
+	policy atomic.Pointer[Policy]
+	// thoughtMu orders a policy change against a thought being started:
+	// withdraw ends the thought in flight, nil when there is none.
+	thoughtMu sync.Mutex
+	withdraw  context.CancelCauseFunc
+	ownMu     sync.Mutex
+	own       *recent // traceparents of the brain's own acts
+	buffered  atomic.Int64
+	bufs      *Buffers
+	opens     map[string]time.Time // channel + request_id of a start-of-input → when it came
+	seen      *recent
 	// Since the last tick: a recognition came; when the last event came;
 	// when the oldest buffered percept came.
 	recognized bool
@@ -100,14 +105,37 @@ type Mind struct {
 	waiting    time.Time
 }
 
-// Buffered is how many percepts wait for a tick now.
-// SetPolicy changes who answers from the next thought on; nil: nobody, and
-// the brain perceives and does not think. Buffers and memory are not touched.
-func (m *Mind) SetPolicy(p *Policy) { m.policy.Store(p) }
+// errPolicyChanged is why a thought in flight is withdrawn: its policy was
+// replaced while it waited for the answer.
+var errPolicyChanged = errors.New("the policy changed")
+
+// SetPolicy changes who answers; nil: nobody, and the brain perceives and
+// does not think. A change ends the thought in flight, whoever the old
+// policy was: its request is withdrawn, its percepts go back to their
+// buffers, and the next thought goes to the new policy (CONTRACT §2.7). The
+// same policy again is no change. Memory is not touched.
+func (m *Mind) SetPolicy(p *Policy) {
+	m.thoughtMu.Lock()
+	defer m.thoughtMu.Unlock()
+	if old := m.policy.Swap(p); samePolicy(old, p) {
+		return
+	}
+	if m.withdraw != nil {
+		m.withdraw(errPolicyChanged)
+	}
+}
+
+func samePolicy(a, b *Policy) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Model.URL == b.Model.URL && a.Model.Key == b.Model.Key && a.Model.Name == b.Model.Name && a.Timeout == b.Timeout
+}
 
 // Policy is who answers now, or nil.
 func (m *Mind) Policy() *Policy { return m.policy.Load() }
 
+// Buffered is how many percepts wait for a tick now.
 func (m *Mind) Buffered() int { return int(m.buffered.Load()) }
 
 func (m *Mind) now() time.Time {
@@ -132,7 +160,9 @@ func (m *Mind) Run(ctx context.Context, events <-chan Event) {
 	}
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
-	done := make(chan struct{}, 1)
+	// A thought ends by giving back the percepts it did not think: those of
+	// a thought withdrawn by a policy change.
+	done := make(chan []Percept, 1)
 	thinking := false
 
 	for {
@@ -148,8 +178,9 @@ func (m *Mind) Run(ctx context.Context, events <-chan Event) {
 				continue
 			}
 			m.take(ev)
-		case <-done:
+		case back := <-done:
 			thinking = false
+			m.giveBack(back)
 		case <-ticker.C:
 		}
 		if !thinking && m.due() {
@@ -159,21 +190,49 @@ func (m *Mind) Run(ctx context.Context, events <-chan Event) {
 			if len(ps) == 0 {
 				continue
 			}
+			m.thoughtMu.Lock()
 			p := m.Policy()
 			if p == nil {
+				m.thoughtMu.Unlock()
 				// Nobody to think them: let go, not remembered. The world
 				// does not wait for a player.
 				m.Counts.Unthought.Add(int64(len(ps)))
 				m.Log.Info("no thought: no policy", "percepts", len(ps))
 				continue
 			}
+			tctx, withdraw := context.WithCancelCause(ctx)
+			m.withdraw = withdraw
+			m.thoughtMu.Unlock()
 			thinking = true
 			go func() {
-				m.think(ctx, ps, p)
-				done <- struct{}{}
+				back := m.think(tctx, ctx, ps, p)
+				m.thoughtMu.Lock()
+				m.withdraw = nil
+				m.thoughtMu.Unlock()
+				withdraw(nil)
+				done <- back
 			}()
 		}
 	}
+}
+
+// giveBack puts the percepts of a withdrawn thought back into their
+// buffers: those still within their channel's lifetime wait for the next
+// thought; the rest are dropped and counted (expired, overflow), as any.
+func (m *Mind) giveBack(ps []Percept) {
+	if len(ps) == 0 {
+		return
+	}
+	before := m.bufs.Len()
+	if before == 0 {
+		m.waiting = m.now()
+	}
+	for _, p := range ps {
+		m.bufs.Add(p)
+	}
+	m.recognized = true
+	m.buffered.Store(int64(m.bufs.Len()))
+	m.Log.Info("percepts given back", "percepts", len(ps), "dropped", before+len(ps)-m.bufs.Len(), "buffered", m.bufs.Len())
 }
 
 // take passes one event through the gate into the buffers.
@@ -254,14 +313,30 @@ func (m *Mind) due() bool {
 	return m.recognized && len(m.opens) == 0 && now.Sub(m.lastEvent) >= m.Cfg.Settle
 }
 
-// think makes one thought of ps: recall, the model, the log, memory.
-func (m *Mind) think(ctx context.Context, ps []Percept, p *Policy) {
+// think makes one thought of ps: recall, the model, the log, memory. Until
+// the model has answered the thought runs on thought, which a policy change
+// ends: then nothing is remembered, and the percepts are given back for the
+// next thought. The act and memory run on ctx, the brain's: an answer in is
+// acted on and remembered whatever happens to the policy after it.
+func (m *Mind) think(thought, ctx context.Context, ps []Percept, p *Policy) (back []Percept) {
 	moments := Bind(ps, m.Cfg.Bind)
 	start, end := Span(ps)
+	withdrawn := func() bool {
+		if !errors.Is(context.Cause(thought), errPolicyChanged) {
+			return false
+		}
+		m.Counts.Withdrawn.Add(1)
+		m.Log.Info("no thought: the policy changed, the thought withdrawn", "percepts", len(ps),
+			"span_start", start, "span_end", end)
+		return true
+	}
 
 	msgs := []openai.ChatCompletionMessageParamUnion{openai.SystemMessage(m.Cfg.Prompt)}
-	recall, err := m.Memory.Recall(ctx, m.Cfg.Recall)
+	recall, err := m.Memory.Recall(thought, m.Cfg.Recall)
 	if err != nil {
+		if withdrawn() {
+			return ps
+		}
 		m.Counts.MemoryErrs.Add(1)
 		m.Log.Warn("memory: recall failed, thinking without it", "err", err.Error())
 	}
@@ -274,8 +349,11 @@ func (m *Mind) think(ctx context.Context, ps []Percept, p *Policy) {
 			if p.Frame == nil {
 				continue
 			}
-			raw, err := m.Store.Fetch(ctx, p.Frame.SHA256)
+			raw, err := m.Store.Fetch(thought, p.Frame.SHA256)
 			if err != nil {
+				if withdrawn() {
+					return ps
+				}
 				m.Counts.FrameErrors.Add(1)
 				m.Log.Warn("frame: not fetched, text only", "channel", p.Channel, "request_id", p.RequestID, "err", err.Error())
 				parts = append(parts, openai.TextContentPart("(the frame of this could not be fetched)"))
@@ -288,15 +366,21 @@ func (m *Mind) think(ctx context.Context, ps []Percept, p *Policy) {
 		msgs = append(msgs, openai.UserMessage(parts))
 	}
 
-	tools := m.tools(ctx)
+	tools := m.tools(thought)
+	if withdrawn() {
+		return ps
+	}
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = m.Cfg.ModelTimeout
 	}
-	tctx, cancel := context.WithTimeout(ctx, timeout)
+	mctx, cancel := context.WithTimeout(thought, timeout)
 	asked := m.now()
-	answer, err := p.Model.Think(tctx, msgs, tools)
+	answer, err := p.Model.Think(mctx, msgs, tools)
 	cancel()
+	if err != nil && withdrawn() {
+		return ps
+	}
 	answered := m.now()
 	sentFirst, sentLast := sentSpan(ps)
 	attrs := []any{
@@ -316,6 +400,7 @@ func (m *Mind) think(ctx context.Context, ps []Percept, p *Policy) {
 	}
 
 	m.remember(ctx, ps, answer.Text, act, start, end)
+	return nil
 }
 
 // tools lists the body's tools for this thought: listed each time, so a
@@ -329,6 +414,9 @@ func (m *Mind) tools(ctx context.Context) []openai.ChatCompletionToolUnionParam 
 	defer cancel()
 	tools, err := m.Body.Tools(lctx)
 	if err != nil {
+		if ctx.Err() != nil { // the thought ended, not the body
+			return nil
+		}
 		m.Counts.BodyErrors.Add(1)
 		m.Log.Warn("body: tools not listed, thinking without acting", "err", err.Error())
 		return nil
