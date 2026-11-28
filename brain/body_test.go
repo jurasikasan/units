@@ -20,17 +20,21 @@ import (
 type fakeBody struct {
 	mu    sync.Mutex
 	calls []map[string]any
+	// mute: no speak_aloud, as a body without a mouth.
+	mute bool
 }
 
 func (f *fakeBody) server(t *testing.T) *httptest.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "body", Version: "0"}, nil)
-	mcp.AddTool(srv, &mcp.Tool{Name: "speak_aloud", Description: "Say something aloud."},
-		func(_ context.Context, req *mcp.CallToolRequest, in struct {
-			Text string `json:"text" jsonschema:"the words to say"`
-		}) (*mcp.CallToolResult, map[string]any, error) {
-			f.record("speak_aloud", map[string]any{"text": in.Text}, req)
-			return nil, map[string]any{"spoken": in.Text, "completion_cause": "normal", "listeners": 1}, nil
-		})
+	if !f.mute {
+		mcp.AddTool(srv, &mcp.Tool{Name: "speak_aloud", Description: "Say something aloud."},
+			func(_ context.Context, req *mcp.CallToolRequest, in struct {
+				Text string `json:"text" jsonschema:"the words to say"`
+			}) (*mcp.CallToolResult, map[string]any, error) {
+				f.record("speak_aloud", map[string]any{"text": in.Text}, req)
+				return nil, map[string]any{"spoken": in.Text, "completion_cause": "normal", "listeners": 1}, nil
+			})
+	}
 	mcp.AddTool(srv, &mcp.Tool{Name: "skip_turn", Description: "Do nothing this turn."},
 		func(_ context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, map[string]any, error) {
 			f.record("skip_turn", nil, req)
@@ -66,10 +70,10 @@ func bodyRig(t *testing.T, body *fakeBody, answer func(k int) map[string]any) *r
 	})
 }
 
-// One thought, one act: the body's tools are offered with tool_choice
-// required; only the first call is done, the rest counted; what the body
-// answered goes to the log and memory, never back to the model within the
-// thought; the next thought recalls the act as a call and its result.
+// One thought, one act: the body's tools are offered, no tool_choice sent;
+// only the first call is done, the rest counted; what the body answered
+// goes to the log and memory, never back to the model within the thought;
+// the next thought recalls the act as a call and its result.
 func TestOneActPerThought(t *testing.T) {
 	body := &fakeBody{}
 	r := bodyRig(t, body, func(k int) map[string]any {
@@ -77,7 +81,7 @@ func TestOneActPerThought(t *testing.T) {
 			return map[string]any{"role": "assistant", "content": "Someone is there. I greet them.",
 				"tool_calls": []any{toolCall("call_1", "speak_aloud", `{"text":"hello"}`), toolCall("call_2", "skip_turn", `{}`)}}
 		}
-		return map[string]any{"role": "assistant", "content": "They answered."}
+		return map[string]any{"role": "assistant", "content": " \n "}
 	})
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	r.hear("utt-1", "is anyone there?", now.Add(-time.Second), now.Add(-500*time.Millisecond))
@@ -89,8 +93,8 @@ func TestOneActPerThought(t *testing.T) {
 		t.Fatalf("the model was asked %d times for one thought", len(reqs))
 	}
 	req := reqs[0]
-	if req["tool_choice"] != "required" {
-		t.Fatalf("tool_choice: %v", req["tool_choice"])
+	if _, sent := req["tool_choice"]; sent {
+		t.Fatalf("tool_choice sent: %v", req["tool_choice"])
 	}
 	tools := map[string]map[string]any{}
 	for _, tl := range req["tools"].([]any) {
@@ -151,8 +155,8 @@ func TestOneActPerThought(t *testing.T) {
 		t.Fatalf("the act has no occurred: %v", result)
 	}
 
-	// The next thought recalls the act as OpenAI has it, and acts on nothing:
-	// a skip.
+	// The next thought recalls the act as OpenAI has it, and answers with
+	// whitespace and no call: a skip.
 	r.hear("utt-2", "yes, me", now.Add(time.Second), now.Add(1500*time.Millisecond))
 	eventually(t, "a second thought", func() bool { return len(r.model.got()) == 2 })
 	msgs := r.model.got()[1]["messages"].([]any)
@@ -230,6 +234,74 @@ func TestWithoutABodyNothingIsOffered(t *testing.T) {
 	eventually(t, "a thought", func() bool { return len(r.model.got()) == 1 })
 	if req := r.model.got()[0]; req["tools"] != nil || req["tool_choice"] != nil {
 		t.Fatalf("offered tools without a body: %v", req)
+	}
+}
+
+// Words with no call are the model's answer into its body: said aloud
+// through speak_aloud, with the brain's traceparent, remembered as the
+// thought with that call and its result, recalled as any act. A body with no
+// mouth makes the same words a skip.
+func TestWordsWithoutACallAreSpokenAloud(t *testing.T) {
+	body := &fakeBody{}
+	r := bodyRig(t, body, func(k int) map[string]any {
+		return map[string]any{"role": "assistant", "content": "  Hello, who is there?  "}
+	})
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	r.hear("utt-1", "knock knock", now.Add(-time.Second), now.Add(-500*time.Millisecond))
+
+	eventually(t, "the words spoken", func() bool { return len(body.got()) == 1 })
+	got := body.got()[0]
+	tp, _ := got["traceparent"].(string)
+	if got["name"] != "speak_aloud" || got["args"].(map[string]any)["text"] != "Hello, who is there?" || len(tp) != 55 {
+		t.Fatalf("the body was asked: %v", got)
+	}
+	eventually(t, "remembered", func() bool {
+		es := r.threads.all()
+		if len(es) < 3 {
+			return false
+		}
+		c, _ := es[len(es)-1]["content"].([]any)
+		return len(c) > 0 && c[0].(map[string]any)["type"] == "tool_result"
+	})
+	es := r.threads.all()
+	thought := es[len(es)-2]["content"].([]any)
+	call := thought[1].(map[string]any)
+	if thought[0].(map[string]any)["text"] != "Hello, who is there?" || call["type"] != "tool_call" ||
+		call["name"] != "speak_aloud" || call["args"].(map[string]any)["text"] != "Hello, who is there?" ||
+		!strings.HasPrefix(call["id"].(string), "call_") {
+		t.Fatalf("remembered thought: %v", thought)
+	}
+	res := es[len(es)-1]["content"].([]any)[0].(map[string]any)
+	if res["call_id"] != call["id"] || !strings.Contains(res["text"].(string), `"spoken":"Hello, who is there?"`) {
+		t.Fatalf("remembered result: %v", res)
+	}
+	act := r.log.lines("act")
+	c := r.mind.Counts.Snapshot()
+	if len(act) != 1 || act[0]["words_spoken"] != true || c["acts"] != 1 || c["skips"] != 0 {
+		t.Fatalf("act log %v, counts %v", act, c)
+	}
+
+	// The next thought recalls it as a call and its tool message.
+	r.hear("utt-2", "it is me", now.Add(time.Second), now.Add(1500*time.Millisecond))
+	eventually(t, "a second thought", func() bool { return len(r.model.got()) == 2 })
+	recalled := false
+	for _, m := range r.model.got()[1]["messages"].([]any) {
+		msg := m.(map[string]any)
+		if msg["role"] == "tool" && msg["tool_call_id"] == call["id"] {
+			recalled = true
+		}
+	}
+	if !recalled {
+		t.Fatalf("the spoken words were not recalled as an act: %v", r.model.got()[1]["messages"])
+	}
+
+	// No mouth: the words are a skip, nothing done.
+	mute := &fakeBody{mute: true}
+	q := bodyRig(t, mute, func(int) map[string]any { return map[string]any{"role": "assistant", "content": "Hello?"} })
+	q.hear("utt-1", "knock knock", now.Add(-time.Second), now)
+	eventually(t, "a skip", func() bool { return q.mind.Counts.Skips.Load() == 1 })
+	if len(mute.got()) != 0 || q.mind.Counts.Acts.Load() != 0 {
+		t.Fatalf("a mute body acted: %v", mute.got())
 	}
 }
 

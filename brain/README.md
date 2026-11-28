@@ -5,8 +5,9 @@ streams, gates and buffers it per channel by perception time, thinks one thought
 through an OpenAI chat door — the frames sent as pictures — and writes the thought to its
 log and, with what it perceived, to its thread in `threads`. With a body (`BRAIN_BODY`,
 [`body/`](../body/)) it acts: the body's tools are offered to the model, and the first call
-of each answer is done on the body — one act per thought, its result remembered, never
-fed back within the thought. Turn-based on purpose: no agent loop. One process carries
+of each answer is done on the body — words with no call are said aloud through its
+`speak_aloud` — one act per thought, its result remembered, never fed back within the
+thought. Turn-based on purpose: no agent loop. One process carries
 many brains, made, changed and let go through `PUT /brains/{name}`; who answers a thought —
 the brain's policy — is changed on its own, buffers and memory kept; a person or Claude
 plays it through [`seat/`](../seat/). Its own acts carry its traceparent; an act someone

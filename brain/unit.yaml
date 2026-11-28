@@ -3,7 +3,7 @@
 
 unit: brain
 kind: brain             # perceives, thinks, and acts through its body: one act per thought
-summary: The first brain, a minimal multiplexer of the senses; one process carries many, made, changed and let go through PUT /brains/{name}, each one's policy (who answers a thought) changed on its own. Reads the senses' recognitions off their streams, gates and buffers them per channel by perception time, thinks one thought at a time through an OpenAI chat door with the frames as pictures and, with a body, its tools offered; does the answer's first tool call on the body, never feeding the result back within the thought; writes the thought, the act and what it perceived to its thread.
+summary: The first brain, a minimal multiplexer of the senses; one process carries many, made, changed and let go through PUT /brains/{name}, each one's policy (who answers a thought) changed on its own. Reads the senses' recognitions off their streams, gates and buffers them per channel by perception time, thinks one thought at a time through an OpenAI chat door with the frames as pictures and, with a body, its tools offered; does the answer's first tool call on the body (words with no call said aloud through its speak_aloud), never feeding the result back within the thought; writes the thought, the act and what it perceived to its thread.
 contract: CONTRACT.md
 maturity: probe
 

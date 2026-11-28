@@ -6,7 +6,7 @@
 #   - each body's stream records its acts: B's two lines, A's line, then
 #     A's skip_turn once nothing is left to say;
 #   - the model was offered the body's tools (speak_aloud, skip_turn) with
-#     tool_choice required, every request ended with the new moment (a
+#     no tool_choice sent, every request ended with the new moment (a
 #     result never came back within a thought), and each brain made exactly
 #     one act per thought;
 #   - words heard reached the model quoted ([… hearing] "…"), as said;
@@ -61,8 +61,8 @@ check(all(x["data"]["result"]["listeners"] == 1 for x in acts(on_a, "speak_aloud
 reqs = get(MODEL + "/requests")
 for who, body in (("a", on_a), ("b", on_b)):
     mine = [q for q in reqs if q["model"] == who]
-    check(mine and all(q["tools"] == ["skip_turn", "speak_aloud"] and q["tool_choice"] == "required" for q in mine),
-          f"{who}: the body's tools offered, tool_choice required, in all {len(mine)} requests")
+    check(mine and all(q["tools"] == ["skip_turn", "speak_aloud"] and q["tool_choice"] is None for q in mine),
+          f"{who}: the body's tools offered, no tool_choice sent, in all {len(mine)} requests")
     check(all(q["roles"][-1] == "user" for q in mine), f"{who}: every request ends with the new moment")
     # UNIT-128: words heard reach the model quoted, as said
     heard_parts = [p for q in mine for p in q["last"].split(" | ") if " hearing] " in p]

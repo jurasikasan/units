@@ -33,9 +33,10 @@ type Answer struct {
 }
 
 // Think asks for one chat completion and gives the first choice. With tools,
-// the model is offered them with tool_choice "required": every answer is an
-// act, skip_turn included. The SDK does not retry: a thought that failed is
-// the tick's to report.
+// the model is offered them and no tool_choice is sent (auto): not every
+// model takes "required" (some hang on it, some ignore it), so a model's
+// words without a call are read by the brain instead (CONTRACT §2.5). The
+// SDK does not retry: a thought that failed is the tick's to report.
 func (m Model) Think(ctx context.Context, msgs []openai.ChatCompletionMessageParamUnion, tools []openai.ChatCompletionToolUnionParam) (Answer, error) {
 	opts := []option.RequestOption{option.WithBaseURL(strings.TrimRight(m.URL, "/") + "/"), option.WithMaxRetries(0)}
 	if m.Key != "" {
@@ -53,8 +54,6 @@ func (m Model) Think(ctx context.Context, msgs []openai.ChatCompletionMessagePar
 	}
 	if len(tools) > 0 {
 		params.Tools = tools
-		params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
-			OfAuto: openai.String(string(openai.ChatCompletionToolChoiceOptionAutoRequired))}
 	}
 	resp, err := client.Chat.Completions.New(ctx, params)
 	if err != nil {

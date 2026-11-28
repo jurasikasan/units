@@ -2,8 +2,8 @@
 # "Nowhere", step four: B played by the seat. It checks:
 #   - after B's first line (the model b), PUT /brains/b/policy puts B in the
 #     seat b; B's next thought is a turn there, seen by a page over SSE
-#     exactly as a model would get it — the body's tools, tool_choice
-#     required, B's first line recalled as its act — and answered over HTTP
+#     exactly as a model would get it — the body's tools, no tool_choice,
+#     B's first line recalled as its act — and answered over HTTP
 #     with B's second line, which A hears;
 #   - the demo moves B's body directly (skip_turn over B's MCP, no
 #     traceparent); B's brain perceives it on the channel body, as an act
@@ -68,9 +68,9 @@ check(code == 200 and out["policy"]["model_url"] == SEAT + "/v1", "B's policy is
 turn = next_turn("b")
 req = turn["request"]
 print("the page sees a turn:", turn["id"], [m["role"] for m in req["messages"]])
-check(req["model"] == "b" and req["tool_choice"] == "required"
+check(req["model"] == "b" and "tool_choice" not in req
       and sorted(t["function"]["name"] for t in req["tools"]) == ["skip_turn", "speak_aloud"],
-      "the turn is the request a model gets: the body's tools, tool_choice required")
+      "the turn is the request a model gets: the body's tools, no tool_choice sent")
 check(any(m["role"] == "tool" for m in req["messages"])
       and any(c["function"]["name"] == "speak_aloud" for m in req["messages"] if m["role"] == "assistant"
               for c in (m.get("tool_calls") or [])),

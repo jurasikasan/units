@@ -312,7 +312,7 @@ func (m *Mind) think(ctx context.Context, ps []Percept, p *Policy) {
 	} else {
 		m.Counts.Thoughts.Add(1)
 		m.Log.Info("thought", append([]any{"thought", answer.Text}, attrs...)...)
-		act = m.actOn(ctx, answer, len(tools) > 0)
+		act = m.actOn(ctx, answer, tools)
 	}
 
 	m.remember(ctx, ps, answer.Text, act, start, end)
@@ -345,31 +345,44 @@ type Act struct {
 	Started, Ended time.Time
 }
 
+// Mouth is the tool a body speaks with: the model's words with no call are
+// said aloud through it (CONTRACT §2.5), as {"text": words}.
+const Mouth = "speak_aloud"
+
 // actOn takes the model's answer to one act: its first tool call is done on
-// the body; any further one is ignored and counted. No call is a skip. What
-// the body answers is logged and remembered, never sent back to the model
-// within this thought: the next turn sees what came of it through the
-// senses, and through memory.
-func (m *Mind) actOn(ctx context.Context, a Answer, offered bool) *Act {
-	if !offered { // no tools were given: a call is the model's own invention, not an act
+// the body; any further one is ignored and counted. Words with no call are
+// the model's answer into its body: said aloud through its mouth, an act
+// like any other; with no mouth, or no words either, it is a skip. What the
+// body answers is logged and remembered, never sent back to the model within
+// this thought: the next turn sees what came of it through the senses, and
+// through memory.
+func (m *Mind) actOn(ctx context.Context, a Answer, tools []openai.ChatCompletionToolUnionParam) *Act {
+	if len(tools) == 0 { // no tools were given: a call is the model's own invention, not an act
 		m.Counts.IgnoredCalls.Add(int64(len(a.Calls)))
 		return nil
 	}
-	if len(a.Calls) == 0 {
+	var id, name, raw string
+	spoken := false
+	switch {
+	case len(a.Calls) > 0:
+		if extra := len(a.Calls) - 1; extra > 0 {
+			m.Counts.IgnoredCalls.Add(int64(extra))
+		}
+		call := a.Calls[0]
+		id, name, raw = call.ID, call.Function.Name, strings.TrimSpace(call.Function.Arguments)
+	case a.Text != "" && offers(tools, Mouth):
+		args, _ := json.Marshal(map[string]string{"text": a.Text})
+		name, raw, spoken = Mouth, string(args), true
+	default:
 		m.Counts.Skips.Add(1)
 		m.Log.Info("act: none, the model called no tool")
 		return nil
 	}
-	if extra := len(a.Calls) - 1; extra > 0 {
-		m.Counts.IgnoredCalls.Add(int64(extra))
-	}
-	call := a.Calls[0]
-	act := &Act{ID: call.ID, Name: call.Function.Name, Args: json.RawMessage("{}"), Started: m.now()}
+	act := &Act{ID: id, Name: name, Args: json.RawMessage("{}"), Started: m.now()}
 	if act.ID == "" {
 		act.ID = "call_" + uuid.NewString()
 	}
 	var args map[string]any
-	raw := strings.TrimSpace(call.Function.Arguments)
 	if raw == "" {
 		raw = "{}"
 	}
@@ -398,8 +411,19 @@ func (m *Mind) actOn(ctx context.Context, a Answer, offered bool) *Act {
 		m.Counts.ActErrors.Add(1)
 	}
 	m.Log.Info("act", "tool", act.Name, "call_id", act.ID, "args", string(act.Args), "result", act.Result,
-		"is_error", act.IsError, "act_ms", act.Ended.Sub(act.Started).Milliseconds(), "ignored_calls", len(a.Calls)-1)
+		"is_error", act.IsError, "act_ms", act.Ended.Sub(act.Started).Milliseconds(), "ignored_calls", max(len(a.Calls)-1, 0),
+		"words_spoken", spoken)
 	return act
+}
+
+// offers: a tool of this name is among those offered.
+func offers(tools []openai.ChatCompletionToolUnionParam, name string) bool {
+	for _, t := range tools {
+		if t.OfFunction != nil && t.OfFunction.Function.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // remember appends each percept, then the thought with its act's call, then

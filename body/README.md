@@ -62,7 +62,7 @@ The second step, `showcase/conversation.yaml` on top: a brain behind each body
 through `speak_aloud`, counted from the calls it recalls, or `skip_turn`. The demo speaks
 once as A; then the brains take turns — B answers, A answers, B answers, A skips — and
 `conversation.sh` checks each line was heard on the other's stream, each act recorded,
-what the model was offered (the body's tools, `tool_choice: required`), that every request
+what the model was offered (the body's tools, no `tool_choice`), that every request
 ended with the new moment and each thought made one act, and that the acts are in the
 brains' threads and came back on recall as a call and its tool message:
 

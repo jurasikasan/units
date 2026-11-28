@@ -1,5 +1,8 @@
 # brain — contract
 
+Revision 5 (UNIT-129): no `tool_choice` is sent; a model's words with no tool call are
+its answer into its body, said aloud through `speak_aloud` and remembered as that act
+(§2.5).
 Revision 4 (UNIT-132): the brain knows its own acts by the traceparent it sends with
 each; an act someone else did through its body is perceived on the channel `body` (§2.1).
 A person or Claude answers as a policy through `seat/`, with no change here.
@@ -96,7 +99,8 @@ one made through the API (§2.7). The policy is the RL word for what turns an ob
 into an action: the brain makes the observation and remembers; only the policy changes.
 
 `POST {MODEL_URL}/chat/completions` through OpenAI's Go SDK (`openai-go`, no retries), `Authorization: Bearer {MODEL_KEY}` when set.
-With a body (§2.5) the request also carries its `tools` and `"tool_choice": "required"`:
+With a body (§2.5) the request also carries its `tools`; no `tool_choice` is sent (the
+default, `auto`) — some models hang on `required`, some ignore it:
 
 ```json
 {"model": "<MODEL>",
@@ -111,8 +115,7 @@ With a body (§2.5) the request also carries its `tools` and `"tool_choice": "re
      {"type": "text", "text": "[21:00:12.200 sight] a person in the corridor"},
      {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,/9j/4AAQ…"}}]}],
  "tools": [{"type": "function", "function": {"name": "speak_aloud", "description": "Say something aloud. …",
-   "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}}, …],
- "tool_choice": "required"}
+   "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}}, …]}
 ```
 
 - the **system prompt**: the spec's `self` when given (who the mind is, §2.7), a blank line,
@@ -179,8 +182,8 @@ Without it the brain thinks and does nothing: no tools are offered, nothing is c
 - **Its tools.** `tools/list` before each thought, so a body whose list changed is seen as
   it is now. Each tool goes to the model as an OpenAI function tool: `name`,
   `description`, and the body's `inputSchema` as `parameters` (openai-go's types). The
-  brain assumes no tool by name. A body that does not list them (down, refused) leaves that
-  thought without tools and without `tool_choice`: logged and counted (`body_errors`). A
+  brain assumes no tool by name but `speak_aloud`, its mouth (below). A body that does not list them (down, refused) leaves that
+  thought without tools: logged and counted (`body_errors`). A
   tool call in the answer to a thought offered no tools is no act: ignored and counted
   (`ignored_calls`).
 - **Its traceparent.** Each act is called with a W3C traceparent of the brain's own in
@@ -190,7 +193,13 @@ Without it the brain thinks and does nothing: no tools are offered, nothing is c
   thought; its **first** tool call is done on the body (`tools/call`, the arguments parsed
   as a JSON object; when they are not one, the call is not made and its result is
   `bad_arguments: …`, `is_error`); every further call in the answer is ignored and counted
-  (`ignored_calls`). No call at all is a skip (`skips`). The body's answer — the text of
+  (`ignored_calls`). **Words and no call** are the model's answer into its body: said
+  aloud — the brain calls the body's `speak_aloud` with `{"text": <the words>}`, an act
+  like any other (its id `call_<uuid>`, its traceparent, logged with `words_spoken`,
+  remembered as the thought — the words — with that call, then its result). It is the one
+  tool the brain knows by name, and only when the body lists it. No call and no words
+  (whitespace only counts as none), or words while the body lists no `speak_aloud`, is a
+  skip (`skips`). The body's answer — the text of
   its content, or the tool's error — is logged and remembered (§2.4) and **not** sent back
   to the model within the thought: there is one completion per thought, and the next turn
   sees what came of the act through the senses and through recall. An act may take
@@ -208,7 +217,7 @@ JSON lines on stdout. Each percept taken: `msg: percept`, `channel`, `type`, `re
 `tools` (offered), `calls` (made by the model).
 A failed one: `msg: "no thought: the model did not answer"` with the same fields and `err`.
 Each act: `msg: act`, `tool`, `call_id`, `args`, `result`, `is_error`, `act_ms`,
-`ignored_calls`.
+`ignored_calls`, `words_spoken` (the act is the model's words said aloud, §2.5).
 
 `GET /health` on `PORT`: `{"status": "ok", "version", "buffered", "counts"}` — `counts` by
 reason: `read`, `ignored`, `malformed`, `duplicates`, `gated`, `empty`, `expired`,
