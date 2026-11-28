@@ -5,7 +5,8 @@
 #     the other's earshot by its /bodies/<name> URL; the same PUT again
 #     changes nothing (200);
 #   - PUT /brains/a and /brains/b make a brain behind each, by the body's
-#     URL, with a policy: the scripted model, a and b;
+#     URL, with a policy: the scripted model, a and b; A is told who it is
+#     (self), and its model gets that first, then the brain's own prompt;
 #   - the conversation of step two happens: B answers, A answers, B answers,
 #     A skips — each line heard by the other;
 #   - after B's first line, PUT /brains/b/policy hands B to another model,
@@ -24,6 +25,7 @@ OPENING = "hello, who is there?"
 B_LINES = ["It is me, B. Who are you?", "Nice to meet you, A."]
 A_LINES = ["Hello, I am the one holding an umbrella."]
 POLICY = {"model_url": MODEL + "/v1"}
+SELF = {"a": "You are Ann, a tall woman in a grey coat, holding an umbrella. You speak English."}
 
 bodies = {
     "a": {"description": "a tall woman in a grey coat, holding an umbrella", "senses": ["hearing"],
@@ -42,8 +44,10 @@ for name in bodies:
     wait(f"{name}'s ear", lambda: get(f"{BODIES}/bodies/{name}")["ears"])
 
 for name, subject in (("a", BRAIN_A), ("b", BRAIN_B)):
-    code, out = send("PUT", f"{BRAINS}/brains/{name}",
-                     {"subject": subject, "body": f"{BODIES}/bodies/{name}", "policy": dict(POLICY, model=name)})
+    spec = {"subject": subject, "body": f"{BODIES}/bodies/{name}", "policy": dict(POLICY, model=name)}
+    if name in SELF:
+        spec["self"] = SELF[name]
+    code, out = send("PUT", f"{BRAINS}/brains/{name}", spec)
     print(f"PUT /brains/{name}:", code, out)
     check(code == 201 and out["subject"] == subject and out["policy"]["model"] == name,
           f"brain {name} made behind body {name}, its policy the model {name}")
@@ -74,6 +78,10 @@ b_said = [x["data"]["args"]["text"] for x in acts(on_b, "speak_aloud")]
 check(b_said == B_LINES, f"B said its lines in order, across the change of policy: {b_said}")
 
 reqs = get(MODEL + "/requests")
+by_a = [q for q in reqs if q["model"] == "a"]
+check(by_a and all(q["system"].startswith(SELF["a"] + "\n\nYou are a mind that perceives") for q in by_a),
+      "A's model is told who A is, then how a mind works: " + repr(by_a[0]["system"][:120] if by_a else None))
+check(all(not q["system"].startswith("You are Ann") for q in reqs if q["model"] != "a"), "nobody else is told they are Ann")
 by_b = [q for q in reqs if q["model"] == "b"]
 by_b2 = [q for q in reqs if q["model"] == "b2"]
 print("b's requests:", len(by_b), "b2's:", [(q["said"], q["last"]) for q in by_b2])

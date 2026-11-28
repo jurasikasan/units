@@ -48,8 +48,11 @@ type Spec struct {
 	// Body + "/mcp", its stream body_<name>_events. Empty: it only thinks.
 	Body string `json:"body,omitempty"`
 	// Senses are the streams to read; empty: the body's stream.
-	Senses     []string    `json:"senses,omitempty"`
-	Thread     string      `json:"thread,omitempty"`
+	Senses []string `json:"senses,omitempty"`
+	Thread string   `json:"thread,omitempty"`
+	// Self is who the mind is (a name, what it looks like, its language):
+	// put before the prompt, which says how a mind works.
+	Self       string      `json:"self,omitempty"`
 	Prompt     string      `json:"prompt,omitempty"`
 	Gate       string      `json:"gate,omitempty"`
 	Keep       string      `json:"keep,omitempty"`
@@ -220,6 +223,11 @@ func (h *Host) Build(name string, spec Spec) (Built, error) {
 	}
 	if spec.Prompt != "" {
 		cfg.Prompt = spec.Prompt
+	}
+	// Who the mind is comes first, then how a mind works (UNIT-133): an
+	// application names its character without copying the unit's prompt.
+	if self := strings.TrimSpace(spec.Self); self != "" {
+		cfg.Prompt = self + "\n\n" + cfg.Prompt
 	}
 	var err error
 	if cfg.Closed, err = ParseGate(spec.Gate); err != nil {

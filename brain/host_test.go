@@ -197,3 +197,23 @@ func TestBuildFromABodyURL(t *testing.T) {
 		t.Fatalf("%+v %v", b, err)
 	}
 }
+
+// UNIT-133: self is who the mind is, put before how a mind works — the
+// host's prompt when the spec names none, the spec's when it does.
+func TestSelfComesBeforeThePrompt(t *testing.T) {
+	h := NewHost(HostConfig{Prompt: "how a mind works"}, nil, slog.Default())
+	for _, c := range []struct {
+		spec Spec
+		want string
+	}{
+		{Spec{Senses: []string{"s"}, Self: "You are Ann.\n"}, "You are Ann.\n\nhow a mind works"},
+		{Spec{Senses: []string{"s"}, Self: "You are Ann.", Prompt: "think briefly"}, "You are Ann.\n\nthink briefly"},
+		{Spec{Senses: []string{"s"}, Prompt: "think briefly"}, "think briefly"},
+		{Spec{Senses: []string{"s"}}, "how a mind works"},
+	} {
+		b, err := h.Build("a", c.spec)
+		if err != nil || b.Cfg.Prompt != c.want {
+			t.Errorf("%+v: prompt %q, %v; want %q", c.spec, b.Cfg.Prompt, err, c.want)
+		}
+	}
+}

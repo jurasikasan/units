@@ -35,6 +35,7 @@ def summary(body):
         "tools": sorted(t["function"]["name"] for t in body.get("tools") or []),
         "tool_choice": body.get("tool_choice"),
         "roles": [m["role"] for m in msgs],
+        "system": msgs[0]["content"] if msgs and msgs[0]["role"] == "system" else None,
         "said": said(msgs),
         # every tool message answers a call recalled before it
         "tool_messages": [{"tool_call_id": m["tool_call_id"], "answers_a_call": m["tool_call_id"] in calls,

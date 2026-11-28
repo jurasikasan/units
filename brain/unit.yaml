@@ -11,7 +11,7 @@ provides:
   http:
     port: 8080
     calls:
-      - PUT /brains/{name}          # a spec: subject, body, policy, prompt, knobs; declarative, kept nowhere
+      - PUT /brains/{name}          # a spec: subject, body, policy, self, prompt, knobs; declarative, kept nowhere
       - GET /brains
       - GET /brains/{name}
       - DELETE /brains/{name}

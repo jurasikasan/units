@@ -115,7 +115,9 @@ With a body (§2.5) the request also carries its `tools` and `"tool_choice": "re
  "tool_choice": "required"}
 ```
 
-- the **system prompt**: the file `BRAIN_PROMPT_FILE`, or the unit's own (`prompt.txt`);
+- the **system prompt**: the spec's `self` when given (who the mind is, §2.7), a blank line,
+  then how a mind works: the spec's `prompt`, or the file `BRAIN_PROMPT_FILE`, or the unit's
+  own (`prompt.txt`);
 - **recall**: the last `BRAIN_RECALL` entries of the brain's thread (§2.4), oldest first —
   the brain's own entries as `assistant`, every other `create` as `user`, their text blocks
   only (a recalled frame is its line of words, not its picture); `join` and the like skipped.
@@ -226,7 +228,7 @@ letters, digits, `_`, `-`; it names the group `brain_<name>`.
 ```json
 {"subject": "0f6b…", "body": "http://bodies:8080/bodies/alice",
  "policy": {"model_url": "http://litellm:4000/v1", "model": "brain", "key": "…", "timeout": "60s"},
- "prompt": "…", "senses": ["body_alice_events"], "thread": "…",
+ "self": "You are Ann, …", "prompt": "…", "senses": ["body_alice_events"], "thread": "…",
  "gate": "sight:closed", "keep": "4s,sight:1s", "senders": "hearing:<uuid>",
  "buffer_max": 32, "settle": "500ms", "max_wait": "3s", "bind": "200ms", "recall": 20, "act_timeout": "90s"}
 ```
@@ -237,7 +239,8 @@ letters, digits, `_`, `-`; it names the group `brain_<name>`.
 | `body` | the body's URL; its MCP is `{body}/mcp`; at `…/bodies/<n>` its stream `body_<n>_events` is read | no body: it only thinks |
 | `senses` | the streams to read | the body's stream; without a body at `…/bodies/<n>` it is required |
 | `policy` | who answers; `timeout` a duration | nobody: it perceives and does not think |
-| `prompt` | the system prompt's text | the host's (`BRAIN_PROMPT_FILE`, or `prompt.txt`) |
+| `self` | who the mind is (name, looks, language): put first in the system prompt, a blank line, then the prompt | nothing before the prompt |
+| `prompt` | how a mind works: the system prompt's text after `self` | the host's (`BRAIN_PROMPT_FILE`, or `prompt.txt`) |
 | the rest | as `BRAIN_THREAD`, `BRAIN_GATE`, `BRAIN_KEEP`, `BRAIN_SENDERS`, `BRAIN_BUFFER_MAX`, `BRAIN_SETTLE`, `BRAIN_MAX_WAIT`, `BRAIN_BIND`, `BRAIN_RECALL`, `BRAIN_ACT_TIMEOUT` (§4), in their syntax | their defaults |
 
 `201` with the brain when it is new. A spec that differs from the brain's only in `policy`
