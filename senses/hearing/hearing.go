@@ -36,6 +36,7 @@ const (
 	DefaultPreRoll         = 300 * time.Millisecond
 	DefaultMaxUtterance    = 25 * time.Second
 	DefaultMaxSessions     = 4
+	DefaultMaxSources      = 8
 	DefaultIdleTimeout     = 2 * time.Minute
 	DefaultAudioInHost     = "hearing"
 	DefaultPortMin         = 44000
@@ -109,6 +110,7 @@ type Config struct {
 	ShortWords      string        // ShortTranscribe or ShortDrop: a burst under the onset
 	MaxUtterance    time.Duration
 	MaxSessions     int
+	MaxSources      int // senders heard at once in one session (C5 §4)
 	IdleTimeout     time.Duration
 	AudioInHost     string
 	PortMin         int
@@ -158,6 +160,9 @@ func NewService(cfg Config) *Service {
 	}
 	if cfg.MaxSessions <= 0 {
 		cfg.MaxSessions = DefaultMaxSessions
+	}
+	if cfg.MaxSources <= 0 {
+		cfg.MaxSources = DefaultMaxSources
 	}
 	if cfg.IdleTimeout <= 0 {
 		cfg.IdleTimeout = DefaultIdleTimeout
@@ -251,20 +256,18 @@ func (s *Service) OpenWith(ctx context.Context, o Options, traceparent string) (
 		id:          id,
 		svc:         s,
 		in:          in,
-		det:         s.newDetector(ctx, id),
+		sources:     map[uint32]*source{},
 		created:     time.Now(),
 		cfg:         cfg,
 		prompt:      o.STTPrompt,
 		language:    language,
 		traceparent: traceparent,
-		out:         make(chan func(), 64),
 	}
 	s.mu.Lock()
 	s.sessions[id] = se
 	s.mu.Unlock()
 	// The session outlives the open call, whose context ends when it answers.
 	go se.worker(context.WithoutCancel(ctx))
-	go se.emitter()
 	return id, in.AddrString(), nil
 }
 
@@ -288,14 +291,14 @@ func (s *Service) Close(sessionID string) error {
 func (s *Service) allocateIn() (*rtpin.In, error) {
 	var lastErr error
 	if s.cfg.PortMin < 0 {
-		in, err := rtpin.New(s.cfg.AudioInHost, 0)
+		in, err := rtpin.New(s.cfg.AudioInHost, 0, s.cfg.MaxSources)
 		if err != nil {
 			return nil, fmt.Errorf("capacity: cannot bind audio_in: %w", err)
 		}
 		return in, nil
 	}
 	for p := s.cfg.PortMin; p <= s.cfg.PortMax; p++ {
-		in, err := rtpin.New(s.cfg.AudioInHost, p)
+		in, err := rtpin.New(s.cfg.AudioInHost, p, s.cfg.MaxSources)
 		if err == nil {
 			return in, nil
 		}
@@ -304,25 +307,28 @@ func (s *Service) allocateIn() (*rtpin.In, error) {
 	return nil, fmt.Errorf("capacity: no free audio_in port in %d-%d (last: %v)", s.cfg.PortMin, s.cfg.PortMax, lastErr)
 }
 
-func (s *Service) newDetector(ctx context.Context, sessionID string) vad.Detector {
+// newDetector makes one source's voice activity detector; id names its
+// state on the VAD engine.
+func (s *Service) newDetector(id string) vad.Detector {
 	switch s.cfg.VADKind {
 	case "energy":
 		return &vad.Energy{Threshold: s.cfg.EnergyThreshold}
 	default:
-		return vad.NewSilero(s.cfg.VADURL, sessionID, s.cfg.HTTPClient)
+		return vad.NewSilero(s.cfg.VADURL, id, s.cfg.HTTPClient)
 	}
 }
 
 // session is one open hearing session. After creation it is driven by
-// one worker goroutine, which is the only place events are queued; the
-// emitter sends them in that order, so the order per session is total and
-// a transcription in flight holds back only the events after it, never
-// the audio.
+// one worker goroutine, which is the only place events are queued. Each
+// sender heard on audio_in is a source of its own (C5 §4), with its own
+// detector, utterances and emitter; the emitter sends a source's events in
+// the order queued, so the order per source is total and a transcription in
+// flight holds back only that source's events after it, never the audio and
+// never another source's.
 type session struct {
 	id      string
 	svc     *Service
 	in      *rtpin.In
-	det     vad.Detector
 	created time.Time
 
 	// traceparent of the open call that made this session; every event
@@ -341,13 +347,29 @@ type session struct {
 	closing     bool
 	closeReason string
 
+	// sources are the senders heard now, by SSRC. The worker adds and
+	// removes them; srcMu lets a close reach their detectors.
+	srcMu    sync.Mutex
+	sources  map[uint32]*source
+	emitters sync.WaitGroup
+}
+
+// source is one sender on the session's audio_in: one RTP SSRC, heard as a
+// stream of its own (C5 §4).
+type source struct {
+	se *session
+	// name is the SSRC as 8 hex digits, the events' "source".
+	name string
+	det  vad.Detector
+
 	// worker-owned state
+	win  []int16 // the VAD window being filled
 	cand *utterance
 	// preroll is the latest audio heard while no candidate was open, at
 	// most PreRoll long; a new candidate starts with it (C5 §3, Pre-roll).
 	preroll []int16
 
-	out chan func() // events in order, sent by emitter
+	out chan func() // the source's events in order, sent by its emitter
 }
 
 type utterance struct {
@@ -379,10 +401,48 @@ func (se *session) transcribe(ctx context.Context, audio []int16) *transcription
 	return tr
 }
 
-func (se *session) emitter() {
-	for send := range se.out {
-		send()
+// sourceOf is the source of ssrc, made when it is first heard.
+func (se *session) sourceOf(ssrc uint32) *source {
+	if src := se.sources[ssrc]; src != nil {
+		return src
 	}
+	name := fmt.Sprintf("%08x", ssrc)
+	src := &source{se: se, name: name, det: se.svc.newDetector(se.id + "-" + name), out: make(chan func(), 64)}
+	se.srcMu.Lock()
+	se.sources[ssrc] = src
+	se.srcMu.Unlock()
+	se.emitters.Add(1)
+	go func() {
+		defer se.emitters.Done()
+		for send := range src.out {
+			send()
+		}
+	}()
+	return src
+}
+
+// end finishes a source: a started utterance is reported with what there
+// is, and its emitter stops once it has sent everything queued.
+func (src *source) end(ctx context.Context) {
+	if src.cand != nil && src.cand.started {
+		src.emitHeard(ctx, src.cand, false)
+	}
+	src.cand = nil
+	close(src.out)
+}
+
+// dropSource lets a sender that has been silent for long leave the session
+// (rtpin already forgot it): its place is free for another.
+func (se *session) dropSource(ctx context.Context, ssrc uint32) {
+	src := se.sources[ssrc]
+	if src == nil {
+		return
+	}
+	src.end(ctx)
+	se.srcMu.Lock()
+	delete(se.sources, ssrc)
+	se.srcMu.Unlock()
+	src.det.Forget(context.Background())
 }
 
 func (se *session) beginClose(reason string) bool {
@@ -399,41 +459,44 @@ func (se *session) beginClose(reason string) bool {
 	se.svc.mu.Lock()
 	se.svc.active--
 	se.svc.mu.Unlock()
-	se.det.Forget(context.Background())
+	se.srcMu.Lock()
+	for _, src := range se.sources {
+		src.det.Forget(context.Background())
+	}
+	se.srcMu.Unlock()
 	se.in.Stop()
 	return true
 }
 
-// worker consumes the decoded 16 kHz stream in 32 ms windows and
-// drives the utterance state machine. It ends by finalizing any
-// started utterance and emitting the single speechrecog.session-closed.
+// worker consumes the decoded 16 kHz streams in 32 ms windows and drives
+// each source's utterance state machine. It ends by finalizing every
+// started utterance and, once every source's events are out, emitting the
+// single speechrecog.session-closed.
 func (se *session) worker(ctx context.Context) {
 	frames := se.in.Out()
-	var win []int16
 	idle := time.NewTicker(200 * time.Millisecond)
 	defer idle.Stop()
 	for {
 		select {
 		case f, ok := <-frames:
 			if !ok {
-				if se.cand != nil && se.cand.started {
-					se.emitHeard(ctx, se.cand, false)
+				for _, src := range se.sources {
+					src.end(ctx)
 				}
-				se.emit(ctx, TypeSessionClosed, map[string]any{
-					"session_id": se.id,
-					"reason":     se.closeReason,
-				})
-				close(se.out)
+				se.emitters.Wait()
+				se.cfg.Sink.Emit(ctx, Event{Type: TypeSessionClosed, Subject: se.id, Traceparent: se.traceparent,
+					Data: map[string]any{"session_id": se.id, "reason": se.closeReason}})
 				return
 			}
+			src := se.sourceOf(f.Source)
 			for i, s := range f.Pcm {
-				win = append(win, s)
-				if len(win) == windowSamples {
+				src.win = append(src.win, s)
+				if len(src.win) == windowSamples {
 					winEnd := f.FirstTime.Add(time.Duration(i+1) * (time.Second / 16000))
 					// A window is exactly windowSamples at 16 kHz long.
 					winStart := winEnd.Add(-time.Duration(windowSamples) * (time.Second / 16000))
-					se.processWindow(ctx, win, winStart, winEnd)
-					win = win[:0]
+					src.processWindow(ctx, src.win, winStart, winEnd)
+					src.win = src.win[:0]
 				}
 			}
 		case <-idle.C:
@@ -447,15 +510,27 @@ func (se *session) worker(ctx context.Context) {
 			// A sender that stops sending after it spoke (silence suppressed,
 			// a mouth that is quiet between phrases) closes no silence window,
 			// so the utterance would wait for the next packet. No audio at all
-			// for the merge window, with nothing left to process, ends it as a
-			// silence gap would; its times stay the RTP timeline's.
-			if se.cand != nil && len(frames) == 0 && !ref.IsZero() && time.Since(ref) >= se.cfg.MergeWindow {
-				if se.cand.started {
-					se.emitHeard(ctx, se.cand, false)
-				} else {
-					se.closeShort(ctx, se.cand)
+			// from it for the merge window, with nothing left to process, ends
+			// it as a silence gap would; its times stay the RTP timeline's.
+			heard := se.in.Sources()
+			for ssrc, src := range se.sources {
+				if src.cand == nil || len(frames) != 0 {
+					continue
 				}
-				se.cand = nil
+				if lp, live := heard[ssrc]; live && time.Since(lp) < se.cfg.MergeWindow {
+					continue
+				}
+				if src.cand.started {
+					src.emitHeard(ctx, src.cand, false)
+				} else {
+					src.closeShort(ctx, src.cand)
+				}
+				src.cand = nil
+			}
+			// A sender silent for HEARING_IDLE_TIMEOUT leaves the session's
+			// set; if it speaks again it is heard anew.
+			for _, ssrc := range se.in.DropIdle(time.Now().Add(-se.svc.cfg.IdleTimeout)) {
+				se.dropSource(ctx, ssrc)
 			}
 		}
 	}
@@ -463,85 +538,86 @@ func (se *session) worker(ctx context.Context) {
 
 // processWindow advances the utterance state machine with one 32 ms
 // window of 16 kHz samples.
-func (se *session) processWindow(ctx context.Context, win []int16, winStart, winEnd time.Time) {
-	speech, err := se.det.Speech(ctx, win)
+func (src *source) processWindow(ctx context.Context, win []int16, winStart, winEnd time.Time) {
+	se := src.se
+	speech, err := src.det.Speech(ctx, win)
 	if err != nil {
 		speech = false
 	}
 	cfg := se.cfg
 	if speech {
-		if se.cand != nil &&
-			!winStart.Before(se.cand.lastSpeechEnd.Add(cfg.MergeWindow)) {
+		if src.cand != nil &&
+			!winStart.Before(src.cand.lastSpeechEnd.Add(cfg.MergeWindow)) {
 			// A gap of at least HEARING_MERGE_WINDOW with no audio at all
 			// (the sender suppressed silence, so no silence window ever
 			// closed the utterance): the same split as a silence gap.
-			if se.cand.started {
-				se.emitHeard(ctx, se.cand, false)
+			if src.cand.started {
+				src.emitHeard(ctx, src.cand, false)
 			} else {
-				se.closeShort(ctx, se.cand)
+				src.closeShort(ctx, src.cand)
 			}
-			se.cand = nil
+			src.cand = nil
 		}
-		if se.cand != nil && se.cand.guess != nil {
-			se.cand.guess.cancel()
-			se.cand.guess = nil
+		if src.cand != nil && src.cand.guess != nil {
+			src.cand.guess.cancel()
+			src.cand.guess = nil
 		}
-		if se.cand == nil {
-			se.cand = &utterance{id: newID("utt"), start: winStart, lastSpeechEnd: winEnd,
-				audio: se.takePreroll()}
+		if src.cand == nil {
+			src.cand = &utterance{id: newID("utt"), start: winStart, lastSpeechEnd: winEnd,
+				audio: src.takePreroll()}
 		} else {
-			se.cand.lastSpeechEnd = winEnd
+			src.cand.lastSpeechEnd = winEnd
 		}
-		if !se.cand.started {
+		if !src.cand.started {
 			// The burst is shorter than HEARING_ONSET: no speech at all
 			// (the candidate, with its audio, is dropped on the next
 			// silence window).
-			if winEnd.Before(se.cand.start.Add(cfg.Onset)) {
-				se.cand.audio = append(se.cand.audio, win...)
+			if winEnd.Before(src.cand.start.Add(cfg.Onset)) {
+				src.cand.audio = append(src.cand.audio, win...)
 				return
 			}
-			se.cand.started = true
-			se.emit(ctx, TypeStartOfInput, map[string]any{
+			src.cand.started = true
+			src.emit(ctx, TypeStartOfInput, map[string]any{
 				"session_id": se.id,
-				"request_id": se.cand.id,
+				"request_id": src.cand.id,
 				"input_type": "speech",
-				"started_at": stamp(se.cand.start),
+				"started_at": stamp(src.cand.start),
 			})
 		}
 		// HEARING_MAX_UTTERANCE: close the utterance there and start a
 		// new one at once if the speech continues.
-		cut := se.cand.start.Add(cfg.MaxUtterance)
+		cut := src.cand.start.Add(cfg.MaxUtterance)
 		if !winEnd.Before(cut) {
-			se.cutAt(ctx, cut, win, winStart, winEnd)
+			src.cutAt(ctx, cut, win, winStart, winEnd)
 			return
 		}
-		se.cand.audio = append(se.cand.audio, win...)
+		src.cand.audio = append(src.cand.audio, win...)
 	} else {
 		switch {
-		case se.cand == nil:
+		case src.cand == nil:
 			// silence before any speech: kept as the next one's pre-roll
-			se.keepPreroll(win)
-		case !se.cand.started && !winStart.Before(se.cand.lastSpeechEnd.Add(cfg.MergeWindow)):
+			src.keepPreroll(win)
+		case !src.cand.started && !winStart.Before(src.cand.lastSpeechEnd.Add(cfg.MergeWindow)):
 			// the candidate never reached the onset: a cough, a click, or a
 			// word too short for the onset (C5 §3, Short)
-			se.closeShort(ctx, se.cand)
-			se.keepPreroll(win)
-			se.cand = nil
-		case !se.cand.started:
+			src.closeShort(ctx, src.cand)
+			src.keepPreroll(win)
+			src.cand = nil
+		case !src.cand.started:
 			// a pause inside the merge window does not end it before the
 			// onset either (C5 §3): keep the silence with the audio
-			se.cand.audio = append(se.cand.audio, win...)
-		case !winStart.Before(se.cand.lastSpeechEnd.Add(cfg.MergeWindow)):
+			src.cand.audio = append(src.cand.audio, win...)
+		case !winStart.Before(src.cand.lastSpeechEnd.Add(cfg.MergeWindow)):
 			// the speaker stopped for HEARING_MERGE_WINDOW
-			se.emitHeard(ctx, se.cand, false)
-			se.cand = nil
-			se.keepPreroll(win)
+			src.emitHeard(ctx, src.cand, false)
+			src.cand = nil
+			src.keepPreroll(win)
 		default:
 			// still inside the merge window: keep the utterance open and
 			// record the trailing silence
-			se.cand.audio = append(se.cand.audio, win...)
-			if se.cand.guess == nil && !winEnd.Before(se.cand.lastSpeechEnd.Add(guessAfter)) {
-				se.cand.guess = se.transcribe(ctx, slices.Clone(se.cand.audio))
+			src.cand.audio = append(src.cand.audio, win...)
+			if src.cand.guess == nil && !winEnd.Before(src.cand.lastSpeechEnd.Add(guessAfter)) {
+				src.cand.guess = se.transcribe(ctx, slices.Clone(src.cand.audio))
 			}
 		}
 	}
@@ -554,24 +630,26 @@ func (se *session) processWindow(ctx context.Context, win []int16, winStart, win
 // on, which is what the onset is for. Empty text or a failed transcription
 // reports nothing: it may have been a cough. Under ShortDrop, nothing; its
 // audio is kept as the next candidate's pre-roll.
-func (se *session) closeShort(ctx context.Context, u *utterance) {
+func (src *source) closeShort(ctx context.Context, u *utterance) {
+	se := src.se
 	if se.cfg.ShortWords != ShortTranscribe {
-		se.keepPreroll(u.audio)
+		src.keepPreroll(u.audio)
 		return
 	}
 	tr := se.transcribe(ctx, u.audio)
-	se.out <- func() {
+	src.out <- func() {
 		<-tr.done
 		if tr.err != nil || strings.TrimSpace(tr.res.Text) == "" {
 			return
 		}
 		if !plausibleShort(tr.res.Text, se.cfg.Onset) {
-			log.Printf("hearing: session %s: a burst under the onset came back as %q, too long to be what was said; dropped",
-				se.id, tr.res.Text)
+			log.Printf("hearing: session %s source %s: a burst under the onset came back as %q, too long to be what was said; dropped",
+				se.id, src.name, tr.res.Text)
 			return
 		}
 		emit := func(typ string, data map[string]any) {
 			data["session_id"] = se.id
+			data["source"] = src.name
 			se.cfg.Sink.Emit(ctx, Event{Type: typ, Subject: se.id, Data: data, Traceparent: se.traceparent})
 		}
 		emit(TypeStartOfInput, map[string]any{
@@ -592,28 +670,30 @@ func (se *session) closeShort(ctx context.Context, u *utterance) {
 }
 
 // keepPreroll appends samples to the pre-roll and keeps its last PreRoll.
-func (se *session) keepPreroll(samples []int16) {
+func (src *source) keepPreroll(samples []int16) {
+	se := src.se
 	limit := int(se.cfg.PreRoll / (time.Second / 16000))
 	if limit <= 0 {
 		return
 	}
-	se.preroll = append(se.preroll, samples...)
-	if over := len(se.preroll) - limit; over > 0 {
-		se.preroll = append(se.preroll[:0], se.preroll[over:]...)
+	src.preroll = append(src.preroll, samples...)
+	if over := len(src.preroll) - limit; over > 0 {
+		src.preroll = append(src.preroll[:0], src.preroll[over:]...)
 	}
 }
 
 // takePreroll hands the pre-roll to a new candidate and starts a new one.
-func (se *session) takePreroll() []int16 {
-	audio := se.preroll
-	se.preroll = nil
+func (src *source) takePreroll() []int16 {
+	audio := src.preroll
+	src.preroll = nil
 	return audio
 }
 
 // cutAt finalizes the current utterance at cut and opens the next one
 // at the same instant (which is reported started at once).
-func (se *session) cutAt(ctx context.Context, cut time.Time, win []int16, winStart, winEnd time.Time) {
-	old := se.cand
+func (src *source) cutAt(ctx context.Context, cut time.Time, win []int16, winStart, winEnd time.Time) {
+	se := src.se
+	old := src.cand
 	idx := int(cut.Sub(winStart) / (time.Second / 16000))
 	if idx < 0 {
 		idx = 0
@@ -623,19 +703,19 @@ func (se *session) cutAt(ctx context.Context, cut time.Time, win []int16, winSta
 	}
 	old.audio = append(old.audio, win[:idx]...)
 	old.lastSpeechEnd = cut
-	se.emitHeard(ctx, old, true)
+	src.emitHeard(ctx, old, true)
 	tail := make([]int16, len(win)-idx)
 	copy(tail, win[idx:])
-	se.cand = &utterance{
+	src.cand = &utterance{
 		id:            newID("utt"),
 		started:       true,
 		start:         cut,
 		lastSpeechEnd: winEnd,
 		audio:         tail,
 	}
-	se.emit(ctx, TypeStartOfInput, map[string]any{
+	src.emit(ctx, TypeStartOfInput, map[string]any{
 		"session_id": se.id,
-		"request_id": se.cand.id,
+		"request_id": src.cand.id,
 		"input_type": "speech",
 		"started_at": stamp(cut),
 	})
@@ -647,7 +727,8 @@ func (se *session) cutAt(ctx context.Context, cut time.Time, win []int16, winSta
 // success-maxtime for an utterance cut at HEARING_MAX_UTTERANCE, no-match when
 // the words came back empty, recognizer-error (with an empty text) when
 // transcription failed.
-func (se *session) emitHeard(ctx context.Context, u *utterance, maxtime bool) {
+func (src *source) emitHeard(ctx context.Context, u *utterance, maxtime bool) {
+	se := src.se
 	tr := u.guess
 	if tr == nil {
 		tr = se.transcribe(ctx, u.audio)
@@ -662,7 +743,7 @@ func (se *session) emitHeard(ctx context.Context, u *utterance, maxtime bool) {
 		"started_at":       stamp(u.start),
 		"ended_at":         stamp(u.lastSpeechEnd),
 	}
-	se.queue(ctx, TypeRecognitionComplete, data, func() {
+	src.queue(ctx, TypeRecognitionComplete, data, func() {
 		<-tr.done
 		if tr.err != nil {
 			return
@@ -680,14 +761,16 @@ func (se *session) emitHeard(ctx context.Context, u *utterance, maxtime bool) {
 	})
 }
 
-func (se *session) emit(ctx context.Context, typ string, data map[string]any) {
-	se.queue(ctx, typ, data, nil)
+func (src *source) emit(ctx context.Context, typ string, data map[string]any) {
+	src.queue(ctx, typ, data, nil)
 }
 
 // queue hands an event to the emitter; before, if set, runs there first.
-func (se *session) queue(ctx context.Context, typ string, data map[string]any, before func()) {
+func (src *source) queue(ctx context.Context, typ string, data map[string]any, before func()) {
+	se := src.se
 	data["session_id"] = se.id
-	se.out <- func() {
+	data["source"] = src.name
+	src.out <- func() {
 		if before != nil {
 			before()
 		}

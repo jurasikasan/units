@@ -145,7 +145,9 @@ answers at `GET /body` too, as a body run alone always did.
 
 `ears` and `eyes` are where its senses take input now: empty while a sense is not open (or
 not configured). RTP sent to an ear is heard in the formats hearing takes (speaking's L16
-among them).
+among them). Every mouth that sends there is heard, each as a source of its own (hearing
+§4: its `source` in the events), so the bodies in each other's earshot share one ear
+each, and a mouth that reopens is heard again.
 
 ### 2.5 `GET /bodies/<name>/events`
 

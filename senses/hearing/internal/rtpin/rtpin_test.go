@@ -8,7 +8,7 @@ import (
 )
 
 func newTestIn() *In {
-	return &In{pending: map[int]*pend{}, lastSrcCount: 160, closed: make(chan struct{})}
+	return &In{streams: map[uint32]*stream{}, closed: make(chan struct{})}
 }
 
 func pcmu(seq uint16, ts uint32) *rtp.Packet {
@@ -50,17 +50,17 @@ func TestKeepsHearingPastTheSequenceWrap(t *testing.T) {
 		last = f.FirstTime
 		samples += len(f.Pcm)
 	}
-	if len(in.pending) != 0 {
-		t.Fatalf("%d packets stuck in the jitter buffer", len(in.pending))
+	if len(in.streams[42].pending) != 0 {
+		t.Fatalf("%d packets stuck in the jitter buffer", len(in.streams[42].pending))
 	}
-	if in.nextOffset != packets {
-		t.Fatalf("nextOffset = %d, want %d", in.nextOffset, packets)
+	if in.streams[42].nextOffset != packets {
+		t.Fatalf("nextOffset = %d, want %d", in.streams[42].nextOffset, packets)
 	}
 	want := packets * 320 // 8 kHz → 16 kHz
 	if samples < want-320 || samples > want {
 		t.Fatalf("%d samples out, want about %d", samples, want)
 	}
-	span := last.Sub(in.firstWall)
+	span := last.Sub(in.streams[42].firstWall)
 	if wantSpan := time.Duration(packets-1) * 20 * time.Millisecond; span < wantSpan-40*time.Millisecond || span > wantSpan {
 		t.Fatalf("last frame %v after the first, want about %v", span, wantSpan)
 	}
@@ -76,8 +76,8 @@ func TestDropsLateAndDuplicatePackets(t *testing.T) {
 	if _, ok := in.handle(pcmu(65535, 160)); ok {
 		t.Fatal("a duplicate gave audio")
 	}
-	if len(in.pending) != 0 || in.nextOffset != 5 {
-		t.Fatalf("pending %d, nextOffset %d; want 0 and 5", len(in.pending), in.nextOffset)
+	if len(in.streams[42].pending) != 0 || in.streams[42].nextOffset != 5 {
+		t.Fatalf("pending %d, nextOffset %d; want 0 and 5", len(in.streams[42].pending), in.streams[42].nextOffset)
 	}
 }
 
@@ -169,5 +169,60 @@ func TestASilenceLongerThanHalfAWrapReadsForward(t *testing.T) {
 	}
 	if want := start.Add(30*time.Hour + 20*time.Millisecond); !f.FirstTime.Equal(want) {
 		t.Fatalf("next packet at %v, want %v", f.FirstTime, want)
+	}
+}
+
+func from(p *rtp.Packet, ssrc uint32) *rtp.Packet { p.SSRC = ssrc; return p }
+
+// UNIT-121: several senders on one port are streams of their own: each its
+// own sequence, codec and RTP clock, each frame saying whose it is.
+func TestSendersAreStreamsOfTheirOwn(t *testing.T) {
+	clk := &fakeClock{t: time.Date(2026, 11, 28, 0, 0, 0, 0, time.UTC)}
+	in := newTestIn()
+	in.now = clk.now
+	start := clk.t
+	// A on PCMU from sequence 10, B on L16 from sequence 60000, interleaved
+	for i := 0; i < 50; i++ {
+		fa, ok := in.handle(from(pcmu(uint16(10+i), 5000+uint32(i)*160), 0xA))
+		if !ok || fa.Source != 0xA || !fa.FirstTime.Equal(start.Add(time.Duration(i)*20*time.Millisecond)) {
+			t.Fatalf("A packet %d: %+v %v", i, fa.FirstTime, ok)
+		}
+		fb, ok := in.handle(from(l16(uint16(60000+i), 900000+uint32(i)*960), 0xB))
+		if !ok || fb.Source != 0xB || !fb.FirstTime.Equal(start.Add(time.Duration(i)*20*time.Millisecond)) {
+			t.Fatalf("B packet %d: %+v %v", i, fb.FirstTime, ok)
+		}
+		if len(fa.Pcm) < 319 || len(fb.Pcm) != 320 { // the interpolation holds back one sample at first
+			t.Fatalf("packet %d: %d and %d samples, want about 320 each", i, len(fa.Pcm), len(fb.Pcm))
+		}
+		clk.t = clk.t.Add(20 * time.Millisecond)
+	}
+	// a sender changing its codec mid-stream is not followed
+	if _, ok := in.handle(from(l16(60, 5000+50*160), 0xA)); ok {
+		t.Fatal("A's packet on another payload type gave audio")
+	}
+}
+
+// UNIT-121: over the cap, a new sender is not heard until a place frees;
+// a sender silent for long leaves, and its place goes to the next.
+func TestSendersAreCappedAndIdleOnesLeave(t *testing.T) {
+	clk := &fakeClock{t: time.Date(2026, 11, 28, 0, 0, 0, 0, time.UTC)}
+	in := newTestIn()
+	in.now = clk.now
+	in.maxSources = 2
+	in.handle(from(pcmu(1, 0), 0xA))
+	clk.t = clk.t.Add(time.Minute)
+	in.handle(from(pcmu(1, 0), 0xB))
+	if _, ok := in.handle(from(pcmu(1, 0), 0xC)); ok {
+		t.Fatal("a third sender was heard over a cap of two")
+	}
+	gone := in.DropIdle(clk.t.Add(-30 * time.Second))
+	if len(gone) != 1 || gone[0] != 0xA {
+		t.Fatalf("dropped %x, want only a", gone)
+	}
+	if _, ok := in.handle(from(pcmu(1, 0), 0xC)); !ok {
+		t.Fatal("the third sender was not heard once a place freed")
+	}
+	if got := in.Sources(); len(got) != 2 || !got[0xB].Equal(clk.t) || !got[0xC].Equal(clk.t) {
+		t.Fatalf("sources %v, want b and c", got)
 	}
 }

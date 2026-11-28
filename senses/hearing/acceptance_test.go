@@ -851,33 +851,154 @@ func TestCodecParity(t *testing.T) {
 	}
 }
 
-// --- (h) the first SSRC owns audio_in; a second one is dropped ---
+// --- (h) several senders in one ear: each a source of its own (UNIT-121) ---
 
-func TestSecondSSRCDropped(t *testing.T) {
+// bySource groups events by their source, checking every one names one.
+func bySource(t *testing.T, evs []Event) map[string][]Event {
+	t.Helper()
+	out := map[string][]Event{}
+	for _, ev := range evs {
+		src, _ := ev.Data["source"].(string)
+		if src == "" {
+			t.Fatalf("%s names no source: %+v", ev.Type, ev.Data)
+		}
+		out[src] = append(out[src], ev)
+	}
+	return out
+}
+
+// Two mouths speak into one ear at once, on different codecs: both are
+// heard, each its own utterance with its own request_id and source, and
+// the utterances overlap.
+func TestTwoSpeakersInOneEarAreBothHeard(t *testing.T) {
 	h := newHarness(t, nil)
 	id, addr := h.open(t)
-	a := newSender(t, addr, 0xA11CE) // the first SSRC: owns the port
-	b := newSender(t, addr, 0xBEEF)  // a second SSRC: must be ignored
-	a.tone(0, 8000, 0, 1.0)
-	b.tone(0, 8000, 0, 1.5) // longer burst; if it leaked in, ended_at would be ~1.5 s
-	a.silence(0, 1.0, 1.0)
-	burstStart := a.firstAt // when A's audio actually entered audio_in
-	heard := h.waitType(t, "speechrecog.recognition-complete", 1, 5*time.Second)
-	h.waitNoType(t, "speechrecog.recognition-complete", 400*time.Millisecond)
-	endedAt, err := time.Parse(time.RFC3339Nano, heard[0].Data["ended_at"].(string))
-	if err != nil {
-		t.Fatal(err)
+	a := newSender(t, addr, 0xA11CE)
+	b := newSender(t, addr, 0xBEEF)
+	for i := 0; i < 50; i++ { // a second each, packet by packet, together
+		a.tone(0, 8000, float64(i)*0.02, 0.02)
+		b.tone(8, 8000, float64(i)*0.02, 0.02)
 	}
-	// the utterance must end with A's 1.0 s burst, not B's 1.5 s one:
-	// if the second SSRC had been accepted, ended_at would be >= ~1.5 s
-	if endedAt.After(burstStart.Add(1300 * time.Millisecond)) {
-		t.Fatalf("ended_at %v suggests the second SSRC was accepted (burst end ~1.5 s)", endedAt)
+	for i := 0; i < 50; i++ {
+		a.silence(0, 1+float64(i)*0.02, 0.02)
+		b.silence(8, 1+float64(i)*0.02, 0.02)
 	}
-	if endedAt.Before(burstStart.Add(850 * time.Millisecond)) {
-		t.Fatalf("ended_at %v is before A's burst ended (~1.0 s)", endedAt)
-	}
+	h.waitType(t, "speechrecog.recognition-complete", 2, 5*time.Second)
 	if err := h.svc.Close(id); err != nil {
 		t.Fatal(err)
+	}
+	h.waitType(t, "speechrecog.session-closed", 1, 5*time.Second)
+
+	started := bySource(t, h.events("speechrecog.start-of-input"))
+	heard := bySource(t, h.events("speechrecog.recognition-complete"))
+	if len(started) != 2 || len(started["000a11ce"]) != 1 || len(started["0000beef"]) != 1 {
+		t.Fatalf("start-of-input by source = %v, want one each of 000a11ce and 0000beef", started)
+	}
+	for src, s := range started {
+		if len(heard[src]) != 1 || heard[src][0].Data["request_id"] != s[0].Data["request_id"] {
+			t.Fatalf("source %s: started %v, heard %v", src, s[0].Data, heard[src])
+		}
+		if got := heard[src][0].Data["completion_cause"]; got != "success" {
+			t.Fatalf("source %s: completion_cause %v", src, got)
+		}
+	}
+	if started["000a11ce"][0].Data["request_id"] == started["0000beef"][0].Data["request_id"] {
+		t.Fatal("two speakers share a request_id")
+	}
+	// they spoke at once: each started before the other ended
+	at := func(ev Event, k string) time.Time {
+		v, err := time.Parse(time.RFC3339Nano, ev.Data[k].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	ha, hb := heard["000a11ce"][0], heard["0000beef"][0]
+	if !at(ha, "started_at").Before(at(hb, "ended_at")) || !at(hb, "started_at").Before(at(ha, "ended_at")) {
+		t.Fatalf("utterances do not overlap: %v and %v", ha.Data, hb.Data)
+	}
+	// session-closed is still the session's last event
+	if evs := h.sink.Events; evs[len(evs)-1].Type != "speechrecog.session-closed" {
+		t.Fatalf("last event %s", evs[len(evs)-1].Type)
+	}
+}
+
+// A mouth that reopens its speaking session comes back as another SSRC,
+// with its own sequence and timestamps: it is heard as well.
+func TestASpeakerReopenedIsHeard(t *testing.T) {
+	h := newHarness(t, nil)
+	id, addr := h.open(t)
+	first := newSender(t, addr, 0xA11CE)
+	first.tone(96, 8000, 0, 1.0)
+	first.silence(96, 1.0, 1.0)
+	h.waitType(t, "speechrecog.recognition-complete", 1, 5*time.Second)
+	again := newSender(t, addr, 0xC0FFEE)
+	again.seq, again.ts = 40000, 3_000_000_000
+	again.tone(96, 8000, 0, 1.0)
+	again.silence(96, 1.0, 1.0)
+	heard := h.waitType(t, "speechrecog.recognition-complete", 2, 5*time.Second)
+	if err := h.svc.Close(id); err != nil {
+		t.Fatal(err)
+	}
+	if heard[0].Data["source"] != "000a11ce" || heard[1].Data["source"] != "00c0ffee" {
+		t.Fatalf("sources %v and %v, want 000a11ce then 00c0ffee", heard[0].Data["source"], heard[1].Data["source"])
+	}
+	if heard[0].Data["request_id"] == heard[1].Data["request_id"] {
+		t.Fatal("the reopened speaker's utterance has the first one's request_id")
+	}
+}
+
+// A sender silent for HEARING_IDLE_TIMEOUT leaves the session while another
+// keeps it open, and its place goes to a new one.
+func TestASilentSourceLeavesAndFreesItsPlace(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.MaxSources = 2; c.IdleTimeout = 600 * time.Millisecond })
+	id, addr := h.open(t)
+	a := newSender(t, addr, 0xA11CE)
+	b := newSender(t, addr, 0xBEEF)
+	a.tone(0, 8000, 0, 1.0)
+	a.silence(0, 1.0, 0.5)
+	b.silence(0, 0, 0.02)
+	h.waitType(t, "speechrecog.recognition-complete", 1, 5*time.Second)
+	for i := 0; i < 60; i++ { // B keeps the ear open, quietly, in real time
+		b.silence(0, float64(i)*0.02, 0.02)
+		time.Sleep(20 * time.Millisecond)
+	}
+	c := newSender(t, addr, 0xC0FFEE) // the third: heard only if A has left
+	c.tone(0, 8000, 0, 1.0)
+	c.silence(0, 1.0, 1.0)
+	heard := h.waitType(t, "speechrecog.recognition-complete", 2, 5*time.Second)
+	if err := h.svc.Close(id); err != nil {
+		t.Fatal(err)
+	}
+	if heard[1].Data["source"] != "00c0ffee" {
+		t.Fatalf("second utterance from %v, want 00c0ffee", heard[1].Data["source"])
+	}
+	if evs := h.waitType(t, "speechrecog.session-closed", 1, 5*time.Second); len(evs) != 1 || evs[0].Data["reason"] != "closed" {
+		t.Fatalf("session-closed %+v, want one, closed by the tool", evs)
+	}
+}
+
+// Over HEARING_MAX_SOURCES, a new sender is not heard. (A sender changing
+// its codec mid-stream is not followed either: rtpin's
+// TestSendersAreStreamsOfTheirOwn.)
+func TestSourcesAreCapped(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.MaxSources = 1 })
+	id, addr := h.open(t)
+	a := newSender(t, addr, 0xA11CE)
+	b := newSender(t, addr, 0xBEEF)
+	for i := 0; i < 50; i++ {
+		a.tone(0, 8000, float64(i)*0.02, 0.02)
+		b.tone(0, 8000, float64(i)*0.02, 0.02)
+	}
+	a.silence(0, 1.0, 1.0)
+	b.silence(0, 1.0, 1.0)
+	h.waitType(t, "speechrecog.recognition-complete", 1, 5*time.Second)
+	h.waitNoType(t, "speechrecog.start-of-input", 600*time.Millisecond)
+	if err := h.svc.Close(id); err != nil {
+		t.Fatal(err)
+	}
+	if got := bySource(t, h.events("speechrecog.start-of-input")); len(got) != 1 || len(got["000a11ce"]) != 1 {
+		t.Fatalf("start-of-input by source = %v, want one of 000a11ce", got)
 	}
 }
 

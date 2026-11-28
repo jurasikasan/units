@@ -1,6 +1,7 @@
 # hearing — contract (C5)
 
-Revision 3 (UNIT-49): the ear and the turn timings may be the session's own, asked for
+Revision 4 (UNIT-121): an ear hears every sender in it, each a source of its own (§4);
+events name their `source`. Revision 3 (UNIT-49): the ear and the turn timings may be the session's own, asked for
 at `open` (§2.1). Revision 2: MRCPv2's recognizer vocabulary (§7) — `speechrecog.*` events, `request_id`,
 a completion cause instead of `ok`.
 
@@ -102,15 +103,23 @@ Stream `hearing_events`. `data` is JSON; every event carries `session_id`.
 
 | `ce_type` | When | `data` beyond `session_id` |
 |---|---|---|
-| `speechrecog.start-of-input` | speech has gone on for `HEARING_ONSET`; or a shorter burst was transcribed to words (then late, with its `recognition-complete`, see Short) | `request_id`, `input_type` (`speech`), `started_at` |
-| `speechrecog.recognition-complete` | the speaker stopped for `HEARING_MERGE_WINDOW`, or the session ended, or the utterance reached `HEARING_MAX_UTTERANCE` | `request_id`, `completion_cause`, `input_type` (`speech`), `text`, `language`, `started_at`, `ended_at` |
+| `speechrecog.start-of-input` | speech has gone on for `HEARING_ONSET`; or a shorter burst was transcribed to words (then late, with its `recognition-complete`, see Short) | `request_id`, `source`, `input_type` (`speech`), `started_at` |
+| `speechrecog.recognition-complete` | the speaker stopped for `HEARING_MERGE_WINDOW`, or the session ended, or the utterance reached `HEARING_MAX_UTTERANCE`, or its source left the session | `request_id`, `source`, `completion_cause`, `input_type` (`speech`), `text`, `language`, `started_at`, `ended_at` |
+
+`source` is the sender the utterance came from (§4): its RTP SSRC as 8 lowercase hex
+digits (`000a11ce`). It is the sender's own name for its stream (RFC 3550), not one
+hearing makes up, so whoever knows a sender's SSRC can tell its utterances, and it stays
+the same as long as the sender keeps its stream — one that goes quiet past
+`HEARING_IDLE_TIMEOUT` and comes back under the same SSRC is the same `source`. A mouth
+that reopens its stream comes back under another SSRC, so another `source`.
 | `speechrecog.session-closed` | the session is over | `reason`: `closed` / `idle` / `failed` |
 
 Guarantees:
 
 - every `start-of-input` is followed by exactly one `recognition-complete` with the same
   `request_id`, before the session's `session-closed`;
-- utterances of one session do not overlap and come in order;
+- utterances of one source do not overlap and come in order; utterances of different
+  sources of a session may overlap, and their events interleave;
 - every `open` ends with exactly one `closed`, its last event.
 
 ### What the timings mean
@@ -178,9 +187,21 @@ Opus (111) when a browser line needs it.
 
 - **Band is the sender's.** A phone line sends its G.711 as it came from the trunk —
   no widening to 48 kHz that would only pretend.
-- **One sender per session:** the first SSRC owns `audio_in`; others are dropped.
-- Packets are ordered by sequence number in a short jitter buffer (`60 ms`); a lost
-  packet is silence.
+- **Every sender is heard.** An ear is in the air: several mouths may speak into one
+  `audio_in`, and a mouth that reopens its stream comes back as another SSRC. Each SSRC
+  is a source of its own — its own payload type, jitter buffer and time placement,
+  detector, utterances and transcriptions — named in the events as `source` (§3).
+  Sources are not mixed: a driver that wants one stream of everything said makes it
+  from the events, since what to merge and how is the perceiving side's business, not
+  hearing's.
+- **Bounded.** At most `HEARING_MAX_SOURCES` sources at once per session; a packet of a
+  new SSRC over that is dropped. A source that sends nothing for
+  `HEARING_IDLE_TIMEOUT` leaves the session (an utterance in progress is reported first),
+  and its place is free; if it sends again it is heard anew.
+- A source keeps the payload type of its first packet: the same SSRC on another payload
+  type is dropped. Another SSRC on another payload type is another source, and fine.
+- Packets of each source are ordered by sequence number in a short jitter buffer
+  (`60 ms`); a lost packet is silence.
 
 Inside, everything is brought to 16 kHz mono for the detector and for STT.
 
@@ -199,7 +220,8 @@ Inside, everything is brought to 16 kHz mono for the detector and for STT.
 | `HEARING_PREROLL` | audio before the first speech window that goes to STT; `0` for none; a session's `preroll_ms` instead | `300ms` |
 | `HEARING_MAX_UTTERANCE` | an utterance is cut at this length | `25s` |
 | `HEARING_MAX_SESSIONS` | sessions at once | `4` |
-| `HEARING_IDLE_TIMEOUT` | no packets this long closes a session | `2m` |
+| `HEARING_MAX_SOURCES` | senders heard at once in one session (§4) | `8` |
+| `HEARING_IDLE_TIMEOUT` | no packets this long closes a session; a source silent this long leaves its session | `2m` |
 | `AUDIO_IN_HOST` | the name senders reach hearing by | `hearing` |
 | `AUDIO_IN_PORT_MIN` / `MAX` | the `audio_in` range | `44000` / `44199` |
 | `REDIS_ADDR` | where `hearing_events` goes | — |
@@ -218,8 +240,8 @@ The defaults for onset and merge were paid for in real calls
   needs a streaming STT (OpenAI's `stream`), which our engines do not have.
 - **Hearing ourselves**: speech sends a copy of what it plays as a reference, hearing
   subtracts it (echo cancellation) or at least marks what overlaps our own speech.
-- **More than one sender** per session (a conference) — mixing is a device's or a
-  mixer's job, not hearing's.
+- **Who a source is**: hearing names a source by its SSRC; who is behind it (which
+  body's mouth, which caller) is for the sender's side to say, or the world's.
 
 ## 7. Vocabulary: MRCPv2
 

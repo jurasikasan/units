@@ -31,6 +31,7 @@ func main() {
 		ShortWords:      envStr("HEARING_SHORT", hearing.DefaultShortWords),
 		MaxUtterance:    envDur("HEARING_MAX_UTTERANCE", hearing.DefaultMaxUtterance),
 		MaxSessions:     envInt("HEARING_MAX_SESSIONS", hearing.DefaultMaxSessions),
+		MaxSources:      envInt("HEARING_MAX_SOURCES", hearing.DefaultMaxSources),
 		IdleTimeout:     envDur("HEARING_IDLE_TIMEOUT", hearing.DefaultIdleTimeout),
 		AudioInHost:     envStr("AUDIO_IN_HOST", hearing.DefaultAudioInHost),
 		PortMin:         envInt("AUDIO_IN_PORT_MIN", hearing.DefaultPortMin),

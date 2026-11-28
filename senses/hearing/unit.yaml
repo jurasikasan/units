@@ -55,6 +55,7 @@ config:
     HEARING_PREROLL: 300ms         # audio before the first speech window, sent to STT; 0 = none
     HEARING_MAX_UTTERANCE: 25s
     HEARING_MAX_SESSIONS: "4"
+    HEARING_MAX_SOURCES: "8"       # senders (SSRCs) heard at once in one session
     HEARING_IDLE_TIMEOUT: 2m
     AUDIO_IN_HOST: hearing
     AUDIO_IN_PORT_MIN: "44000"

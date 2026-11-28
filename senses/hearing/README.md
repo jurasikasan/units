@@ -17,8 +17,12 @@ words is someone else's job.
     the error `unknown_session…`. Closing twice is `{"ok": true}` and does
     not repeat events.
 - Listens on one UDP port per session, allocated from
-  `AUDIO_IN_PORT_MIN..MAX` (default **44000–44199**). The first RTP SSRC to
-  reach the port owns it; later SSRCs on the same port are dropped.
+  `AUDIO_IN_PORT_MIN..MAX` (default **44000–44199**). Every RTP SSRC on the
+  port is a source of its own (several mouths in one ear, a mouth that reopened
+  its stream): its own jitter buffer, VAD, utterances and STT, named in the
+  events as `source`. At most `HEARING_MAX_SOURCES` (default 8) at once; a
+  source silent for `HEARING_IDLE_TIMEOUT` leaves the session and frees its
+  place. A source keeps its first payload type; another SSRC may use another.
 - Accepts payload types 0 (PCMU 8 kHz), 8 (PCMA 8 kHz) and 96
   (L16 48 kHz mono, network byte order). A 60 ms sequence-ordered jitter
   buffer tolerates reordering; a lost packet becomes silence. Internally
@@ -49,7 +53,8 @@ words is someone else's job.
   `started_at` stays where speech was detected.
 - Every `speechrecog.start-of-input` gets exactly one
   `speechrecog.recognition-complete` with the same `request_id`, before
-  `speechrecog.session-closed`; utterances never overlap; every `open` ends in
+  `speechrecog.session-closed`; utterances of one source never overlap (of
+  different sources they may: hearing does not mix them); every `open` ends in
   exactly one `speechrecog.session-closed`,
   which is the session's last event. A silent session is closed by the idle
   timeout (`HEARING_IDLE_TIMEOUT`, default 2 min).
@@ -64,11 +69,12 @@ recognizer's (RFC 6787 §9; CONTRACT.md §7):
 
 | type | data |
 |---|---|
-| `speechrecog.start-of-input` | `request_id`, `input_type` (`speech`), `started_at` |
-| `speechrecog.recognition-complete` | `request_id`, `input_type` (`speech`), `completion_cause` (`success` \| `no-match` \| `success-maxtime` \| `recognizer-error`), `text`, `language`, `started_at`, `ended_at` |
+| `speechrecog.start-of-input` | `request_id`, `source`, `input_type` (`speech`), `started_at` |
+| `speechrecog.recognition-complete` | `request_id`, `source`, `input_type` (`speech`), `completion_cause` (`success` \| `no-match` \| `success-maxtime` \| `recognizer-error`), `text`, `language`, `started_at`, `ended_at` |
 | `speechrecog.session-closed` | `reason`: `closed` \| `idle` \| `failed` |
 
-Ids are `hr-`/`utt-` plus 8 hex digits.
+Ids are `hr-`/`utt-` plus 8 hex digits; `source` is the sender's RTP SSRC as
+8 hex digits.
 
 ## Run
 
@@ -103,7 +109,8 @@ Then `GET :8080/health` returns `{"status":"ok"}` and MCP speaks on
 | `HEARING_PREROLL` | `300ms` | audio before the first speech window sent to STT; `0` for none |
 | `HEARING_MAX_UTTERANCE` | `25s` | hard cut; transcribed where cut |
 | `HEARING_MAX_SESSIONS` | `4` | concurrent `open` sessions |
-| `HEARING_IDLE_TIMEOUT` | `2m` | silent-for-this-long sessions close with `reason: idle` |
+| `HEARING_MAX_SOURCES` | `8` | senders (SSRCs) heard at once in one session |
+| `HEARING_IDLE_TIMEOUT` | `2m` | silent-for-this-long sessions close with `reason: idle`; a source silent this long leaves its session |
 | `AUDIO_IN_HOST` | `hearing` | host advertised in `audio_in` |
 | `AUDIO_IN_PORT_MIN` / `AUDIO_IN_PORT_MAX` | `44000` / `44199` | UDP port range for `audio_in` |
 
