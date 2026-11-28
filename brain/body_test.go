@@ -204,7 +204,15 @@ func TestABodyDownAndBadArguments(t *testing.T) {
 	if len(body.got()) != 0 {
 		t.Fatalf("done with bad arguments: %v", body.got())
 	}
-	eventually(t, "remembered", func() bool { return len(r.threads.all()) >= 3 })
+	// The act's result is written after its call: wait for it, not for a count.
+	eventually(t, "remembered", func() bool {
+		es := r.threads.all()
+		if len(es) < 3 {
+			return false
+		}
+		c, _ := es[len(es)-1]["content"].([]any)
+		return len(c) > 0 && c[0].(map[string]any)["type"] == "tool_result"
+	})
 	es := r.threads.all()
 	call := es[len(es)-2]["content"].([]any)[0].(map[string]any)
 	res := es[len(es)-1]["content"].([]any)[0].(map[string]any)
