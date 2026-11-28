@@ -33,6 +33,7 @@ type rtpSink struct {
 	seq  uint16
 	ts   uint32
 	last time.Time
+	now  func() time.Time // the wall clock; a test sets its own
 }
 
 func newRTPSink(ssrc uint32, target *net.UDPAddr) *rtpSink {
@@ -41,9 +42,9 @@ func newRTPSink(ssrc uint32, target *net.UDPAddr) *rtpSink {
 		// A send-only UDP bind failing means the machine has no UDP at all;
 		// the sink reports it per write and the mouth ends the utterance.
 		slog.Warn("rtp sink without a local socket", "err", err)
-		return &rtpSink{target: target, ssrc: ssrc}
+		return &rtpSink{target: target, ssrc: ssrc, now: time.Now}
 	}
-	return &rtpSink{conn: conn, target: target, ssrc: ssrc}
+	return &rtpSink{conn: conn, target: target, ssrc: ssrc, now: time.Now}
 }
 
 // Close releases the session's UDP socket. The sink had exactly this one
@@ -73,7 +74,7 @@ func (r *rtpSink) WriteFrame(pcm []int16) error {
 	if len(pcm) != frameSamples {
 		return fmt.Errorf("speech: an rtp frame is %d samples, got %d", frameSamples, len(pcm))
 	}
-	now := time.Now()
+	now := r.now()
 
 	payload := make([]byte, frameBytes)
 	for i, s := range pcm {
@@ -87,7 +88,11 @@ func (r *rtpSink) WriteFrame(pcm []int16) error {
 		if steps < 1 {
 			steps = 1
 		}
-		r.ts += uint32(steps) * sampleRate * 20 / 1000 // steps * 960
+		// In int, then to uint32: the timestamp wraps modulo 2^32 as RTP's
+		// does. Multiplied in uint32 (steps*48000*20) it overflowed for any
+		// silence over ~89.5 s, and the silence vanished from the listener's
+		// perception time (UNIT-130).
+		r.ts += uint32(steps * frameSamples)
 	}
 	r.last = now
 	pkt := rtp.Packet{
