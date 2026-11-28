@@ -8,7 +8,7 @@ words is someone else's job.
 ## What it does
 
 - Serves two MCP tools over streamable HTTP on `PORT` (default **8080**):
-  - `open(recognize?, speech_language?, stt_model?, stt_prompt?, onset_ms?, merge_window_ms?, preroll_ms?)` → `{"session_id": "hr-…", "audio_in": "host:port"}`; the ear and the timings default to the deployment's, a session may have its own (CONTRACT §2.1).
+  - `open(recognize?, speech_language?, stt_model?, stt_prompt?, onset_ms?, merge_window_ms?, preroll_ms?, idle_timeout_ms?)` → `{"session_id": "hr-…", "audio_in": "host:port"}`; the ear and the timings default to the deployment's, a session may have its own (CONTRACT §2.1). `idle_timeout_ms: 0` opens an ear that silence never closes.
     `audio_in` is a **string** `host:port` the caller sends RTP/UDP to.
     `recognize` is a list; the only supported value is `"speech"` (also the
     default). Over the session limit → tool error `capacity…`; an unknown
@@ -57,7 +57,8 @@ words is someone else's job.
   different sources they may: hearing does not mix them); every `open` ends in
   exactly one `speechrecog.session-closed`,
   which is the session's last event. A silent session is closed by the idle
-  timeout (`HEARING_IDLE_TIMEOUT`, default 2 min).
+  timeout (`HEARING_IDLE_TIMEOUT`, default 2 min, or the session's
+  `idle_timeout_ms`; `0` never).
 
 ## Events
 
@@ -110,7 +111,7 @@ Then `GET :8080/health` returns `{"status":"ok"}` and MCP speaks on
 | `HEARING_MAX_UTTERANCE` | `25s` | hard cut; transcribed where cut |
 | `HEARING_MAX_SESSIONS` | `4` | concurrent `open` sessions |
 | `HEARING_MAX_SOURCES` | `8` | senders (SSRCs) heard at once in one session |
-| `HEARING_IDLE_TIMEOUT` | `2m` | silent-for-this-long sessions close with `reason: idle`; a source silent this long leaves its session |
+| `HEARING_IDLE_TIMEOUT` | `2m` | silent-for-this-long sessions close with `reason: idle` (a session's `idle_timeout_ms` instead, `0` never); a source silent this long leaves its session |
 | `AUDIO_IN_HOST` | `hearing` | host advertised in `audio_in` |
 | `AUDIO_IN_PORT_MIN` / `AUDIO_IN_PORT_MAX` | `44000` / `44199` | UDP port range for `audio_in` |
 

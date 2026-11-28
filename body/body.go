@@ -91,8 +91,11 @@ func New(cfg Config, rdb *redis.Client, client *http.Client, log *slog.Logger) *
 	if cfg.HearingURL != "" {
 		b.hearing = &sense{channel: "hearing", stream: HearingStream, closed: "speechrecog.session-closed",
 			door: &Door{Name: "hearing", URL: cfg.HearingURL, HTTP: doorClient}}
+		// An ear in the air is always there: silence is heard, so the
+		// session never idles out and the ear keeps its address (UNIT-131).
+		b.hearing.args = map[string]any{"idle_timeout_ms": 0}
 		if cfg.Language != "" {
-			b.hearing.args = map[string]any{"speech_language": cfg.Language}
+			b.hearing.args["speech_language"] = cfg.Language
 		}
 	}
 	if cfg.SightURL != "" {

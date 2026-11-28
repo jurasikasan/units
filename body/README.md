@@ -20,8 +20,8 @@ working inside it.
   nothing, another makes the body anew), `Delete`, one reader for every body's sessions,
   the `/bodies` API, `/mcp` and `GET /body` for the env's body, `GET /health`.
 - `body.go` — `Body`, `Self` (what `GET /bodies/{name}` answers), the counts, `live`.
-- `senses.go` — one session per sense, kept open: opened, reopened when it closes by
-  itself, closed on the way out.
+- `senses.go` — one session per sense, kept open: opened (the ear never to idle out),
+  reopened when it closes by itself, closed on the way out.
 - `relay.go` — what the host's reader hands a body: its own sessions' events
   republished; speaking's `speak-complete` to the act waiting.
 - `acts.go` — `speak_aloud` (the listeners' ears by their self, a speaking session per

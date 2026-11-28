@@ -13,7 +13,7 @@ func NewMCPServer(svc *Service) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "hearing", Version: "0.1.0"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "open",
-		Description: "Open a hearing session and get its audio_in address (\"host:port\", RTP/UDP). Optional argument recognize: list of recognizers to enable; the only value this step supports is \"speech\" (the default). Optional speech_language: the session's language (ISO 639-1, e.g. \"ru\", MRCP Speech-Language), a hint passed to STT with every utterance; empty lets STT guess. Optional, the session's own instead of the deployment's: stt_model (OpenAI's model, e.g. the router's group), stt_prompt (OpenAI's prompt), onset_ms, merge_window_ms, preroll_ms (0 is none).",
+		Description: "Open a hearing session and get its audio_in address (\"host:port\", RTP/UDP). Optional argument recognize: list of recognizers to enable; the only value this step supports is \"speech\" (the default). Optional speech_language: the session's language (ISO 639-1, e.g. \"ru\", MRCP Speech-Language), a hint passed to STT with every utterance; empty lets STT guess. Optional, the session's own instead of the deployment's: stt_model (OpenAI's model, e.g. the router's group), stt_prompt (OpenAI's prompt), onset_ms, merge_window_ms, preroll_ms (0 is none), idle_timeout_ms (how long without a packet closes the session; 0 is never).",
 	}, openTool(svc))
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "close",
@@ -30,6 +30,7 @@ type openIn struct {
 	OnsetMS        int      `json:"onset_ms,omitempty"`
 	MergeWindowMS  int      `json:"merge_window_ms,omitempty"`
 	PrerollMS      *int     `json:"preroll_ms,omitempty"`
+	IdleTimeoutMS  *int     `json:"idle_timeout_ms,omitempty"`
 }
 
 type openOut struct {
@@ -52,6 +53,10 @@ func openTool(svc *Service) mcp.ToolHandlerFor[openIn, openOut] {
 		if in.PrerollMS != nil {
 			p := ms(*in.PrerollMS)
 			o.PreRoll = &p
+		}
+		if in.IdleTimeoutMS != nil {
+			d := ms(*in.IdleTimeoutMS)
+			o.IdleTimeout = &d
 		}
 		sessionID, audioIn, err := svc.OpenWith(ctx, o, traceparent(req))
 		if err != nil {

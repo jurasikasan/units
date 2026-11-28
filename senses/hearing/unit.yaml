@@ -56,7 +56,7 @@ config:
     HEARING_MAX_UTTERANCE: 25s
     HEARING_MAX_SESSIONS: "4"
     HEARING_MAX_SOURCES: "8"       # senders (SSRCs) heard at once in one session
-    HEARING_IDLE_TIMEOUT: 2m
+    HEARING_IDLE_TIMEOUT: 2m       # a session's idle_timeout_ms instead (0 = never); sources leave after it
     AUDIO_IN_HOST: hearing
     AUDIO_IN_PORT_MIN: "44000"
     AUDIO_IN_PORT_MAX: "44199"

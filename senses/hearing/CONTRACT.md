@@ -1,5 +1,6 @@
 # hearing — contract (C5)
 
+Revision 5 (UNIT-131): `open` may set the session's idle timeout, `0` for never (§2.1).
 Revision 4 (UNIT-121): an ear hears every sender in it, each a source of its own (§4);
 events name their `source`. Revision 3 (UNIT-49): the ear and the turn timings may be the session's own, asked for
 at `open` (§2.1). Revision 2: MRCPv2's recognizer vocabulary (§7) — `speechrecog.*` events, `request_id`,
@@ -51,7 +52,7 @@ send; a line sends, so it is told (phone `listen`, revision 3).
 
 Errors are MCP tool errors whose text starts with a code from §2.3.
 
-### 2.1 `open(recognize?, speech_language?, stt_model?, stt_prompt?, onset_ms?, merge_window_ms?, preroll_ms?)` → `session_id`, `audio_in`
+### 2.1 `open(recognize?, speech_language?, stt_model?, stt_prompt?, onset_ms?, merge_window_ms?, preroll_ms?, idle_timeout_ms?)` → `session_id`, `audio_in`
 
 | Argument | Required | Meaning |
 |---|---|---|
@@ -62,12 +63,15 @@ Errors are MCP tool errors whose text starts with a code from §2.3.
 | `onset_ms` | no | this session's `HEARING_ONSET` (§3); default the deployment's |
 | `merge_window_ms` | no | this session's `HEARING_MERGE_WINDOW`: the pause that ends an utterance; default the deployment's |
 | `preroll_ms` | no | this session's `HEARING_PREROLL`; `0` is none; default the deployment's |
+| `idle_timeout_ms` | no | this session's `HEARING_IDLE_TIMEOUT`: how long without a packet closes it; `0` is never — silence is heard, the ear stays where it is until `close`; default the deployment's |
 
 Who picked the ear and the timings — a person in a page, a subject's preferences, a
 call's protocol (OpenAI Realtime's `audio.input.transcription` and `turn_detection`) — is
 the opener's business; hearing only holds each session to its own. A timing below zero
 is `bad_argument`; zero (or absent) keeps the deployment's, except `preroll_ms`, where `0`
-means none.
+means none, and `idle_timeout_ms`, where `0` means never. An ear that is always there — a
+body's, in the air — is opened with `idle_timeout_ms: 0`: with nobody speaking it would
+otherwise close every `HEARING_IDLE_TIMEOUT` and come back at another address.
 
 ```json
 {"recognize": ["speech"], "speech_language": "ru"}
@@ -85,8 +89,9 @@ Stops listening and frees `audio_in`. Speech that is in progress is cut: if a
 `start-of-input` was reported, its `recognition-complete` follows with what there is. Then
 `speechrecog.session-closed`. Closing a closed session is `{"ok": true}`, no second event.
 
-A session that receives no packets for `HEARING_IDLE_TIMEOUT` closes by itself (reason
-`idle`).
+A session that receives no packets for its idle timeout (`idle_timeout_ms`, or
+`HEARING_IDLE_TIMEOUT`) closes by itself (reason `idle`); one opened with `0` never does.
+Its sources still leave it after `HEARING_IDLE_TIMEOUT` of silence each (§4).
 
 ### 2.3 Error codes
 
@@ -221,7 +226,7 @@ Inside, everything is brought to 16 kHz mono for the detector and for STT.
 | `HEARING_MAX_UTTERANCE` | an utterance is cut at this length | `25s` |
 | `HEARING_MAX_SESSIONS` | sessions at once | `4` |
 | `HEARING_MAX_SOURCES` | senders heard at once in one session (§4) | `8` |
-| `HEARING_IDLE_TIMEOUT` | no packets this long closes a session; a source silent this long leaves its session | `2m` |
+| `HEARING_IDLE_TIMEOUT` | no packets this long closes a session (a session's `idle_timeout_ms` instead, `0` never); a source silent this long leaves its session | `2m` |
 | `AUDIO_IN_HOST` | the name senders reach hearing by | `hearing` |
 | `AUDIO_IN_PORT_MIN` / `MAX` | the `audio_in` range | `44000` / `44199` |
 | `REDIS_ADDR` | where `hearing_events` goes | — |

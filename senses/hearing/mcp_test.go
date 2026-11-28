@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -95,6 +96,59 @@ func TestMCPOpenClose(t *testing.T) {
 	sc, ok = res.StructuredContent.(map[string]any)
 	if !ok || sc["ok"] != true {
 		t.Fatalf("close out = %#v, want {ok: true}", res.StructuredContent)
+	}
+}
+
+// UNIT-131: idle_timeout_ms 0 opens an ear that silence never closes; absent
+// keeps HEARING_IDLE_TIMEOUT; a value is the session's own; below zero is
+// bad_argument.
+func TestMCPOpenIdleTimeout(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.IdleTimeout = 300 * time.Millisecond })
+	cs := connectMCP(t, h.svc)
+	sessionOf := func(args any) (string, string) {
+		t.Helper()
+		res := callTool(t, cs, "open", args)
+		if res.IsError {
+			t.Fatalf("open %v: %q", args, toolText(t, res))
+		}
+		out := res.StructuredContent.(map[string]any)
+		return out["session_id"].(string), out["audio_in"].(string)
+	}
+	never, ear := sessionOf(map[string]any{"idle_timeout_ms": 0})
+	deployments, _ := sessionOf(map[string]any{})
+	own, _ := sessionOf(map[string]any{"idle_timeout_ms": 900})
+	closedOf := func(id string) []Event {
+		var out []Event
+		for _, ev := range h.events("speechrecog.session-closed") {
+			if ev.Subject == id {
+				out = append(out, ev)
+			}
+		}
+		return out
+	}
+	time.Sleep(600 * time.Millisecond)
+	if got := closedOf(deployments); len(got) != 1 || got[0].Data["reason"] != "idle" {
+		t.Fatalf("the deployment's timeout: closed %+v, want idle", got)
+	}
+	if got := closedOf(own); len(got) != 0 {
+		t.Fatalf("its own 900 ms closed it after 600: %+v", got)
+	}
+	time.Sleep(700 * time.Millisecond)
+	if got := closedOf(own); len(got) != 1 || got[0].Data["reason"] != "idle" {
+		t.Fatalf("its own timeout: closed %+v, want idle", got)
+	}
+	if got := closedOf(never); len(got) != 0 {
+		t.Fatalf("an ear opened never to idle out was closed: %+v", got)
+	}
+	// it is still listening
+	s := newSender(t, ear, 0xA11CE)
+	s.tone(0, 8000, 0, 1.0)
+	s.silence(0, 1.0, 1.0)
+	h.waitType(t, "speechrecog.recognition-complete", 1, 5*time.Second)
+
+	res := callTool(t, cs, "open", map[string]any{"idle_timeout_ms": -1})
+	if !res.IsError || !strings.HasPrefix(toolText(t, res), "bad_argument") {
+		t.Fatalf("idle_timeout_ms -1: isError=%v text=%q", res.IsError, toolText(t, res))
 	}
 }
 

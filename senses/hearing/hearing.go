@@ -195,9 +195,9 @@ func (s *Service) Open(ctx context.Context, recognize []string, language, tracep
 }
 
 // Options is what an open may ask for beyond the deployment's config: the
-// language, the ear (STT model and prompt) and the turn timings. Zero
-// values keep the deployment's; PreRoll is a pointer, since none (0) is a
-// value of its own.
+// language, the ear (STT model and prompt), the turn timings and the idle
+// timeout. Zero values keep the deployment's; PreRoll and IdleTimeout are
+// pointers, since 0 is a value of their own (no pre-roll; never idle out).
 type Options struct {
 	Recognize   []string
 	Language    string
@@ -206,12 +206,13 @@ type Options struct {
 	Onset       time.Duration
 	MergeWindow time.Duration
 	PreRoll     *time.Duration
+	IdleTimeout *time.Duration
 }
 
 // OpenWith is Open with the session's own ear and timings (C5 §2.1).
 func (s *Service) OpenWith(ctx context.Context, o Options, traceparent string) (string, string, error) {
 	recognize, language := o.Recognize, o.Language
-	if o.Onset < 0 || o.MergeWindow < 0 || o.PreRoll != nil && *o.PreRoll < 0 {
+	if o.Onset < 0 || o.MergeWindow < 0 || o.PreRoll != nil && *o.PreRoll < 0 || o.IdleTimeout != nil && *o.IdleTimeout < 0 {
 		return "", "", fmt.Errorf("bad_argument: a timing below zero")
 	}
 	cfg := s.cfg
@@ -226,6 +227,9 @@ func (s *Service) OpenWith(ctx context.Context, o Options, traceparent string) (
 	}
 	if o.PreRoll != nil {
 		cfg.PreRoll = *o.PreRoll
+	}
+	if o.IdleTimeout != nil {
+		cfg.IdleTimeout = *o.IdleTimeout // 0: the session never idles out
 	}
 	if len(recognize) == 0 {
 		recognize = []string{RecognizerSpeech}
@@ -504,7 +508,7 @@ func (se *session) worker(ctx context.Context) {
 			if lp := se.in.LastPacket(); !lp.IsZero() {
 				ref = lp
 			}
-			if time.Since(ref) >= se.cfg.IdleTimeout {
+			if se.cfg.IdleTimeout > 0 && time.Since(ref) >= se.cfg.IdleTimeout {
 				se.beginClose("idle")
 			}
 			// A sender that stops sending after it spoke (silence suppressed,
@@ -528,7 +532,9 @@ func (se *session) worker(ctx context.Context) {
 				src.cand = nil
 			}
 			// A sender silent for HEARING_IDLE_TIMEOUT leaves the session's
-			// set; if it speaks again it is heard anew.
+			// set; if it speaks again it is heard anew. That is the
+			// deployment's timeout even for a session that never idles out:
+			// silence is heard, a gone mouth's place is freed.
 			for _, ssrc := range se.in.DropIdle(time.Now().Add(-se.svc.cfg.IdleTimeout)) {
 				se.dropSource(ctx, ssrc)
 			}

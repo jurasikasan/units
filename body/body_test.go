@@ -41,13 +41,17 @@ func testRedis(t *testing.T) *redis.Client {
 }
 
 // fakeSense is hearing or sight: open hands out a session and its address,
-// close is recorded.
+// close is recorded. With idleAfter, a hearing session idles out as
+// hearing's does — its session-closed on the stream — unless it was opened
+// with idle_timeout_ms 0.
 type fakeSense struct {
-	kind   string // hearing | sight
-	mu     sync.Mutex
-	n      int
-	opens  []map[string]any
-	closes []string
+	kind      string // hearing | sight
+	rdb       *redis.Client
+	idleAfter time.Duration
+	mu        sync.Mutex
+	n         int
+	opens     []map[string]any
+	closes    []string
 }
 
 func (f *fakeSense) server() *httptest.Server {
@@ -59,6 +63,13 @@ func (f *fakeSense) server() *httptest.Server {
 		f.opens = append(f.opens, in)
 		if f.kind == "hearing" {
 			id := fmt.Sprintf("hs-%d", f.n)
+			if v, set := in["idle_timeout_ms"]; f.idleAfter > 0 && (!set || v != float64(0)) {
+				time.AfterFunc(f.idleAfter, func() {
+					fields, _ := events.Fields("/senses/hearing", events.Event{Type: "speechrecog.session-closed", Subject: id,
+						Data: map[string]any{"session_id": id, "reason": "idle"}})
+					_ = f.rdb.XAdd(context.Background(), &redis.XAddArgs{Stream: HearingStream, Values: fields}).Err()
+				})
+			}
 			return nil, map[string]any{"session_id": id, "audio_in": fmt.Sprintf("hearing:%d", 44000+f.n)}, nil
 		}
 		id := fmt.Sprintf("sg-%d", f.n)
@@ -352,8 +363,8 @@ func TestSelfAndItsOwnPerceptionOnly(t *testing.T) {
 	}
 }
 
-// A session that closes by itself (idle) is relayed as such, and the sense
-// is opened again: the ear moves.
+// A session that closes by itself (it failed) is relayed as such, and the
+// sense is opened again: the ear moves.
 func TestASenseIsOpenedAgain(t *testing.T) {
 	rdb := testRedis(t)
 	hearing := &fakeSense{kind: "hearing"}
@@ -363,7 +374,7 @@ func TestASenseIsOpenedAgain(t *testing.T) {
 	eventually(t, "an ear", func() bool { return len(a.body.Self().Ears) == 1 })
 
 	publish(t, rdb, HearingStream, "/senses/hearing", "speechrecog.session-closed", "hs-1",
-		map[string]any{"session_id": "hs-1", "reason": "idle"})
+		map[string]any{"session_id": "hs-1", "reason": "failed"})
 	eventually(t, "the ear opened again", func() bool {
 		s := a.body.Self()
 		return len(s.Ears) == 1 && s.Ears[0].AudioIn == "hearing:44002"
@@ -377,6 +388,37 @@ func TestASenseIsOpenedAgain(t *testing.T) {
 	eventually(t, "counted foreign", func() bool { return a.host.Foreign.Load() == 1 })
 	if a.body.Counts.Opened.Load() != 2 || hearing.openCount() != 2 {
 		t.Fatalf("opened: %d", a.body.Counts.Opened.Load())
+	}
+}
+
+// UNIT-131: a body opens its ear never to idle out, so left in silence it
+// keeps the same ear and publishes no session-closed — where hearing would
+// close an ear opened without it every idle timeout.
+func TestAnEarInSilenceStays(t *testing.T) {
+	rdb := testRedis(t)
+	hearing := &fakeSense{kind: "hearing", rdb: rdb, idleAfter: 100 * time.Millisecond}
+	hs := hearing.server()
+	defer hs.Close()
+	a := startBody(t, rdb, Config{Name: "a", HearingURL: hs.URL, Language: "en"})
+	eventually(t, "an ear", func() bool { return len(a.body.Self().Ears) == 1 })
+
+	time.Sleep(800 * time.Millisecond) // eight idle timeouts of silence
+	if ears := a.body.Self().Ears; len(ears) != 1 || ears[0].AudioIn != "hearing:44001" {
+		t.Fatalf("the ear moved: %v", ears)
+	}
+	if n := hearing.openCount(); n != 1 {
+		t.Fatalf("opened %d times, want once", n)
+	}
+	hearing.mu.Lock()
+	args := hearing.opens[0]
+	hearing.mu.Unlock()
+	if args["idle_timeout_ms"] != float64(0) || args["speech_language"] != "en" {
+		t.Fatalf("open's arguments: %v", args)
+	}
+	for _, e := range entries(t, rdb, "body_a_events") {
+		if e["ce_type"] == "speechrecog.session-closed" {
+			t.Fatalf("published a session-closed: %v", e)
+		}
 	}
 }
 
@@ -468,8 +510,8 @@ func TestSpeakAloudReachesTheEarsInEarshot(t *testing.T) {
 		t.Fatalf("opened again for the same ear: %v", opens)
 	}
 
-	// B's ear moves (its hearing session idled): A aims again.
-	publish(t, rdb, HearingStream, "/senses/hearing", "speechrecog.session-closed", "hs-1", map[string]any{"session_id": "hs-1", "reason": "idle"})
+	// B's ear moves (its hearing session failed): A aims again.
+	publish(t, rdb, HearingStream, "/senses/hearing", "speechrecog.session-closed", "hs-1", map[string]any{"session_id": "hs-1", "reason": "failed"})
 	eventually(t, "b's ear moved", func() bool {
 		s := b.body.Self()
 		return len(s.Ears) == 1 && s.Ears[0].AudioIn != bEar

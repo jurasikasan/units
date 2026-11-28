@@ -28,7 +28,7 @@ func (s *sense) address() map[string]string {
 }
 
 // keep holds a session of s open until ctx ends: opens it, waits for it to
-// close by itself (idle, failure — its session-closed on the stream), opens
+// close by itself (failure; sight's idle — its session-closed on the stream), opens
 // it again; a sense that will not open is asked again every Retry. On the
 // way out the session is closed.
 func (b *Body) keep(ctx context.Context, s *sense) {

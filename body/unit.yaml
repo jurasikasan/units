@@ -42,7 +42,7 @@ consumes:
     - unit: senses/hearing
       via: mcp
       env: HEARING_MCP_URL
-      tools: [open, close]
+      tools: [open, close]      # open with idle_timeout_ms 0: an ear in silence stays
     - unit: senses/hearing
       via: events
       stream: hearing_events
