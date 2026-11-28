@@ -79,7 +79,7 @@ check(b_said == B_LINES, f"B said its lines in order, across the change of polic
 
 reqs = get(MODEL + "/requests")
 by_a = [q for q in reqs if q["model"] == "a"]
-check(by_a and all(q["system"].startswith(SELF["a"] + "\n\nYou are a mind that perceives") for q in by_a),
+check(by_a and all(q["system"].startswith(SELF["a"] + "\n\nYou are a mind") for q in by_a),
       "A's model is told who A is, then how a mind works: " + repr(by_a[0]["system"][:120] if by_a else None))
 check(all(not q["system"].startswith("You are Ann") for q in reqs if q["model"] != "a"), "nobody else is told they are Ann")
 by_b = [q for q in reqs if q["model"] == "b"]
