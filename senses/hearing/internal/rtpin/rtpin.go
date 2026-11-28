@@ -9,7 +9,10 @@
 //     network byte order) is averaged every 3 to 16 kHz;
 //   - a sequence-ordered jitter buffer of 60 ms releases packets in
 //     order; a sequence gap that stays missing for the buffer window is
-//     filled with silence (one lost packet is one silence fill).
+//     filled with silence (one lost packet is one silence fill);
+//   - sequence numbers are extended past the 16-bit wrap, so a session
+//     goes on past 65,536 packets; a packet older than the next expected
+//     one (late past the window, or a duplicate) is dropped.
 package rtpin
 
 import (
@@ -187,12 +190,13 @@ func (in *In) handle(pkt *rtp.Packet) (Frame, bool) {
 		return Frame{}, false // a second speaker / another codec is not us
 	}
 
-	offset := int(pkt.SequenceNumber) - int(in.baseSeq)
-	if offset < 0 {
-		offset += 1 << 16
-	}
-	if offset < 0 {
-		return Frame{}, false // duplicate
+	// The offset is extended past the 16-bit wrap (RFC 3550 A.1): it is
+	// read as the signed distance from the next expected sequence number,
+	// so a session longer than 65,536 packets keeps its order.
+	expected := in.baseSeq + uint16(in.nextOffset)
+	offset := in.nextOffset + int(int16(pkt.SequenceNumber-expected))
+	if offset < in.nextOffset {
+		return Frame{}, false // late past its window, or a duplicate
 	}
 
 	if offset == in.nextOffset {
