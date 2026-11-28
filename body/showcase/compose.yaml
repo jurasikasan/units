@@ -48,6 +48,7 @@ services:
       STT_MODEL: whisper
       VAD_URL: http://vad:8096
       AUDIO_IN_HOST: hearing
+      HEARING_IDLE_TIMEOUT: 10s   # short, so demo.sh sees ears outlive it (UNIT-131)
     depends_on:
       redis: {condition: service_healthy}
       vad: {condition: service_healthy}

@@ -9,8 +9,11 @@
 #   - A's stream records the act (body.act-complete, speak_aloud, the text
 #     and what was spoken), and carries no recognition: A did not hear
 #     itself, and B's perception is not A's;
+#   - B's percept names its source (the sender's SSRC);
 #   - a head outside sees the same over HTTP: GET /bodies/<name>/events
-#     from the start carries B's percept and A's act, as CloudEvents.
+#     from the start carries B's percept and A's act, as CloudEvents;
+#   - silence is heard: past hearing's idle timeout the ears stay put and
+#     no session-closed is published.
 set -eu
 exec python3 -u - <<'EOF'
 import sys
@@ -39,6 +42,9 @@ e = wait("B to hear A", lambda: heard(r.entries("body_b_events"), SAID), seconds
 print("B heard:", e["data"])
 check(e["ce_source"] == "/bodies/b/hearing" and e["ce_subject"] == b["id"],
       "B's stream carries the words, from B's hearing, about B")
+src = e["data"].get("source", "")
+check(len(src) == 8 and all(c in "0123456789abcdef" for c in src),
+      f"B's percept names its source, the sender's SSRC: {src!r}")
 
 mine = r.entries("body_a_events")
 done = acts(mine, "speak_aloud")
@@ -59,6 +65,15 @@ act = next(x for x in seen if x["event"]["type"] == "body.act-complete")
 check(act["event"]["data"]["tool"] == "speak_aloud" and act["event"]["id"] == done[0]["ce_id"]
       and act["event"]["source"] == "/bodies/a",
       "a head outside sees A's act on GET /bodies/a/events")
+
+# Silence is heard (UNIT-131): past hearing's idle timeout (10 s here) the
+# ears stay where they were and nobody's stream says a session closed.
+import time
+time.sleep(15)
+check(get(A + "/body")["ears"] == a["ears"] and get(B + "/body")["ears"] == b["ears"],
+      "after a silence longer than hearing's idle timeout each ear is where it was")
+check(not [x for k in ("body_a_events", "body_b_events") for x in r.entries(k)
+           if x["ce_type"] == "speechrecog.session-closed"], "no ear closed in the silence")
 
 print("PASS")
 EOF
